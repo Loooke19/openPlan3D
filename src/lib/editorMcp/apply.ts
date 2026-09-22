@@ -1,16 +1,20 @@
 import { get } from 'svelte/store';
 import {
   addDoor,
+  addRoomFace,
+  addWallSpec,
   addWindow,
   beginUndoGroup,
   currentProject,
   endUndoGroup,
   loadProject,
   setActiveFloor,
+  viewMode,
   updateDoor,
   updateRoom,
   updateWall,
   updateWindow,
+  upsertRoomRecord,
 } from '$lib/stores/project';
 import { autoSave } from '$lib/stores/saveStatus';
 import { readProject } from '$lib/utils/projectValidation';
@@ -27,6 +31,10 @@ export type EditorCommand = {
   patches?: Record<string, unknown>[];
   openings?: Record<string, unknown>[];
   room?: Record<string, unknown>;
+  walls?: Record<string, unknown>[];
+  rooms?: Record<string, unknown>[];
+  face?: Record<string, unknown>;
+  view?: string;
 };
 
 export type ApplyResult = {
@@ -165,6 +173,103 @@ function applyOpenings(openings: Record<string, unknown>[]) {
   return { changed, created };
 }
 
+function applyAddWalls(walls: Record<string, unknown>[]) {
+  const created: string[] = [];
+  for (const wall of walls) {
+    if (!finitePoint(wall.start) || !finitePoint(wall.end)) throw new Error('新墙坐标无效');
+    const id = addWallSpec({
+      id: typeof wall.id === 'string' ? wall.id : undefined,
+      start: { x: wall.start.x, y: wall.start.y },
+      end: { x: wall.end.x, y: wall.end.y },
+      thickness: typeof wall.thickness === 'number' ? wall.thickness : undefined,
+      height: typeof wall.height === 'number' ? wall.height : undefined,
+      color: typeof wall.color === 'string' ? wall.color : undefined,
+    });
+    created.push(id);
+  }
+  return created;
+}
+
+function applyUpsertRooms(rooms: Record<string, unknown>[]) {
+  const changed: string[] = [];
+  for (const room of rooms) {
+    if (typeof room.id !== 'string') throw new Error('房间缺少 id');
+    const walls = Array.isArray(room.walls) ? room.walls.filter((id): id is string => typeof id === 'string') : undefined;
+    upsertRoomRecord({
+      id: room.id,
+      name: typeof room.name === 'string' ? room.name : undefined,
+      color: typeof room.color === 'string' ? room.color : undefined,
+      floorTexture: typeof room.floorTexture === 'string' ? room.floorTexture : undefined,
+      walls,
+      area: typeof room.area === 'number' ? room.area : undefined,
+      floorOpening: typeof room.floorOpening === 'boolean' ? room.floorOpening : undefined,
+    });
+    changed.push(room.id);
+  }
+  return changed;
+}
+
+function applyAddRoomFace(face: Record<string, unknown>) {
+  const polygon = face.polygon;
+  if (!Array.isArray(polygon) || polygon.length < 3 || !polygon.every(finitePoint)) throw new Error('房间面至少要 3 个点');
+  const points = polygon.map((point) => ({ x: point.x, y: point.y }));
+  let signed = 0;
+  for (let index = 0; index < points.length; index++) {
+    const next = points[(index + 1) % points.length];
+    signed += points[index].x * next.y - next.x * points[index].y;
+  }
+  if (Math.abs(signed) < 1) throw new Error('房间面面积为 0');
+  const id = addRoomFace({
+    id: typeof face.id === 'string' ? face.id : undefined,
+    polygon: points,
+    name: typeof face.name === 'string' ? face.name : undefined,
+    color: typeof face.color === 'string' ? face.color : undefined,
+    floorTexture: typeof face.floorTexture === 'string' ? face.floorTexture : undefined,
+    area: Math.round(Math.abs(signed) / 200) / 100,
+  });
+  return [id];
+}
+
+function canvasOf(view: '2d' | '3d'): HTMLCanvasElement | null {
+  const node = document.querySelector(view === '3d' ? 'canvas[data-plan3d-canvas]' : 'canvas[data-plan2d-canvas]');
+  return node instanceof HTMLCanvasElement ? node : null;
+}
+
+async function waitForCanvas(view: '2d' | '3d'): Promise<HTMLCanvasElement> {
+  const deadline = Date.now() + 12000;
+  while (Date.now() < deadline) {
+    const canvas = canvasOf(view);
+    if (canvas && canvas.width > 2 && canvas.height > 2) {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (view === '3d') await new Promise((resolve) => setTimeout(resolve, 500));
+      return canvas;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(view === '3d' ? '3D 画面还没出来' : '2D 画面还没出来');
+}
+
+async function captureEditorViews(view: string) {
+  const wanted: ('2d' | '3d')[] = view === 'both' ? ['2d', '3d'] : view === '2d' ? ['2d'] : ['3d'];
+  const previous = get(viewMode);
+  const images: { view: '2d' | '3d'; width: number; height: number; pngBase64: string }[] = [];
+  try {
+    for (const item of wanted) {
+      viewMode.set(item);
+      const canvas = await waitForCanvas(item);
+      images.push({
+        view: item,
+        width: canvas.width,
+        height: canvas.height,
+        pngBase64: canvas.toDataURL('image/png'),
+      });
+    }
+  } finally {
+    if (get(viewMode) !== previous) viewMode.set(previous);
+  }
+  return images;
+}
+
 function applyRoom(room: Record<string, unknown>) {
   const floor = requireFloor(get(currentProject)?.activeFloorId);
   const id = room.id;
@@ -179,6 +284,11 @@ function applyRoom(room: Record<string, unknown>) {
 
 export async function applyEditorCommand(command: EditorCommand): Promise<ApplyResult> {
   try {
+    if (command.op === 'screenshot') {
+      if (!get(currentProject)) return fail('没有打开的工程');
+      const images = await captureEditorViews(command.view || '3d');
+      return { ok: true, summary: { images }, project: plainProject() };
+    }
     if (command.op === 'load_project') {
       if (!command.projectUrl || !loopbackProjectUrl(command.projectUrl)) return fail('projectUrl 只能是本机 http 地址');
       const response = await fetch(command.projectUrl);
@@ -189,14 +299,22 @@ export async function applyEditorCommand(command: EditorCommand): Promise<ApplyR
       return { ok: true, summary: { loaded: project.id, undo: 'cleared', counts: counts() }, project: plainProject() };
     }
     requireFloor(command.floorId);
-    const label = command.op === 'set_walls' ? 'MCP 修改墙' : command.op === 'set_openings' ? 'MCP 修改门窗' : 'MCP 修改房间';
+    const label = command.op === 'set_walls' ? 'MCP 修改墙'
+      : command.op === 'add_walls' ? 'MCP 添加墙'
+      : command.op === 'set_openings' ? 'MCP 修改门窗'
+      : command.op === 'upsert_rooms' ? 'MCP 铺房间地面'
+      : command.op === 'add_room_face' ? 'MCP 添加房间地面'
+      : 'MCP 修改房间';
     beginUndoGroup();
     let summary: Record<string, unknown> = { undo: 'editor', counts: counts() };
     try {
       if (command.floorId) setActiveFloor(command.floorId);
       if (command.op === 'set_walls') summary.changed = applyWalls(command.patches ?? []);
+      else if (command.op === 'add_walls') summary.created = applyAddWalls(command.walls ?? []);
       else if (command.op === 'set_openings') Object.assign(summary, applyOpenings(command.openings ?? []));
       else if (command.op === 'set_room' && command.room) summary.changed = applyRoom(command.room);
+      else if (command.op === 'upsert_rooms') summary.changed = applyUpsertRooms(command.rooms ?? []);
+      else if (command.op === 'add_room_face' && command.face) summary.created = applyAddRoomFace(command.face);
       else throw new Error('未知命令');
     } finally {
       endUndoGroup(label);

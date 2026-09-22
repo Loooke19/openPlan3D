@@ -77,6 +77,12 @@ export interface Room {
   roomType?: RoomCategory;
   /** Custom label position offset from centroid (in world units) */
   labelOffset?: Point;
+  /** Room-name colour. Omitted labels keep the plan default. */
+  labelColor?: string;
+  /** Room-name size in plan pixels at zoom 1. Omitted labels use 13. */
+  labelSize?: number;
+  /** Explicit floor outline in centimetres. Drawn even when the wall graph has no closed face. */
+  floorPolygon?: Point[];
 }
 
 export interface Door {

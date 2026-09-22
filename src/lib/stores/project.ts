@@ -4,7 +4,8 @@ import { splitWallGeometry } from '$lib/utils/splitWallGeometry';
 import { wallPathProfile } from '$lib/utils/wallProfiles';
 import { duplicatePlanSelection, pastePlanSelection } from '$lib/utils/duplicateSelection';
 import { writable, derived, get } from 'svelte/store';
-import type { Project, Floor, Wall, Door, Window as Win, FurnitureItem, Point, Stair, Column, BackgroundImage, GuideLine, ElementGroup, EntourageItem } from '$lib/models/types';
+import type { Project, Floor, Wall, Door, Window as Win, FurnitureItem, Point, Stair, Column, BackgroundImage, GuideLine, ElementGroup, EntourageItem, Room } from '$lib/models/types';
+import { roomFaces } from '$lib/utils/roomDetection';
 import { planWallResize, finitePoint, validPositiveDimension, validOpeningPosition, type WallEndpoint } from '$lib/utils/wallEditing';
 import { getOuterWalls } from '$lib/utils/outerWalls';
 import { nextFloorLevel, floorElevations, validFloorElevation, DEFAULT_FLOOR_SPACING } from '$lib/utils/floors';
@@ -251,6 +252,93 @@ function mutate(fn: (floor: Floor) => void, description?: string, coalesceKey?: 
   fn(floor);
   p.updatedAt = new Date();
   currentProject.set({ ...p });
+}
+
+export function addRoomFace(face: {
+  id?: string;
+  polygon: Point[];
+  name?: string;
+  color?: string;
+  floorTexture?: string;
+  area?: number;
+}): string {
+  const id = face.id && face.id.length > 0 ? face.id : uid();
+  mutate((f) => {
+    if (f.rooms.some((room) => room.id === id)) throw new Error(`房间 id 已存在: ${id}`);
+    f.rooms.push({
+      id,
+      name: face.name ?? '',
+      walls: [],
+      floorTexture: face.floorTexture ?? 'none',
+      area: face.area ?? 0,
+      color: face.color,
+      roomType: 'indoor',
+      floorPolygon: face.polygon.map((point) => ({ x: point.x, y: point.y })),
+    });
+  });
+  return id;
+}
+
+export function addWallSpec(spec: {
+  id?: string;
+  start: Point;
+  end: Point;
+  thickness?: number;
+  height?: number;
+  color?: string;
+}): string {
+  const id = spec.id && spec.id.length > 0 ? spec.id : uid();
+  const height = spec.height ?? 280;
+  const color = spec.color ?? '#e2e6e3';
+  mutate((f) => {
+    if (f.walls.some((wall) => wall.id === id)) throw new Error(`墙 id 已存在: ${id}`);
+    f.walls.push({
+      id,
+      start: { x: spec.start.x, y: spec.start.y },
+      end: { x: spec.end.x, y: spec.end.y },
+      thickness: spec.thickness ?? 15,
+      height,
+      startHeight: height,
+      endHeight: height,
+      color,
+      interiorColor: color,
+      exteriorColor: color,
+    });
+  });
+  return id;
+}
+
+export function upsertRoomRecord(room: {
+  id: string;
+  name?: string;
+  color?: string;
+  floorTexture?: string;
+  walls?: string[];
+  area?: number;
+  floorOpening?: boolean;
+}) {
+  mutate((f) => {
+    const existing = f.rooms.find((item) => item.id === room.id);
+    if (existing) {
+      if (room.name !== undefined) existing.name = room.name;
+      if (room.color !== undefined) existing.color = room.color;
+      if (room.floorTexture !== undefined) existing.floorTexture = room.floorTexture;
+      if (room.walls) existing.walls = [...room.walls];
+      if (room.area !== undefined) existing.area = room.area;
+      if (room.floorOpening !== undefined) existing.floorOpening = room.floorOpening;
+      return;
+    }
+    f.rooms.push({
+      id: room.id,
+      name: room.name ?? '',
+      walls: room.walls ? [...room.walls] : [],
+      floorTexture: room.floorTexture ?? 'none',
+      area: room.area ?? 0,
+      color: room.color,
+      roomType: 'indoor',
+      ...(room.floorOpening ? { floorOpening: true } : {}),
+    });
+  });
 }
 
 export function addWall(start: Point, end: Point): string {
@@ -807,7 +895,7 @@ export function updateItemDetails(target: DetailTarget, patch: ItemDetails) {
   commitItemDetails(project, next, 'Changed item details', coalesceKeyFor(`details:${target.floorId}:${target.kind}`, target.id, { ...patch }));
 }
 
-export function updateRoom(id: string, updates: Partial<{ name: string; floorTexture: string; floorOpening: boolean; color: string; roomType: import('$lib/models/types').RoomCategory; labelOffset: import('$lib/models/types').Point | undefined }>) {
+export function updateRoom(id: string, updates: Partial<{ name: string; floorTexture: string; floorOpening: boolean; color: string; roomType: import('$lib/models/types').RoomCategory; labelOffset: import('$lib/models/types').Point | undefined; labelColor: string; labelSize: number }>) {
   const floor = get(activeFloor);
   if (!floor || Object.keys(updates).length === 0) return;
   const saved = floor.rooms.find(room => room.id === id);
@@ -831,6 +919,43 @@ export function updateRoom(id: string, updates: Partial<{ name: string; floorTex
       }
     }
   }, undefined, coalesceKeyFor('room', id, updates));
+}
+
+function stampRoomLabels(saved: Room[], visible: Room[], size: number, color: string) {
+  const byId = new Map(saved.map((room) => [room.id, room]));
+  for (const room of saved) {
+    room.labelSize = size;
+    room.labelColor = color;
+  }
+  for (const room of visible) {
+    const existing = byId.get(room.id);
+    if (existing) {
+      existing.labelSize = size;
+      existing.labelColor = color;
+    } else {
+      const copy = { ...room, labelSize: size, labelColor: color };
+      saved.push(copy);
+      byId.set(copy.id, copy);
+    }
+  }
+}
+
+/** Give every room name the same size and color, including rooms on other floors. */
+export function applyRoomLabels(labelSize: number, labelColor: string) {
+  const project = get(currentProject);
+  if (!project) return;
+  const size = Math.min(72, Math.max(8, Math.round(labelSize) || 13));
+  const color = labelColor || '#9ca3af';
+  const activeId = project.activeFloorId;
+  const detected = get(detectedRoomsStore);
+  snapshot('Applied room label style');
+  for (const floor of project.floors) {
+    const visible = floor.id === activeId ? detected : roomFaces(floor).map((item) => item.room);
+    stampRoomLabels(floor.rooms, visible, size, color);
+  }
+  project.updatedAt = new Date();
+  currentProject.set({ ...project });
+  detectedRoomsStore.set(detected.map((room) => ({ ...room, labelSize: size, labelColor: color })));
 }
 
 /**

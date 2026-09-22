@@ -301,6 +301,17 @@ export function resolveRoomGeometry(floor: Pick<Floor, 'walls' | 'rooms'>, previ
   return resolveSplitRooms(floor, previousRooms, edges).map(room => ({ room, polygon: polygonFromEdges(room, edges) }));
 }
 
+/** Detected faces plus floors stored as an explicit polygon. */
+export function roomFaces(floor: Pick<Floor, 'walls' | 'rooms'>, previousRooms: Room[] = []) {
+  const detected = resolveRoomGeometry(floor, previousRooms);
+  const seen = new Set(detected.map(item => item.room.id));
+  for (const room of floor.rooms ?? []) {
+    if (room.floorOpening || !room.floorPolygon || room.floorPolygon.length < 3 || seen.has(room.id)) continue;
+    detected.push({ room, polygon: room.floorPolygon });
+  }
+  return detected;
+}
+
 function resolveSplitRooms(floor: Pick<Floor, 'walls' | 'rooms'>, previousRooms: Room[], splitEdges: Edge[]): Room[] {
   // Include coincident source aliases when matching saved boundaries. Adding a
   // duplicate wall must not discard a room's name or finish. Ambiguous matches
@@ -412,6 +423,15 @@ export function roomCentroid(polygon: Point[]): Point {
   const cx = polygon.reduce((s, p) => s + p.x, 0) / polygon.length;
   const cy = polygon.reduce((s, p) => s + p.y, 0) / polygon.length;
   return { x: cx, y: cy };
+}
+
+export const DEFAULT_ROOM_LABEL_SIZE = 13;
+
+/** Plan size for a room name. Missing or unusable values stay at the default. */
+export function roomLabelFontSize(room: Pick<Room, 'labelSize'>): number {
+  const size = room.labelSize;
+  if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0) return DEFAULT_ROOM_LABEL_SIZE;
+  return Math.min(96, Math.max(8, size));
 }
 
 /** Shared label anchor; room geometry and dimension annotations stay unshifted. */

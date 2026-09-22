@@ -17,7 +17,7 @@ import { planOpening } from './planOpening';
 import { wallPlanBounds, wallPlanDimension } from './wallPlanGeometry';
 import type { Project, Floor } from '$lib/models/types';
 import { getCatalogItem, getFurnitureSize } from '$lib/utils/furnitureCatalog';
-import { resolveRooms, getRoomPolygon, roomLabelPosition } from '$lib/utils/roomDetection';
+import { resolveRooms, getRoomPolygon, roomLabelFontSize, roomLabelPosition } from '$lib/utils/roomDetection';
 import { drawStair, drawFurnitureItem, drawColumn, drawDoorOnWall, drawWindowOnWall, drawEntourageItems, drawTextAnnotations, drawAnnotations, drawPersistedMeasurements } from '$lib/utils/canvasRenderer';
 import type { CanvasState } from '$lib/utils/canvasInteraction';
 import { projectSettings, formatArea, formatLength } from '$lib/stores/settings';
@@ -69,14 +69,15 @@ function extendBoundsForRoomLabels(floor: Floor, bounds: { minX: number; minY: n
     const poly = polygons[index];
     if (poly.length < 3) continue;
     const anchor = roomLabelPosition(room, poly, holes[index]);
-    ctx.font = 'bold 13px sans-serif';
+    const labelSize = roomLabelFontSize(room);
+    ctx.font = `bold ${labelSize}px sans-serif`;
     const nameWidth = ctx.measureText(room.name).width;
-    ctx.font = '11px sans-serif';
+    ctx.font = `${Math.max(8, labelSize * 11 / 13)}px sans-serif`;
     const width = Math.max(nameWidth, ctx.measureText(formatArea(room.area, get(projectSettings).units)).width);
     bounds.minX = Math.min(bounds.minX, anchor.x - width / 2);
     bounds.maxX = Math.max(bounds.maxX, anchor.x + width / 2);
-    bounds.minY = Math.min(bounds.minY, anchor.y - 13);
-    bounds.maxY = Math.max(bounds.maxY, anchor.y + 18);
+    bounds.minY = Math.min(bounds.minY, anchor.y - labelSize);
+    bounds.maxY = Math.max(bounds.maxY, anchor.y + labelSize + 5);
   }
 }
 
@@ -244,13 +245,14 @@ export async function exportAsPNG(canvas: HTMLCanvasElement | null, project?: Pr
         ctx.globalAlpha = 1;
         // Room label
         const c = roomLabelPosition(room, poly, holes[ri]);
-        ctx.fillStyle = '#444';
-        ctx.font = 'bold 12px sans-serif';
+        const labelSize = room.labelSize ? roomLabelFontSize(room) : 12;
+        ctx.fillStyle = room.labelColor || '#444';
+        ctx.font = `bold ${labelSize}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillText(room.name, c.x - minX + pad, c.y - minY + pad);
         ctx.fillStyle = '#888';
-        ctx.font = '10px sans-serif';
-        ctx.fillText(formatArea(room.area, get(projectSettings).units), c.x - minX + pad, c.y - minY + pad + 14);
+        ctx.font = `${Math.max(8, labelSize * 10 / 12)}px sans-serif`;
+        ctx.fillText(formatArea(room.area, get(projectSettings).units), c.x - minX + pad, c.y - minY + pad + labelSize + 2);
       }
 
       // Draw walls
@@ -372,8 +374,10 @@ export function exportAsSVG(project: Project, language: Locale = 'en') {
     const c = roomLabelPosition(room, poly, holes[ri]);
     const cx = c.x - minX + pad;
     const cy = c.y - minY + pad;
-    paths += `  <text x="${cx}" y="${cy}" text-anchor="middle" font-size="12" fill="#444" font-family="sans-serif" font-weight="bold">${escapeXml(room.name)}</text>\n`;
-    paths += `  <text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="10" fill="#888" font-family="sans-serif">${formatArea(room.area, get(projectSettings).units)}</text>\n`;
+    const labelSize = room.labelSize ? roomLabelFontSize(room) : 12;
+    const labelColor = escapeXml(room.labelColor || '#444');
+    paths += `  <text x="${cx}" y="${cy}" text-anchor="middle" font-size="${labelSize}" fill="${labelColor}" font-family="sans-serif" font-weight="bold">${escapeXml(room.name)}</text>\n`;
+    paths += `  <text x="${cx}" y="${cy + labelSize + 2}" text-anchor="middle" font-size="${Math.max(8, labelSize * 10 / 12)}" fill="#888" font-family="sans-serif">${formatArea(room.area, get(projectSettings).units)}</text>\n`;
   }
 
   for (const w of floor.walls) {
@@ -787,13 +791,14 @@ function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImag
     if (!room.floorOpening) ctx.fill('evenodd');
     ctx.globalAlpha = 1;
     const c = roomLabelPosition(room, poly, holes[ri]);
-    ctx.fillStyle = '#444';
-    ctx.font = 'bold 13px sans-serif';
+    const labelSize = roomLabelFontSize(room);
+    ctx.fillStyle = room.labelColor || '#444';
+    ctx.font = `bold ${labelSize}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(room.name, c.x - minX + pad, c.y - minY + pad);
     ctx.fillStyle = '#888';
-    ctx.font = '11px sans-serif';
-    ctx.fillText(formatArea(room.area, settings.units), c.x - minX + pad, c.y - minY + pad + 15);
+    ctx.font = `${Math.max(8, labelSize * 11 / 13)}px sans-serif`;
+    ctx.fillText(formatArea(room.area, settings.units), c.x - minX + pad, c.y - minY + pad + labelSize + 2);
   }
 
   // Walls

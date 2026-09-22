@@ -35,9 +35,23 @@
   import { disposeModel, ownTexture } from '$lib/utils/furnitureModelResources';
   import { createFurnitureModelWithGLB, createPlacedFurnitureModel } from '$lib/utils/furnitureModelLoader';
   import { addFurniture } from '$lib/stores/project';
-  import { detectRooms, resolveRoomGeometry, getRoomPolygon, roomCentroid, roomLabelPosition } from '$lib/utils/roomDetection';
+  import { detectRooms, roomFaces, getRoomPolygon, roomCentroid, roomLabelFontSize, roomLabelPosition } from '$lib/utils/roomDetection';
   import { getMaterial } from '$lib/utils/materials';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
+  import {
+    createHospitalSurfaceMaterial,
+    isHospitalFloorTexture,
+    isHospitalWallTexture,
+  } from '$lib/utils/hospitalMaterials';
+
+  /** Nav shell: hide editor tools; route overlay + walk/simulate APIs. */
+  let {
+    navShell = false,
+    routePolyline = [] as { x: number; y: number }[],
+  }: {
+    navShell?: boolean;
+    routePolyline?: { x: number; y: number }[];
+  } = $props();
 
   let container: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -92,6 +106,18 @@
   let moveSpeed = $state(800);
   let sprintSpeed = $state(1600);
   let eyeHeight = $state(160); // cm
+
+  // Navigation route overlay (cm plan → Three x/z)
+  let routeGroup: THREE.Group;
+  let routeMarker: THREE.Mesh | null = null;
+  let simPlaying = $state(false);
+  let simProgress = $state(0);
+  let simSpeed = $state(1);
+  let simRaf = 0;
+  let simLastTs = 0;
+  let simRoute: { x: number; y: number }[] = [];
+  let simSegLens: number[] = [];
+  let simTotalLen = 0;
 
   // Lighting controls state
   let lightingPanelOpen = $state(false);
@@ -630,6 +656,11 @@
     }
   }
 
+  /** Public alias for nav shell. */
+  export function exitNavWalk() {
+    exitWalkthroughMode();
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     if (hasOpenModal()) return;
     // ESC exits edit mode
@@ -752,14 +783,14 @@
     const ground = new THREE.Mesh(groundGeo, groundMat);
     sceneGround = ground;
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -1;
+    ground.position.y = -40;
     ground.receiveShadow = true;
     scene.add(ground);
 
     camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 1, 20000);
     camera.position.set(800, 600, 800);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, logarithmicDepthBuffer: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.shadowMap.enabled = true;
@@ -956,6 +987,8 @@
     // and reads as a striped sheet outside the building once the plan is offset.
     wallGroup = new THREE.Group();
     scene.add(wallGroup);
+    routeGroup = new THREE.Group();
+    scene.add(routeGroup);
   }
 
   function createGhostPreview(catalogId: string) {
@@ -1149,6 +1182,182 @@
     group.clear();
   }
 
+  function pointOnRoute(distance: number): { x: number; y: number; yaw: number } | null {
+    if (simRoute.length < 2 || simTotalLen <= 0) return null;
+    let remain = Math.max(0, Math.min(distance, simTotalLen));
+    for (let i = 0; i < simSegLens.length; i++) {
+      const len = simSegLens[i];
+      const a = simRoute[i];
+      const b = simRoute[i + 1];
+      if (remain <= len || i === simSegLens.length - 1) {
+        const t = len > 0 ? remain / len : 0;
+        return {
+          x: a.x + (b.x - a.x) * t,
+          y: a.y + (b.y - a.y) * t,
+          yaw: Math.atan2(b.y - a.y, b.x - a.x),
+        };
+      }
+      remain -= len;
+    }
+    const last = simRoute[simRoute.length - 1];
+    const prev = simRoute[simRoute.length - 2];
+    return { x: last.x, y: last.y, yaw: Math.atan2(last.y - prev.y, last.x - prev.x) };
+  }
+
+  function placeRouteMarker(x: number, z: number) {
+    if (!routeMarker) {
+      const geo = new THREE.SphereGeometry(18, 16, 12);
+      const mat = new THREE.MeshStandardMaterial({ color: '#1a7af8', emissive: '#0a3a80', roughness: 0.4 });
+      routeMarker = new THREE.Mesh(geo, mat);
+      routeGroup.add(routeMarker);
+    }
+    routeMarker.position.set(x, 40, z);
+    routeMarker.visible = true;
+  }
+
+  function drawNavRoute(points: { x: number; y: number }[]) {
+    if (!routeGroup) return;
+    clearGroup(routeGroup);
+    routeMarker = null;
+    simRoute = points.slice();
+    simSegLens = [];
+    simTotalLen = 0;
+    for (let i = 0; i + 1 < simRoute.length; i++) {
+      const len = Math.hypot(simRoute[i + 1].x - simRoute[i].x, simRoute[i + 1].y - simRoute[i].y);
+      simSegLens.push(len);
+      simTotalLen += len;
+    }
+    if (simRoute.length < 2) {
+      markSceneDirty();
+      return;
+    }
+    const mat = new THREE.MeshBasicMaterial({ color: '#1a7af8' });
+    const radius = 8;
+    for (let i = 0; i + 1 < simRoute.length; i++) {
+      const a = simRoute[i];
+      const b = simRoute[i + 1];
+      const len = simSegLens[i];
+      if (len < 1) continue;
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 8), mat);
+      mesh.position.set((a.x + b.x) / 2, 12, (a.y + b.y) / 2);
+      mesh.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(b.x - a.x, 0, b.y - a.y).normalize(),
+      );
+      routeGroup.add(mesh);
+      const joint = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.15, 10, 8), mat);
+      joint.position.set(a.x, 12, a.y);
+      routeGroup.add(joint);
+    }
+    const end = simRoute[simRoute.length - 1];
+    const endJoint = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.15, 10, 8), mat);
+    endJoint.position.set(end.x, 12, end.y);
+    routeGroup.add(endJoint);
+    markSceneDirty();
+  }
+
+  function stopRouteSimulation() {
+    simPlaying = false;
+    if (simRaf) cancelAnimationFrame(simRaf);
+    simRaf = 0;
+    simLastTs = 0;
+    if (routeMarker) routeMarker.visible = false;
+    markSceneDirty();
+  }
+
+  function tickSimulation(ts: number) {
+    if (!simPlaying) return;
+    if (!simLastTs) simLastTs = ts;
+    const dt = Math.min(0.05, (ts - simLastTs) / 1000);
+    simLastTs = ts;
+    // ~120 cm/s at 1×
+    simProgress = Math.min(1, simProgress + (dt * simSpeed * 120) / Math.max(1, simTotalLen));
+    const dist = simProgress * simTotalLen;
+    const pose = pointOnRoute(dist);
+    if (pose) placeRouteMarker(pose.x, pose.y);
+    markSceneDirty();
+    if (simProgress >= 1) {
+      stopRouteSimulation();
+      return;
+    }
+    simRaf = requestAnimationFrame(tickSimulation);
+  }
+
+  /** Public nav API — called from /nav shell. */
+  export function setNavRoute(points: { x: number; y: number }[]) {
+    stopRouteSimulation();
+    drawNavRoute(points);
+  }
+
+  export function clearNavRoute() {
+    stopRouteSimulation();
+    drawNavRoute([]);
+  }
+
+  export function startRouteSimulation(speed = 1) {
+    if (simRoute.length < 2) return;
+    if (walkthroughMode) exitWalkthroughMode();
+    simSpeed = speed;
+    simProgress = 0;
+    simPlaying = true;
+    simLastTs = 0;
+    const start = simRoute[0];
+    placeRouteMarker(start.x, start.y);
+    simRaf = requestAnimationFrame(tickSimulation);
+  }
+
+  export function setSimulationSpeed(speed: number) {
+    simSpeed = Math.max(0.25, Math.min(4, speed));
+  }
+
+  export function setSimulationProgress(ratio: number) {
+    if (simRoute.length < 2) return;
+    simProgress = Math.max(0, Math.min(1, ratio));
+    const pose = pointOnRoute(simProgress * simTotalLen);
+    if (pose) placeRouteMarker(pose.x, pose.y);
+    markSceneDirty();
+  }
+
+  export function pauseRouteSimulation() {
+    simPlaying = false;
+    if (simRaf) cancelAnimationFrame(simRaf);
+    simRaf = 0;
+    simLastTs = 0;
+  }
+
+  export function resumeRouteSimulation() {
+    if (simRoute.length < 2 || simProgress >= 1) return;
+    simPlaying = true;
+    simLastTs = 0;
+    simRaf = requestAnimationFrame(tickSimulation);
+  }
+
+  export function enterWalkAlongRoute() {
+    if (simRoute.length < 2) {
+      enterWalkthroughMode();
+      return;
+    }
+    stopRouteSimulation();
+    const a = simRoute[0];
+    const b = simRoute[Math.min(1, simRoute.length - 1)];
+    enterWalkthroughMode();
+    setFloorCameraPose(
+      camera,
+      activeFloorElevation,
+      { x: a.x, y: eyeHeight, z: a.y },
+      { x: b.x, y: eyeHeight, z: b.y },
+    );
+    markSceneDirty();
+  }
+
+  export function isSimulating() {
+    return simPlaying;
+  }
+
+  $effect(() => {
+    drawNavRoute(routePolyline ?? []);
+  });
+
   function addOpeningFrame(wall: Wall, position: number, width: number, bottom: number, height: number, depth: number, material: THREE.Material, excludeFromRender = false) {
     const path = wallPathProfile(wall);
     const rect = pathOpening(path, position * path.length, width, bottom, height);
@@ -1184,6 +1393,11 @@
 
       function resolveWallMat(color: string | undefined, texture: string | undefined, fallback: THREE.MeshStandardMaterial, isInterior: boolean = false): THREE.MeshStandardMaterial {
         const polyOff = isInterior ? { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 } : {};
+        if (isHospitalWallTexture(texture)) {
+          const mat = createHospitalSurfaceMaterial('wall', color || '#e2e6e3');
+          Object.assign(mat, polyOff);
+          return mat;
+        }
         if (texture) {
           const tex = generateWallTexture(texture, color || '#888888', wLen, wall.height);
           return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, ...polyOff });
@@ -1475,7 +1689,7 @@
     // Room floors with materials + floating labels
     const FALLBACK_ROOM_COLORS = [0xbfdbfe, 0xfde68a, 0xbbf7d0, 0xfecaca, 0xddd6fe, 0xa5f3fc, 0xfed7aa];
     // Resolve labels and materials from this floor, including after a 3D floor switch.
-    const rooms = resolveRoomGeometry(floor);
+    const rooms = roomFaces(floor);
     const holes = roomHoles(rooms.map(r => r.polygon));
     for (let ri = 0; ri < rooms.length; ri++) {
       const { room, polygon: poly } = rooms[ri];
@@ -1483,7 +1697,13 @@
 
       const slabGeometry = room.floorOpening ? null : createRoomSlabGeometry(poly, floor.slabThickness, holes[ri]);
       if (slabGeometry) {
-        const slab = new THREE.Mesh(slabGeometry, new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.9 }));
+        const slab = new THREE.Mesh(slabGeometry, new THREE.MeshStandardMaterial({
+          color: 0xcccccc,
+          roughness: 0.9,
+          polygonOffset: true,
+          polygonOffsetFactor: 4,
+          polygonOffsetUnits: 4,
+        }));
         slab.userData.renderMaterial = 'floor';
         slab.receiveShadow = true;
         wallGroup.add(slab);
@@ -1525,7 +1745,12 @@
 
       // Use room's floor material or fallback to color coding
       let material: THREE.MeshStandardMaterial;
-      if (room.floorTexture === 'none') {
+      if (isHospitalFloorTexture(room.floorTexture)) {
+        material = createHospitalSurfaceMaterial(
+          'floor',
+          room.color || getMaterial('hospital-floor').color,
+        );
+      } else if (room.floorTexture === 'none') {
         // Solid-color floor: no texture; use the room's picked color
         material = new THREE.MeshStandardMaterial({
           color: new THREE.Color(room.color ?? getMaterial('none').color),
@@ -1568,10 +1793,14 @@
       }
 
       const mesh = new THREE.Mesh(geo, material);
-      // Rotate to lie on XZ plane, slightly above base floor
+      // The slab cap sits at y=0. Keep the finish above it and bias depth so
+      // the two coplanar floors do not flicker at building scale.
+      material.polygonOffset = true;
+      material.polygonOffsetFactor = -2;
+      material.polygonOffsetUnits = -2;
       mesh.userData.renderMaterial = 'floor';
       mesh.rotation.x = -Math.PI / 2;
-      mesh.position.y = 1;
+      mesh.position.y = 3;
       mesh.receiveShadow = true;
       if (room.floorOpening) { geo.dispose(); material.dispose(); }
       else wallGroup.add(mesh);
@@ -1584,7 +1813,7 @@
       ctx2.fillStyle = 'rgba(0,0,0,0.6)';
       ctx2.roundRect(0, 0, 256, 64, 8);
       ctx2.fill();
-      ctx2.fillStyle = '#ffffff';
+      ctx2.fillStyle = room.labelColor || '#ffffff';
       ctx2.font = 'bold 22px sans-serif';
       ctx2.textAlign = 'center';
       ctx2.fillText(room.name, 128, 26);
@@ -1595,8 +1824,9 @@
       const tex = ownTexture(new THREE.CanvasTexture(canvas));
       const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
       const sprite = new THREE.Sprite(spriteMat);
+      const labelScale = roomLabelFontSize(room) / 13;
       sprite.position.set(centroid.x, 30, centroid.y);
-      sprite.scale.set(150, 40, 1);
+      sprite.scale.set(150 * labelScale, 40 * labelScale, 1);
       wallGroup.add(sprite);
 
       // A flat ceiling is valid only when this room's boundary has one height.
@@ -1647,7 +1877,7 @@
     activeFloorElevation = entries.find(entry => entry.floor.id === activeF.id)?.yOffset ?? 0;
     floorPlane.constant = -activeFloorElevation;
     // Keep the presentation ground below basements as well as above-ground floors.
-    sceneGround.position.y = Math.min(0, ...entries.map(entry => entry.yOffset)) - 1;
+    sceneGround.position.y = Math.min(0, ...entries.map(entry => entry.yOffset)) - 40;
     autoCenterCamera();
   }
 
@@ -1724,7 +1954,7 @@
 
     }
     // Match active-floor footprints instead of bridging recesses and separate rooms.
-    const rooms = resolveRoomGeometry(floor);
+    const rooms = roomFaces(floor);
     const holes = roomHoles(rooms.map(r => r.polygon));
     for (const [index, { room, polygon }] of rooms.entries()) {
       if (room.floorOpening) continue;
@@ -1770,7 +2000,7 @@
     } else if (currentFloor) {
       activeFloorElevation = 0;
       floorPlane.constant = 0;
-      sceneGround.position.y = -1;
+      sceneGround.position.y = -40;
       buildWalls(currentFloor);
     }
     wallHighlight.apply(wallMeshMap, selectedWallId3D);
@@ -2011,6 +2241,7 @@
       document.removeEventListener('visibilitychange', resetWalkthroughInput);
       document.removeEventListener('focusin', onWalkthroughFocus);
       walkthroughMotion.reset();
+      stopRouteSimulation();
       releaseCameraPreview();
       wallHighlight.clear();
       removeGhostPreview();
@@ -2027,11 +2258,13 @@
 </script>
 
 <div bind:this={container} class="w-full h-full relative" role="region" aria-label={$t('viewerNav.region')}>
+  {#if !navShell}
   <div class="absolute bottom-16 left-4 z-10 max-w-xs">
     {#if renderExportMessage}<p role="status" class="mb-2 rounded bg-black/80 p-2 text-xs text-white">{renderExportLabels[renderExportMessage] ? $t(renderExportLabels[renderExportMessage]) : renderExportMessage}</p>{/if}
     <button class="rounded bg-black/70 px-3 py-2 text-sm text-white hover:bg-black/80" onclick={exportBlenderScene}
       title={$t('viewerExport.help')}>{$t('viewerExport.button')}</button>
   </div>
+  {/if}
   {#if showAllFloors && currentFloor}
     <div class="absolute bottom-4 right-4 z-10 rounded bg-black/70 px-3 py-2 text-xs text-white pointer-events-none">
       {$t('viewerExport.elevation', { name: currentFloor.name, value: activeFloorElevation })}
@@ -2039,6 +2272,7 @@
   {/if}
   <!-- 3D Toolbar Row -->
   <div class="absolute top-4 right-4 z-50 flex gap-1.5">
+    {#if !navShell}
     <!-- Multi-Floor Stacking Toggle -->
     <button
       onclick={() => { showAllFloors = !showAllFloors; rebuildScene(); }}
@@ -2052,6 +2286,7 @@
         <rect x="4" y="2" width="16" height="4" rx="1" opacity="0.3"/>
       </svg>
     </button>
+    {/if}
 
     <!-- Top-Down View Button -->
     <button
@@ -2083,6 +2318,7 @@
       </svg>
     </button>
 
+    {#if !navShell}
     <!-- Edit Mode Toggle -->
     <button
       onclick={() => { editMode = !editMode; if (editMode && walkthroughMode) { exitWalkthroughMode(); } if (!editMode) { selectedElementId.set(null); } }}
@@ -2131,6 +2367,7 @@
         <circle cx="12" cy="13" r="4"/>
       </svg>
     </button>
+    {/if}
 
     <!-- Walkthrough Mode Toggle Button -->
     <button

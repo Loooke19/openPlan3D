@@ -10,7 +10,7 @@ export interface WallColor {
   id: string;
   name: string;
   color: string;
-  texture?: 'brick' | 'stone' | 'wood-panel' | 'concrete' | 'tile';
+  texture?: 'brick' | 'stone' | 'wood-panel' | 'concrete' | 'tile' | 'hospital';
 }
 
 export const floorMaterials: FloorMaterial[] = [
@@ -30,6 +30,8 @@ export const floorMaterials: FloorMaterial[] = [
   { id: 'concrete', name: 'Concrete', color: '#9ca3af', pattern: 'concrete', roughness: 0.9 },
   { id: 'slate', name: 'Slate', color: '#708090', pattern: 'slate', roughness: 0.8 },
   { id: 'vinyl', name: 'Vinyl', color: '#c4a882', pattern: 'vinyl', roughness: 0.5 },
+  // Hospital corridor presets (Maker scene3d wall/floor look)
+  { id: 'hospital-floor', name: 'Hospital Tile', color: '#fbfcfa', pattern: 'tile', roughness: 0.65 },
 ];
 
 export const wallColors: WallColor[] = [
@@ -55,6 +57,8 @@ export const wallColors: WallColor[] = [
   { id: 'wood-panel', name: 'Wood Panel', color: '#8B6914', texture: 'wood-panel' },
   { id: 'concrete-block', name: 'Concrete Block', color: '#999999', texture: 'concrete' },
   { id: 'subway-tile', name: 'Subway Tile', color: '#F0F0F0', texture: 'tile' },
+  // Hospital corridor presets (Maker scene3d wall/floor look)
+  { id: 'hospital-wall', name: 'Hospital Wall', color: '#e2e6e3', texture: 'hospital' },
 ];
 
 export function getMaterial(id: string): FloorMaterial {

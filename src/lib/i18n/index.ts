@@ -1,12 +1,13 @@
 import { derived, writable } from 'svelte/store';
 import { en } from './locales/en';
 import { pt } from './locales/pt';
+import { zh } from './locales/zh';
 
-export type Locale = 'en' | 'pt';
+export type Locale = 'en' | 'pt' | 'zh';
 export type TranslationKey = keyof typeof en;
-const dictionaries: Record<Locale, Record<TranslationKey, string>> = { en, pt };
-const preference = writable<Locale>('en');
-const isLocale = (value: unknown): value is Locale => value === 'en' || value === 'pt';
+const dictionaries: Record<Locale, Record<TranslationKey, string>> = { en, pt, zh };
+const preference = writable<Locale>('zh');
+const isLocale = (value: unknown): value is Locale => value === 'en' || value === 'pt' || value === 'zh';
 
 export function translate(language: Locale, key: TranslationKey, variables: Record<string, string | number> = {}): string {
   // Single-pass substitution preserves literal braces in user-provided values.
@@ -24,12 +25,11 @@ export const locale = {
   },
 };
 
-/** Run after hydration; SSR and the first client render always agree on English. */
+/** Run after hydration; SSR and the first client render agree on Chinese unless a saved locale exists. */
 export function initializeLocale() {
   let saved: unknown;
   try { saved = localStorage.getItem('o3d_locale'); } catch { /* Storage can be disabled. */ }
-  // Keep English until the remaining interface has been translated; users opt in.
-  locale.set(isLocale(saved) ? saved : 'en');
+  locale.set(isLocale(saved) ? saved : 'zh');
 }
 
 /** Svelte's $t subscription updates labels without remounting dialogs or inputs. */

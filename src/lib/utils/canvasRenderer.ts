@@ -14,7 +14,7 @@ import type { ProjectSettings } from '$lib/stores/settings';
 import { formatLength, formatArea } from '$lib/stores/settings';
 import { getCatalogItem, getFurnitureSize } from '$lib/utils/furnitureCatalog';
 import { drawFurnitureIcon } from '$lib/utils/furnitureIcons';
-import { getRoomPolygon, roomCentroid, roomLabelPosition } from '$lib/utils/roomDetection';
+import { getRoomPolygon, roomCentroid, roomLabelFontSize, roomLabelPosition } from '$lib/utils/roomDetection';
 import { getWallTextureCanvas, getFloorTextureCanvas } from '$lib/utils/textureGenerator';
 import { getEntourageDef } from '$lib/utils/entourageCatalog';
 import type { EntourageItem, CustomEntourageDef } from '$lib/models/types';
@@ -1511,9 +1511,10 @@ export function drawRooms(
 
     const centroid = roomCentroid(poly);
     const sc = wts(cs, centroid.x, centroid.y);
-    const fontSize = Math.max(11, 13 * zoom);
+    const labelBase = roomLabelFontSize(room);
+    const fontSize = room.labelSize ? Math.max(8, labelBase * zoom) : Math.max(11, 13 * zoom);
     if (showRoomLabels) {
-      ctx.fillStyle = '#9ca3af';
+      ctx.fillStyle = room.labelColor || '#9ca3af';
       ctx.font = `${fontSize}px sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const anchor = roomLabelPosition(room, poly, holes[ri]);

@@ -135,6 +135,12 @@ export function readProject(value: unknown): Project {
       ids(item.walls, `${path}.walls`); defaults(item, { name: '', floorTexture: 'light-oak', area: 0 });
       strings(item, ['name', 'floorTexture', 'color', 'roomType'], path); number(item.area, `${path}.area`, 0);
       if (item.labelOffset !== undefined) point(item.labelOffset, `${path}.labelOffset`);
+      if (item.labelColor !== undefined) text(item.labelColor, `${path}.labelColor`);
+      if (item.labelSize !== undefined) number(item.labelSize, `${path}.labelSize`, 8, 96);
+      if (item.floorPolygon !== undefined) {
+        if (!Array.isArray(item.floorPolygon) || item.floorPolygon.length < 3) fail(`${path}.floorPolygon`, 'must be a polygon');
+        for (const [pi, vertex] of item.floorPolygon.entries()) point(vertex, `${path}.floorPolygon[${pi}]`);
+      }
     });
     elements('guides', (item, path) => {
       choice(item.orientation, ['horizontal', 'vertical'], `${path}.orientation`); number(item.position, `${path}.position`);
