@@ -13,6 +13,7 @@
   import { localStore, storageErrorMessage, downloadLibraryBackup } from '$lib/services/datastore';
   import { autoSave, markClean, saveState } from '$lib/stores/saveStatus';
   import { createProjectFromRoomPlan, isRoomPlanJson } from '$lib/utils/roomplanImport';
+  import { readProject } from '$lib/utils/projectValidation';
   import TopBar from '$lib/components/toolbar/TopBar.svelte';
   import BuildPanel from '$lib/components/sidebar/BuildPanel.svelte';
   import PropertiesPanel from '$lib/components/sidebar/PropertiesPanel.svelte';
@@ -26,6 +27,7 @@
   import ElevationView from '$lib/components/editor/ElevationView.svelte';
   import PrintLayout from '$lib/components/editor/PrintLayout.svelte';
   import OnboardingTooltip from '$lib/components/OnboardingTooltip.svelte';
+  import McpStatusBubble from '$lib/components/editor/McpStatusBubble.svelte';
   import { triggerTip } from '$lib/stores/onboarding.svelte';
 
   let commandPaletteOpen = $state(false);
@@ -146,6 +148,20 @@
         } else {
           importError = new CaptureImportError('captureImport.code');
         }
+      }
+
+      // Local CAD import: ?projectUrl=http://127.0.0.1:8877/api/projects/{id}.json
+      const projectUrl = url.searchParams.get('projectUrl');
+      if (projectUrl) {
+        const response = await fetch(projectUrl);
+        if (!response.ok) throw new Error(`project ${response.status}`);
+        const project = readProject(await response.json());
+        loadProject(project);
+        markClean();
+        try { await autoSave(); } catch { /* quota or storage; project stays in memory */ }
+        replaceState(`${base}/editor?id=${encodeURIComponent(project.id)}`, page.state);
+        ready = true;
+        return;
       }
 
       const id = url.searchParams.get('id');
@@ -515,6 +531,8 @@
 {/if}
 
 <!-- iOS capture import error toast -->
+<McpStatusBubble />
+
 {#if importError}
   <div class="fixed top-16 left-1/2 -translate-x-1/2 z-[100] w-[calc(100vw-2rem)] max-w-md bg-red-50 border border-red-200 text-red-700 rounded-lg shadow-lg px-4 py-3 flex items-start gap-3" role="alert">
     <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
