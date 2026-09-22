@@ -26,11 +26,18 @@
   let planCanvas: HTMLCanvasElement | undefined = $state();
 
   type Place = { id: string; name: string; x: number; y: number; color?: string; category?: string };
+  type NavRoom = {
+    id: string;
+    name?: string;
+    fillColor?: string;
+    polygon: { x: number; y: number }[];
+  };
   type NavView = {
     floorId: string;
     floors?: { id: string; name: string }[];
     destinations?: Place[];
     walls?: { start: { x: number; y: number }; end: { x: number; y: number }; thickness?: number }[];
+    rooms?: NavRoom[];
     openings?: any[];
     bounds?: { minX: number; minY: number; maxX: number; maxY: number };
     empty?: boolean;
@@ -97,6 +104,24 @@
     const ox = (width - spanX * scale) / 2 - bounds.minX * scale;
     const oy = (height - spanY * scale) / 2 - bounds.minY * scale;
     const toScreen = (x: number, y: number) => [ox + x * scale, oy + y * scale] as const;
+    // Maker-style room fills under walls (soft hospital palette).
+    for (const room of view.rooms || []) {
+      const poly = room.polygon || [];
+      if (poly.length < 3) continue;
+      ctx.beginPath();
+      poly.forEach((point, index) => {
+        const [x, y] = toScreen(point.x, point.y);
+        if (index) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
+      });
+      ctx.closePath();
+      ctx.fillStyle = room.fillColor || '#e9e7e4';
+      ctx.fill();
+      ctx.strokeStyle = '#b6bdc0';
+      ctx.lineWidth = 1.6;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    }
     ctx.lineCap = 'square';
     ctx.strokeStyle = '#8b919a';
     for (const wall of view.walls || []) {
