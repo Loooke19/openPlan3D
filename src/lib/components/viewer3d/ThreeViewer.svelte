@@ -1346,6 +1346,7 @@
   function paintRouteVisual(traveledRatio = 0, simulating = false) {
     if (!routeGroup) return;
     const keepMarker = routeMarker;
+    if (keepMarker) routeGroup.remove(keepMarker);
     clearGroup(routeGroup);
     routeMarker = null;
     if (simRoute.length < 2) {
