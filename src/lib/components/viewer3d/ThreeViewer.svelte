@@ -110,6 +110,7 @@
   // Navigation route overlay (cm plan → Three x/z)
   let routeGroup: THREE.Group;
   let routeMarker: THREE.Mesh | null = null;
+  let routeArrowGroup: THREE.Group | null = null;
   let simPlaying = $state(false);
   let simProgress = $state(0);
   let simSpeed = $state(1);
@@ -118,6 +119,9 @@
   let simRoute: { x: number; y: number }[] = [];
   let simSegLens: number[] = [];
   let simTotalLen = 0;
+  const ROUTE_ARROW_SPACING = 180; // cm along path
+  const ROUTE_ACCENT = '#1a7af8';
+  const ROUTE_TRAVELED = '#8b9490';
 
   // Lighting controls state
   let lightingPanelOpen = $state(false);
@@ -989,6 +993,7 @@
     scene.add(wallGroup);
     routeGroup = new THREE.Group();
     scene.add(routeGroup);
+    if (routePolyline?.length) drawNavRoute(routePolyline);
   }
 
   function createGhostPreview(catalogId: string) {
@@ -1207,12 +1212,152 @@
   function placeRouteMarker(x: number, z: number) {
     if (!routeMarker) {
       const geo = new THREE.SphereGeometry(18, 16, 12);
-      const mat = new THREE.MeshStandardMaterial({ color: '#1a7af8', emissive: '#0a3a80', roughness: 0.4 });
+      const mat = new THREE.MeshStandardMaterial({ color: ROUTE_ACCENT, emissive: '#0a3a80', roughness: 0.4 });
       routeMarker = new THREE.Mesh(geo, mat);
       routeGroup.add(routeMarker);
     }
     routeMarker.position.set(x, 40, z);
     routeMarker.visible = true;
+  }
+
+  function splitRouteAt(distance: number): { traveled: { x: number; y: number }[]; remaining: { x: number; y: number }[] } {
+    if (simRoute.length < 2) return { traveled: [], remaining: [] };
+    const pose = pointOnRoute(distance);
+    if (!pose) return { traveled: simRoute.slice(), remaining: [] };
+    let remain = Math.max(0, Math.min(distance, simTotalLen));
+    const traveled: { x: number; y: number }[] = [simRoute[0]];
+    for (let i = 0; i < simSegLens.length; i++) {
+      const len = simSegLens[i];
+      if (remain >= len - 1e-6) {
+        traveled.push(simRoute[i + 1]);
+        remain -= len;
+        continue;
+      }
+      traveled.push({ x: pose.x, y: pose.y });
+      break;
+    }
+    const remaining: { x: number; y: number }[] = [{ x: pose.x, y: pose.y }];
+    let acc = 0;
+    let started = false;
+    for (let i = 0; i < simSegLens.length; i++) {
+      acc += simSegLens[i];
+      if (!started && acc >= distance - 1e-6) started = true;
+      if (started) remaining.push(simRoute[i + 1]);
+    }
+    if (remaining.length < 2 && distance < simTotalLen) remaining.push(simRoute[simRoute.length - 1]);
+    return { traveled, remaining };
+  }
+
+  function routeArrowPlacements(points: { x: number; y: number }[], spacing = ROUTE_ARROW_SPACING) {
+    const arrows: { x: number; y: number; angle: number }[] = [];
+    if (points.length < 2) return arrows;
+    let total = 0;
+    const segs: { a: { x: number; y: number }; dx: number; dy: number; start: number; length: number }[] = [];
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 1) continue;
+      segs.push({ a, dx: dx / length, dy: dy / length, start: total, length });
+      total += length;
+    }
+    let index = 0;
+    for (let distance = spacing * 0.45; distance < total - spacing * 0.35; distance += spacing) {
+      while (index < segs.length - 1 && distance > segs[index].start + segs[index].length) index++;
+      const s = segs[index];
+      const t = distance - s.start;
+      arrows.push({ x: s.a.x + s.dx * t, y: s.a.y + s.dy * t, angle: Math.atan2(s.dy, s.dx) });
+    }
+    return arrows;
+  }
+
+  function addRouteStroke(points: { x: number; y: number }[], color: string, radius = 8) {
+    if (points.length < 2) return;
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      depthTest: false,
+      transparent: true,
+      opacity: 0.92,
+    });
+    for (let i = 0; i + 1 < points.length; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 1) continue;
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 8), mat);
+      mesh.position.set((a.x + b.x) / 2, 28, (a.y + b.y) / 2);
+      mesh.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(b.x - a.x, 0, b.y - a.y).normalize(),
+      );
+      mesh.renderOrder = 2;
+      routeGroup.add(mesh);
+      const joint = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.15, 10, 8), mat);
+      joint.position.set(a.x, 28, a.y);
+      joint.renderOrder = 2;
+      routeGroup.add(joint);
+    }
+    const end = points[points.length - 1];
+    const endJoint = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.15, 10, 8), mat);
+    endJoint.position.set(end.x, 28, end.y);
+    endJoint.renderOrder = 2;
+    routeGroup.add(endJoint);
+  }
+
+  function addRouteArrows(points: { x: number; y: number }[], color = '#ffffff') {
+    if (!routeGroup) return;
+    const arrows = routeArrowPlacements(points);
+    if (!arrows.length) return;
+    // Flat chevron on the floor plane (local +X forward) — oversized for top-down readability.
+    const shape = new THREE.Shape();
+    shape.moveTo(28, 0);
+    shape.lineTo(-18, 16);
+    shape.lineTo(-6, 0);
+    shape.lineTo(-18, -16);
+    shape.closePath();
+    const geo = new THREE.ShapeGeometry(shape);
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      transparent: true,
+      opacity: 0.95,
+    });
+    for (const arrow of arrows) {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(arrow.x, 36, arrow.y);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.rotation.z = -arrow.angle;
+      mesh.renderOrder = 3;
+      routeGroup.add(mesh);
+    }
+  }
+
+  function paintRouteVisual(traveledRatio = 0, simulating = false) {
+    if (!routeGroup) return;
+    const keepMarker = routeMarker;
+    clearGroup(routeGroup);
+    routeMarker = null;
+    if (simRoute.length < 2) {
+      markSceneDirty();
+      return;
+    }
+    if (simulating && traveledRatio > 0.001) {
+      const { traveled, remaining } = splitRouteAt(traveledRatio * simTotalLen);
+      addRouteStroke(traveled, ROUTE_TRAVELED, 7);
+      addRouteStroke(remaining, ROUTE_ACCENT, 8);
+      addRouteArrows(remaining, '#ffffff');
+    } else {
+      addRouteStroke(simRoute, ROUTE_ACCENT, 8);
+      addRouteArrows(simRoute, '#ffffff');
+    }
+    if (keepMarker) {
+      routeGroup.add(keepMarker);
+      routeMarker = keepMarker;
+    }
+    markSceneDirty();
   }
 
   function drawNavRoute(points: { x: number; y: number }[]) {
@@ -1227,33 +1372,7 @@
       simSegLens.push(len);
       simTotalLen += len;
     }
-    if (simRoute.length < 2) {
-      markSceneDirty();
-      return;
-    }
-    const mat = new THREE.MeshBasicMaterial({ color: '#1a7af8' });
-    const radius = 8;
-    for (let i = 0; i + 1 < simRoute.length; i++) {
-      const a = simRoute[i];
-      const b = simRoute[i + 1];
-      const len = simSegLens[i];
-      if (len < 1) continue;
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 8), mat);
-      mesh.position.set((a.x + b.x) / 2, 12, (a.y + b.y) / 2);
-      mesh.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        new THREE.Vector3(b.x - a.x, 0, b.y - a.y).normalize(),
-      );
-      routeGroup.add(mesh);
-      const joint = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.15, 10, 8), mat);
-      joint.position.set(a.x, 12, a.y);
-      routeGroup.add(joint);
-    }
-    const end = simRoute[simRoute.length - 1];
-    const endJoint = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.15, 10, 8), mat);
-    endJoint.position.set(end.x, 12, end.y);
-    routeGroup.add(endJoint);
-    markSceneDirty();
+    paintRouteVisual(0, false);
   }
 
   function stopRouteSimulation() {
@@ -1262,7 +1381,7 @@
     simRaf = 0;
     simLastTs = 0;
     if (routeMarker) routeMarker.visible = false;
-    markSceneDirty();
+    paintRouteVisual(0, false);
   }
 
   function tickSimulation(ts: number) {
@@ -1275,7 +1394,7 @@
     const dist = simProgress * simTotalLen;
     const pose = pointOnRoute(dist);
     if (pose) placeRouteMarker(pose.x, pose.y);
-    markSceneDirty();
+    paintRouteVisual(simProgress, true);
     if (simProgress >= 1) {
       stopRouteSimulation();
       return;
@@ -1303,6 +1422,7 @@
     simLastTs = 0;
     const start = simRoute[0];
     placeRouteMarker(start.x, start.y);
+    paintRouteVisual(0, true);
     simRaf = requestAnimationFrame(tickSimulation);
   }
 
@@ -1315,6 +1435,7 @@
     simProgress = Math.max(0, Math.min(1, ratio));
     const pose = pointOnRoute(simProgress * simTotalLen);
     if (pose) placeRouteMarker(pose.x, pose.y);
+    paintRouteVisual(simProgress, simPlaying || simProgress > 0);
     markSceneDirty();
   }
 
@@ -1354,7 +1475,9 @@
     return simPlaying;
   }
 
+  // Ensure route paints after the Three scene/routeGroup exists.
   $effect(() => {
+    if (!routeGroup) return;
     drawNavRoute(routePolyline ?? []);
   });
 

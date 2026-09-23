@@ -134,17 +134,94 @@
       ctx.stroke();
     }
     if (routePolyline.length > 1) {
-      ctx.strokeStyle = '#1a7af8';
-      ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      routePolyline.forEach((point, index) => {
-        const [x, y] = toScreen(point.x, point.y);
-        if (index) ctx.lineTo(x, y);
-        else ctx.moveTo(x, y);
-      });
-      ctx.stroke();
+      const drawPoly = (pts: { x: number; y: number }[], color: string, width = 3) => {
+        if (pts.length < 2) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        pts.forEach((point, index) => {
+          const [x, y] = toScreen(point.x, point.y);
+          if (index) ctx.lineTo(x, y);
+          else ctx.moveTo(x, y);
+        });
+        ctx.stroke();
+      };
+      const splitAt = (ratio: number) => {
+        const total = routePolyline.reduce((sum, point, index) => {
+          if (!index) return 0;
+          return sum + Math.hypot(point.x - routePolyline[index - 1].x, point.y - routePolyline[index - 1].y);
+        }, 0);
+        let remain = Math.max(0, Math.min(1, ratio)) * total;
+        const traveled: { x: number; y: number }[] = [routePolyline[0]];
+        const remaining: { x: number; y: number }[] = [];
+        let cut: { x: number; y: number } | null = null;
+        for (let i = 0; i + 1 < routePolyline.length; i++) {
+          const a = routePolyline[i];
+          const b = routePolyline[i + 1];
+          const len = Math.hypot(b.x - a.x, b.y - a.y);
+          if (!cut && remain <= len) {
+            const t = len > 0 ? remain / len : 0;
+            cut = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+            traveled.push(cut);
+            remaining.push(cut, ...routePolyline.slice(i + 1));
+            break;
+          }
+          remain -= len;
+          traveled.push(b);
+        }
+        if (!cut) return { traveled: routePolyline, remaining: [] as { x: number; y: number }[] };
+        return { traveled, remaining };
+      };
+      const showSplit = Number(walkSeek) > 0.5 && routePolyline.length > 1;
+      if (showSplit) {
+        const { traveled, remaining } = splitAt(Number(walkSeek) / 100);
+        drawPoly(traveled, '#8b9490', 3);
+        drawPoly(remaining, '#1a7af8', 3.5);
+      } else {
+        drawPoly(routePolyline, '#1a7af8', 3.5);
+      }
+      // Direction chevrons along the active (remaining or full) path.
+      const arrowPts = showSplit ? splitAt(Number(walkSeek) / 100).remaining : routePolyline;
+      if (arrowPts.length > 1) {
+        let total = 0;
+        const segs: { a: { x: number; y: number }; dx: number; dy: number; start: number; length: number }[] = [];
+        for (let i = 1; i < arrowPts.length; i++) {
+          const a = arrowPts[i - 1];
+          const b = arrowPts[i];
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const length = Math.hypot(dx, dy);
+          if (length < 1) continue;
+          segs.push({ a, dx: dx / length, dy: dy / length, start: total, length });
+          total += length;
+        }
+        const spacing = Math.max(120, total / 8);
+        let index = 0;
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#1a7af8';
+        ctx.lineWidth = 1.2;
+        for (let distance = spacing * 0.4; distance < total - spacing * 0.3; distance += spacing) {
+          while (index < segs.length - 1 && distance > segs[index].start + segs[index].length) index++;
+          const s = segs[index];
+          const t = distance - s.start;
+          const [sx, sy] = toScreen(s.a.x + s.dx * t, s.a.y + s.dy * t);
+          const angle = Math.atan2(s.dy, s.dx);
+          ctx.save();
+          ctx.translate(sx, sy);
+          ctx.rotate(angle);
+          ctx.beginPath();
+          ctx.moveTo(7, 0);
+          ctx.lineTo(-5, 4.5);
+          ctx.lineTo(-2, 0);
+          ctx.lineTo(-5, -4.5);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
     }
     for (const place of filteredPlaces()) {
       const [x, y] = toScreen(place.x, place.y);
@@ -343,7 +420,7 @@
       </label>
       <div class="mode-switch" role="group" aria-label="视图">
         <button type="button" class:is-active={mode === '2d'} aria-pressed={mode === '2d'} onclick={() => { stopAll(); mode = '2d'; }}>平面 2D</button>
-        <button type="button" class:is-active={mode === '3d'} aria-pressed={mode === '3d'} onclick={() => { mode = '3d'; }}>立体 3D</button>
+        <button type="button" class:is-active={mode === '3d'} aria-pressed={mode === '3d'} onclick={() => { mode = '3d'; if (routePolyline.length) viewer?.setNavRoute?.(routePolyline); }}>立体 3D</button>
       </div>
     </header>
     <div class="stage">
@@ -470,7 +547,10 @@
               step="0.1"
               bind:value={walkSeek}
               aria-label="进度"
-              oninput={() => viewer?.setSimulationProgress?.((Number(walkSeek) || 0) / 100)}
+              oninput={() => {
+                viewer?.setSimulationProgress?.((Number(walkSeek) || 0) / 100);
+                if (mode === '2d') drawPlan();
+              }}
             />
           </label>
         </div>
