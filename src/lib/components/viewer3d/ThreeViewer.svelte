@@ -48,9 +48,11 @@
   let {
     navShell = false,
     routePolyline = [] as { x: number; y: number }[],
+    onRouteProgress,
   }: {
     navShell?: boolean;
     routePolyline?: { x: number; y: number }[];
+    onRouteProgress?: (ratio: number, playing: boolean) => void;
   } = $props();
 
   let container: HTMLDivElement;
@@ -122,6 +124,9 @@
   const ROUTE_ARROW_SPACING = 180; // cm along path
   const ROUTE_ACCENT = '#1a7af8';
   const ROUTE_TRAVELED = '#8b9490';
+  // The active room finish is at y=3cm. Keep the route only slightly above it.
+  const ROUTE_STROKE_Y = 4.5;
+  const ROUTE_ARROW_Y = 5;
 
   // Lighting controls state
   let lightingPanelOpen = $state(false);
@@ -1277,7 +1282,9 @@
     if (points.length < 2) return;
     const mat = new THREE.MeshBasicMaterial({
       color,
-      depthTest: false,
+      side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: false,
       transparent: true,
       opacity: 0.92,
     });
@@ -1286,22 +1293,22 @@
       const b = points[i + 1];
       const len = Math.hypot(b.x - a.x, b.y - a.y);
       if (len < 1) continue;
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 8), mat);
-      mesh.position.set((a.x + b.x) / 2, 28, (a.y + b.y) / 2);
-      mesh.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        new THREE.Vector3(b.x - a.x, 0, b.y - a.y).normalize(),
-      );
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(len, radius * 2), mat);
+      mesh.position.set((a.x + b.x) / 2, ROUTE_STROKE_Y, (a.y + b.y) / 2);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.rotation.z = -Math.atan2(b.y - a.y, b.x - a.x);
       mesh.renderOrder = 2;
       routeGroup.add(mesh);
-      const joint = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.15, 10, 8), mat);
-      joint.position.set(a.x, 28, a.y);
+      const joint = new THREE.Mesh(new THREE.CircleGeometry(radius, 16), mat);
+      joint.position.set(a.x, ROUTE_STROKE_Y, a.y);
+      joint.rotation.x = -Math.PI / 2;
       joint.renderOrder = 2;
       routeGroup.add(joint);
     }
     const end = points[points.length - 1];
-    const endJoint = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.15, 10, 8), mat);
-    endJoint.position.set(end.x, 28, end.y);
+    const endJoint = new THREE.Mesh(new THREE.CircleGeometry(radius, 16), mat);
+    endJoint.position.set(end.x, ROUTE_STROKE_Y, end.y);
+    endJoint.rotation.x = -Math.PI / 2;
     endJoint.renderOrder = 2;
     routeGroup.add(endJoint);
   }
@@ -1321,13 +1328,14 @@
     const mat = new THREE.MeshBasicMaterial({
       color,
       side: THREE.DoubleSide,
-      depthTest: false,
+      depthTest: true,
+      depthWrite: false,
       transparent: true,
       opacity: 0.95,
     });
     for (const arrow of arrows) {
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(arrow.x, 36, arrow.y);
+      mesh.position.set(arrow.x, ROUTE_ARROW_Y, arrow.y);
       mesh.rotation.x = -Math.PI / 2;
       mesh.rotation.z = -arrow.angle;
       mesh.renderOrder = 3;
@@ -1362,6 +1370,7 @@
 
   function drawNavRoute(points: { x: number; y: number }[]) {
     if (!routeGroup) return;
+    routeGroup.position.y = activeFloorElevation;
     clearGroup(routeGroup);
     routeMarker = null;
     simRoute = points.slice();
@@ -1375,13 +1384,15 @@
     paintRouteVisual(0, false);
   }
 
-  function stopRouteSimulation() {
+  export function stopRouteSimulation() {
     simPlaying = false;
     if (simRaf) cancelAnimationFrame(simRaf);
     simRaf = 0;
     simLastTs = 0;
+    simProgress = 0;
     if (routeMarker) routeMarker.visible = false;
     paintRouteVisual(0, false);
+    onRouteProgress?.(0, false);
   }
 
   function tickSimulation(ts: number) {
@@ -1395,8 +1406,11 @@
     const pose = pointOnRoute(dist);
     if (pose) placeRouteMarker(pose.x, pose.y);
     paintRouteVisual(simProgress, true);
+    onRouteProgress?.(simProgress, simProgress < 1);
     if (simProgress >= 1) {
-      stopRouteSimulation();
+      simPlaying = false;
+      simRaf = 0;
+      simLastTs = 0;
       return;
     }
     simRaf = requestAnimationFrame(tickSimulation);
@@ -1420,6 +1434,7 @@
     simProgress = 0;
     simPlaying = true;
     simLastTs = 0;
+    onRouteProgress?.(0, true);
     const start = simRoute[0];
     placeRouteMarker(start.x, start.y);
     paintRouteVisual(0, true);
@@ -1436,6 +1451,7 @@
     const pose = pointOnRoute(simProgress * simTotalLen);
     if (pose) placeRouteMarker(pose.x, pose.y);
     paintRouteVisual(simProgress, simPlaying || simProgress > 0);
+    onRouteProgress?.(simProgress, simPlaying);
     markSceneDirty();
   }
 
@@ -2126,6 +2142,7 @@
       sceneGround.position.y = -40;
       buildWalls(currentFloor);
     }
+    if (routeGroup) routeGroup.position.y = activeFloorElevation;
     wallHighlight.apply(wallMeshMap, selectedWallId3D);
     if (walkingPosition && walkingRotation) {
       camera.position.copy(walkingPosition);
