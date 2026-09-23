@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { get } from 'svelte/store';
   import { currentProject, loadProject, viewMode, setActiveFloor } from '$lib/stores/project';
   import { readProject } from '$lib/utils/projectValidation';
@@ -23,6 +23,8 @@
   let lengthCm = $state(0);
   let walkSpeed = $state(1);
   let walkSeek = $state(0);
+  let pendingModeAction = $state<'simulate' | 'walk' | null>(null);
+  let restoredViewer: any = null;
   let planCanvas: HTMLCanvasElement | undefined = $state();
 
   type Place = { id: string; name: string; x: number; y: number; color?: string; category?: string };
@@ -62,6 +64,34 @@
   $effect(() => {
     if (mode === '2d') drawPlan();
   });
+
+  // The 3D viewer is loaded lazily; start only after its scene has mounted.
+  $effect(() => {
+    if (mode !== '3d' || !viewer || !pendingModeAction) return;
+    const action = pendingModeAction;
+    requestAnimationFrame(() => {
+      if (pendingModeAction !== action || !viewer || mode !== '3d') return;
+      pendingModeAction = null;
+      viewer.setNavRoute?.(routePolyline);
+      if (action === 'simulate') viewer.startRouteSimulation?.(walkSpeed);
+      else viewer.enterWalkAlongRoute?.();
+    });
+  });
+
+  $effect(() => {
+    if (mode !== '3d' || !viewer || pendingModeAction || viewer === restoredViewer) return;
+    restoredViewer = viewer;
+    const seek = untrack(() => Number(walkSeek) || 0);
+    if (seek > 0) requestAnimationFrame(() => {
+      if (viewer === restoredViewer && !viewer.isSimulating?.()) viewer.setSimulationProgress?.(seek / 100);
+    });
+  });
+
+  function handleRouteProgress(ratio: number, playing: boolean) {
+    walkSeek = Math.round(ratio * 1000) / 10;
+    if (simulating || playing) simulating = playing;
+    if (ratio >= 1 && !playing) say('模拟导航已完成');
+  }
 
   function metersLabel(cm: number) {
     const meters = Math.round((cm || 0) / 100);
@@ -239,8 +269,10 @@
   }
 
   function stopAll() {
+    pendingModeAction = null;
     simulating = false;
     walking = false;
+    walkSeek = 0;
     viewer?.pauseRouteSimulation?.();
     viewer?.stopRouteSimulation?.();
     viewer?.exitNavWalk?.();
@@ -420,7 +452,7 @@
       </label>
       <div class="mode-switch" role="group" aria-label="视图">
         <button type="button" class:is-active={mode === '2d'} aria-pressed={mode === '2d'} onclick={() => { stopAll(); mode = '2d'; }}>平面 2D</button>
-        <button type="button" class:is-active={mode === '3d'} aria-pressed={mode === '3d'} onclick={() => { mode = '3d'; if (routePolyline.length) viewer?.setNavRoute?.(routePolyline); }}>立体 3D</button>
+        <button type="button" class:is-active={mode === '3d'} aria-pressed={mode === '3d'} onclick={() => { mode = '3d'; }}>立体 3D</button>
       </div>
     </header>
     <div class="stage">
@@ -433,7 +465,7 @@
         ></canvas>
         <div class="viewer" class:hidden={mode !== '3d'}>
           {#if ThreeViewer}
-            <ThreeViewer bind:this={viewer} navShell={true} routePolyline={routePolyline} />
+            <ThreeViewer bind:this={viewer} navShell={true} routePolyline={routePolyline} onRouteProgress={handleRouteProgress} />
           {/if}
         </div>
       </div>
@@ -489,9 +521,7 @@
               mode = '3d';
               walking = false;
               simulating = true;
-              viewer?.setNavRoute?.(routePolyline);
-              viewer?.setSimulationSpeed?.(walkSpeed);
-              viewer?.startRouteSimulation?.(walkSpeed);
+              pendingModeAction = 'simulate';
               say('模拟导航已开始');
             }}
           >模拟导航</button>
@@ -503,8 +533,7 @@
               mode = '3d';
               simulating = false;
               walking = true;
-              viewer?.setNavRoute?.(routePolyline);
-              viewer?.enterWalkAlongRoute?.();
+              pendingModeAction = 'walk';
               say('第一人称已开始');
             }}
           >第一人称</button>
