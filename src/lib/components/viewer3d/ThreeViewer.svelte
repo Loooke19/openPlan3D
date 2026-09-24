@@ -11,7 +11,7 @@
   import { generateOpenAIRenderImage, validateOpenAIConfig, getEffectiveModel, normalizeBaseUrl } from '$lib/utils/openaiClient';
   import OpenAIModelPicker from '$lib/components/ai/OpenAIModelPicker.svelte';
   import { activeFloor, currentProject, selectedElementId } from '$lib/stores/project';
-  import type { Floor, Wall, Door, Window as Win, Stair } from '$lib/models/types';
+  import type { Floor, Wall, Door, Window as Win, Stair, Point } from '$lib/models/types';
   import { getWallStartHeight, getWallEndHeight } from '$lib/models/types';
   import { wallColors, type WallColor } from '$lib/utils/materials';
   import { projectSettings, formatArea } from '$lib/stores/settings';
@@ -48,11 +48,15 @@
   let {
     navShell = false,
     routePolyline = [] as { x: number; y: number }[],
+    routeDoorIds = [] as string[],
     onRouteProgress,
+    onNavWalkExit,
   }: {
     navShell?: boolean;
     routePolyline?: { x: number; y: number }[];
+    routeDoorIds?: string[];
     onRouteProgress?: (ratio: number, playing: boolean) => void;
+    onNavWalkExit?: () => void;
   } = $props();
 
   let container: HTMLDivElement;
@@ -103,6 +107,8 @@
 
   // Walkthrough mode
   let walkthroughMode = $state(false);
+  let navAutoWalking = $state(false);
+  let navSavedView: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
   let walkthroughMouseUnavailable = $state(false);
   const walkthroughMotion = new WalkthroughMotion();
   let moveSpeed = $state(800);
@@ -113,6 +119,10 @@
   let routeGroup: THREE.Group;
   let routeMarker: THREE.Mesh | null = null;
   let routeArrowGroup: THREE.Group | null = null;
+  type NavDoorLeaf = { doorId: string; pivot: THREE.Group; closedYaw: number; openYaw: number };
+  let navDoorLeaves: NavDoorLeaf[] = [];
+  let activeRouteDoorIds = new Set<string>();
+  let doorAnimationRaf = 0;
   let simPlaying = $state(false);
   let simProgress = $state(0);
   let simSpeed = $state(1);
@@ -121,7 +131,7 @@
   let simRoute: { x: number; y: number }[] = [];
   let simSegLens: number[] = [];
   let simTotalLen = 0;
-  const ROUTE_ARROW_SPACING = 180; // cm along path
+  const ROUTE_ARROW_SPACING = 280; // sparse direction cues along the route (cm)
   const ROUTE_ACCENT = '#1a7af8';
   const ROUTE_TRAVELED = '#8b9490';
   // The active room finish is at y=3cm. Keep the route only slightly above it.
@@ -654,10 +664,26 @@
   const BASEBOARD_HEIGHT = 8;
 
   // Create a canvas-based floor texture
+  function restoreNavView() {
+    if (!navSavedView) return;
+    camera.position.copy(navSavedView.position);
+    controls.target.copy(navSavedView.target);
+    navSavedView = null;
+    controls.update();
+    markSceneDirty();
+  }
+
   function exitWalkthroughMode() {
+    if (navAutoWalking) {
+      navAutoWalking = false;
+      pauseRouteSimulation();
+      onRouteProgress?.(simProgress, false);
+      onNavWalkExit?.();
+    }
     walkthroughMode = false;
     controls.enabled = true;
     walkthroughMotion.reset();
+    restoreNavView();
     markSceneDirty();
 
     if (typeof document !== 'undefined' && document.pointerLockElement) {
@@ -687,6 +713,7 @@
     }
     if (!walkthroughMode) return;
     if (event.code === 'Escape') { exitWalkthroughMode(); return; }
+    if (navAutoWalking) return;
     if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey
       || isWalkthroughField(event.target)) return;
     if (walkthroughMotion.setKey(event.code, true, event.repeat)) {
@@ -696,6 +723,7 @@
   }
 
   function onKeyUp(event: KeyboardEvent) {
+    if (navAutoWalking) return;
     walkthroughMotion.setKey(event.code, false);
     wakeWalkthrough();
   }
@@ -1269,10 +1297,12 @@
       total += length;
     }
     let index = 0;
-    for (let distance = spacing * 0.45; distance < total - spacing * 0.35; distance += spacing) {
+    for (let distance = spacing * 0.5; distance < total - spacing * 0.5; distance += spacing) {
       while (index < segs.length - 1 && distance > segs[index].start + segs[index].length) index++;
       const s = segs[index];
       const t = distance - s.start;
+      // A cue straddling a turn reads as a wrong direction from oblique views.
+      if (t < 16 || s.length - t < 16) continue;
       arrows.push({ x: s.a.x + s.dx * t, y: s.a.y + s.dy * t, angle: Math.atan2(s.dy, s.dx) });
     }
     return arrows;
@@ -1317,12 +1347,12 @@
     if (!routeGroup) return;
     const arrows = routeArrowPlacements(points);
     if (!arrows.length) return;
-    // Flat chevron on the floor plane (local +X forward) — oversized for top-down readability.
+    // A small white chevron sits inside the blue stripe, like a navigation route cue.
     const shape = new THREE.Shape();
-    shape.moveTo(28, 0);
-    shape.lineTo(-18, 16);
-    shape.lineTo(-6, 0);
-    shape.lineTo(-18, -16);
+    shape.moveTo(8, 0);
+    shape.lineTo(-5, 5);
+    shape.lineTo(-1, 0);
+    shape.lineTo(-5, -5);
     shape.closePath();
     const geo = new THREE.ShapeGeometry(shape);
     const mat = new THREE.MeshBasicMaterial({
@@ -1391,6 +1421,12 @@
     simRaf = 0;
     simLastTs = 0;
     simProgress = 0;
+    if (navAutoWalking) {
+      navAutoWalking = false;
+      walkthroughMode = false;
+      controls.enabled = true;
+      restoreNavView();
+    }
     if (routeMarker) routeMarker.visible = false;
     paintRouteVisual(0, false);
     onRouteProgress?.(0, false);
@@ -1405,7 +1441,8 @@
     simProgress = Math.min(1, simProgress + (dt * simSpeed * 120) / Math.max(1, simTotalLen));
     const dist = simProgress * simTotalLen;
     const pose = pointOnRoute(dist);
-    if (pose) placeRouteMarker(pose.x, pose.y);
+    if (navAutoWalking) placeNavWalkCamera(dist);
+    else if (pose) placeRouteMarker(pose.x, pose.y);
     paintRouteVisual(simProgress, true);
     onRouteProgress?.(simProgress, simProgress < 1);
     if (simProgress >= 1) {
@@ -1418,14 +1455,16 @@
   }
 
   /** Public nav API — called from /nav shell. */
-  export function setNavRoute(points: { x: number; y: number }[]) {
+  export function setNavRoute(points: { x: number; y: number }[], doorIds: string[] = []) {
     stopRouteSimulation();
     drawNavRoute(points);
+    setNavDoorStates(doorIds);
   }
 
   export function clearNavRoute() {
     stopRouteSimulation();
     drawNavRoute([]);
+    setNavDoorStates([]);
   }
 
   export function startRouteSimulation(speed = 1) {
@@ -1450,7 +1489,8 @@
     if (simRoute.length < 2) return;
     simProgress = Math.max(0, Math.min(1, ratio));
     const pose = pointOnRoute(simProgress * simTotalLen);
-    if (pose) placeRouteMarker(pose.x, pose.y);
+    if (navAutoWalking) placeNavWalkCamera(simProgress * simTotalLen);
+    else if (pose) placeRouteMarker(pose.x, pose.y);
     paintRouteVisual(simProgress, simPlaying || simProgress > 0);
     onRouteProgress?.(simProgress, simPlaying);
     markSceneDirty();
@@ -1470,21 +1510,39 @@
     simRaf = requestAnimationFrame(tickSimulation);
   }
 
-  export function enterWalkAlongRoute() {
-    if (simRoute.length < 2) {
-      enterWalkthroughMode();
-      return;
-    }
+  function placeNavWalkCamera(distance: number) {
+    const pose = pointOnRoute(distance);
+    if (!pose) return;
+    const ahead = pointOnRoute(Math.min(simTotalLen, distance + 80));
+    const lookX = ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 1
+      ? ahead.x : pose.x + Math.cos(pose.yaw) * 80;
+    const lookY = ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 1
+      ? ahead.y : pose.y + Math.sin(pose.yaw) * 80;
+    setFloorCameraPose(camera, activeFloorElevation,
+      { x: pose.x, y: eyeHeight, z: pose.y },
+      { x: lookX, y: eyeHeight, z: lookY });
+    markSceneDirty();
+  }
+
+  export function enterWalkAlongRoute(speed = 1) {
+    if (simRoute.length < 2) return;
+    if (walkthroughMode) exitWalkthroughMode();
     stopRouteSimulation();
-    const a = simRoute[0];
-    const b = simRoute[Math.min(1, simRoute.length - 1)];
-    enterWalkthroughMode();
-    setFloorCameraPose(
-      camera,
-      activeFloorElevation,
-      { x: a.x, y: eyeHeight, z: a.y },
-      { x: b.x, y: eyeHeight, z: b.y },
-    );
+    navSavedView = { position: camera.position.clone(), target: controls.target.clone() };
+    cancelAIRender();
+    walkthroughMotion.reset();
+    walkthroughMouseUnavailable = false;
+    navAutoWalking = true;
+    walkthroughMode = true;
+    controls.enabled = false;
+    simSpeed = Math.max(0.25, Math.min(4, speed));
+    simProgress = 0;
+    simPlaying = true;
+    simLastTs = 0;
+    placeNavWalkCamera(0);
+    paintRouteVisual(0, true);
+    onRouteProgress?.(0, true);
+    simRaf = requestAnimationFrame(tickSimulation);
     markSceneDirty();
   }
 
@@ -1496,7 +1554,53 @@
   $effect(() => {
     if (!routeGroup) return;
     drawNavRoute(routePolyline ?? []);
+    setNavDoorStates(routeDoorIds ?? []);
   });
+
+  function setNavDoorStates(doorIds: string[]) {
+    activeRouteDoorIds = new Set(doorIds);
+    if (doorAnimationRaf) cancelAnimationFrame(doorAnimationRaf);
+    doorAnimationRaf = 0;
+    if (!navShell || !navDoorLeaves.length) return;
+    const startAngles = navDoorLeaves.map((leaf) => leaf.pivot.rotation.y);
+    const targetAngles = navDoorLeaves.map((leaf) => activeRouteDoorIds.has(leaf.doorId) ? leaf.openYaw : leaf.closedYaw);
+    if (targetAngles.every((target, index) => Math.abs(target - startAngles[index]) < 0.001)) return;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / 360);
+      const eased = progress * progress * (3 - 2 * progress);
+      navDoorLeaves.forEach((leaf, index) => {
+        leaf.pivot.rotation.y = startAngles[index] + (targetAngles[index] - startAngles[index]) * eased;
+      });
+      markSceneDirty();
+      doorAnimationRaf = progress < 1 ? requestAnimationFrame(tick) : 0;
+    };
+    doorAnimationRaf = requestAnimationFrame(tick);
+  }
+
+  function addNavDoorLeaf(doorId: string, hinge: Point, width: number, height: number, angle: number, hingeSide: number, face: number) {
+    const pivot = new THREE.Group();
+    pivot.position.set(hinge.x - Math.sin(angle) * face * 2, 0, hinge.y + Math.cos(angle) * face * 2);
+    const closedYaw = -(angle + (hingeSide === 1 ? Math.PI : 0));
+    const openYaw = closedYaw + hingeSide * face * Math.PI / 2;
+    pivot.rotation.y = activeRouteDoorIds.has(doorId) ? openYaw : closedYaw;
+
+    const panelGeo = new THREE.BoxGeometry(Math.max(2, width - 2), height - 4, 4);
+    panelGeo.translate(width / 2 - 1, 0, 0);
+    const panel = new THREE.Mesh(panelGeo, new THREE.MeshStandardMaterial({ color: 0x8B6914, roughness: 0.5 }));
+    panel.position.y = height / 2 - 2;
+    panel.castShadow = true;
+    pivot.add(panel);
+
+    const handle = new THREE.Mesh(
+      new THREE.SphereGeometry(3, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xc0c0c0, metalness: 0.8, roughness: 0.2 }),
+    );
+    handle.position.set(Math.max(8, width - 12), Math.min(100, height * 0.5), 3);
+    pivot.add(handle);
+    wallGroup.add(pivot);
+    navDoorLeaves.push({ doorId, pivot, closedYaw, openYaw });
+  }
 
   function addOpeningFrame(wall: Wall, position: number, width: number, bottom: number, height: number, depth: number, material: THREE.Material, excludeFromRender = false) {
     const path = wallPathProfile(wall);
@@ -1518,6 +1622,9 @@
 
   function buildWalls(floor: Floor) {
     wallHighlight.clear();
+    if (doorAnimationRaf) cancelAnimationFrame(doorAnimationRaf);
+    doorAnimationRaf = 0;
+    navDoorLeaves = [];
     clearGroup(wallGroup);
     cameraHelper = null;
     wallMeshMap.clear();
@@ -1741,7 +1848,18 @@
           wallGroup.add(secMesh);
         }
       } else {
-        // Door panel — honor the saved hinge and opening side, slightly ajar (15°)
+        if (navShell) {
+          const face = door.flipSide ? -1 : 1;
+          if (door.type === 'double' || door.type === 'french') {
+            addNavDoorLeaf(door.id, left, door.width / 2, doorHeight, angle, -1, face);
+            addNavDoorLeaf(door.id, right, door.width / 2, doorHeight, angle, 1, face);
+          } else {
+            const hingeSide = door.swingDirection === 'left' ? 1 : -1;
+            addNavDoorLeaf(door.id, hingeSide === 1 ? right : left, door.width, doorHeight, angle, hingeSide, face);
+          }
+          continue;
+        }
+        // Editor preview keeps its existing, slightly ajar (15°) door pose.
         const panelMat = new THREE.MeshStandardMaterial({ color: 0x8B6914, roughness: 0.5 });
         const panelGeo = new THREE.BoxGeometry(door.width - 2, doorHeight - 4, 4);
         // Shift geometry so pivot is at left edge
@@ -2270,14 +2388,14 @@
 
     if (walkthroughMode) {
       lastOrbitFrame = undefined;
-      const moving = walkthroughMotion.active;
-      walkthroughMotion.advance(timestamp, camera, { moveSpeed, sprintSpeed, eyeHeight, floorElevation: activeFloorElevation });
+      const moving = !navAutoWalking && walkthroughMotion.active;
+      if (!navAutoWalking) walkthroughMotion.advance(timestamp, camera, { moveSpeed, sprintSpeed, eyeHeight, floorElevation: activeFloorElevation });
       if (sceneDirty || moving) {
         sceneDirty = false;
         renderer.render(scene, camera);
         renderer.domElement.dataset.rendered = 'true';
       }
-      if (walkthroughMotion.active) requestRender();
+      if (moving) requestRender();
       else walkthroughMotion.stopClock();
     } else {
       // A change event schedules the next damping step. Once the controls settle,
@@ -2375,6 +2493,7 @@
       stopSettings();
       unsubSel();
       if (animId !== undefined) cancelAnimationFrame(animId);
+      if (doorAnimationRaf) cancelAnimationFrame(doorAnimationRaf);
       animId = undefined;
       document.removeEventListener('keydown', onKeyDown, false);
       document.removeEventListener('keyup', onKeyUp, false);
@@ -2737,6 +2856,9 @@
       </div>
     </div>
 
+    {#if navAutoWalking}
+      <div class="absolute top-4 left-4 z-10 bg-black/70 text-white text-xs rounded-lg p-3">沿路线自动行走</div>
+    {:else}
     <!-- Controls Panel -->
     <div class="absolute top-4 left-4 z-10 bg-black/70 text-white text-xs rounded-lg backdrop-blur-sm p-3 space-y-2 min-w-[180px]">
       <div class="font-semibold text-white/90 mb-1">{$t('viewerNav.walkControls')}</div>
@@ -2772,6 +2894,7 @@
         {$t('viewerNav.walkHelp')}
       </div>
     </div>
+    {/if}
   {/if}
 
   {#if editMode && !walkthroughMode}

@@ -15,11 +15,13 @@
   let busy = $state(false);
   let simulating = $state(false);
   let walking = $state(false);
+  let playbackPlaying = $state(false);
   let category = $state('all');
   let startId = $state('');
   let endId = $state('');
   let waypoints = $state<string[]>([]);
   let routePolyline = $state<{ x: number; y: number }[]>([]);
+  let routeDoorIds = $state<string[]>([]);
   let lengthCm = $state(0);
   let walkSpeed = $state(1);
   let walkSeek = $state(0);
@@ -72,9 +74,9 @@
     requestAnimationFrame(() => {
       if (pendingModeAction !== action || !viewer || mode !== '3d') return;
       pendingModeAction = null;
-      viewer.setNavRoute?.(routePolyline);
+      viewer.setNavRoute?.(routePolyline, routeDoorIds);
       if (action === 'simulate') viewer.startRouteSimulation?.(walkSpeed);
-      else viewer.enterWalkAlongRoute?.();
+      else viewer.enterWalkAlongRoute?.(Number(walkSpeed) || 1);
     });
   });
 
@@ -89,8 +91,13 @@
 
   function handleRouteProgress(ratio: number, playing: boolean) {
     walkSeek = Math.round(ratio * 1000) / 10;
-    if (simulating || playing) simulating = playing;
-    if (ratio >= 1 && !playing) say('模拟导航已完成');
+    playbackPlaying = playing;
+    if (ratio >= 1 && !playing) say(walking ? '已到达终点' : '模拟导航已完成');
+  }
+
+  function handleNavWalkExit() {
+    walking = false;
+    playbackPlaying = false;
   }
 
   function metersLabel(cm: number) {
@@ -212,7 +219,7 @@
       } else {
         drawPoly(routePolyline, '#1a7af8', 3.5);
       }
-      // Direction chevrons along the active (remaining or full) path.
+      // Sparse, small chevrons inside the route line show direction without covering the plan.
       const arrowPts = showSplit ? splitAt(Number(walkSeek) / 100).remaining : routePolyline;
       if (arrowPts.length > 1) {
         let total = 0;
@@ -227,28 +234,26 @@
           segs.push({ a, dx: dx / length, dy: dy / length, start: total, length });
           total += length;
         }
-        const spacing = Math.max(120, total / 8);
+        const spacing = Math.max(160, 96 / Math.max(scale, 0.001));
         let index = 0;
         ctx.fillStyle = '#fff';
-        ctx.strokeStyle = '#1a7af8';
-        ctx.lineWidth = 1.2;
-        for (let distance = spacing * 0.4; distance < total - spacing * 0.3; distance += spacing) {
+        for (let distance = spacing * 0.5; distance < total - spacing * 0.5; distance += spacing) {
           while (index < segs.length - 1 && distance > segs[index].start + segs[index].length) index++;
           const s = segs[index];
           const t = distance - s.start;
+          if (Math.min(t, s.length - t) * scale < 8) continue;
           const [sx, sy] = toScreen(s.a.x + s.dx * t, s.a.y + s.dy * t);
           const angle = Math.atan2(s.dy, s.dx);
           ctx.save();
           ctx.translate(sx, sy);
           ctx.rotate(angle);
           ctx.beginPath();
-          ctx.moveTo(7, 0);
-          ctx.lineTo(-5, 4.5);
-          ctx.lineTo(-2, 0);
-          ctx.lineTo(-5, -4.5);
+          ctx.moveTo(4, 0);
+          ctx.lineTo(-3, 2.5);
+          ctx.lineTo(-1, 0);
+          ctx.lineTo(-3, -2.5);
           ctx.closePath();
           ctx.fill();
-          ctx.stroke();
           ctx.restore();
         }
       }
@@ -272,6 +277,7 @@
     pendingModeAction = null;
     simulating = false;
     walking = false;
+    playbackPlaying = false;
     walkSeek = 0;
     viewer?.pauseRouteSimulation?.();
     viewer?.stopRouteSimulation?.();
@@ -281,6 +287,8 @@
   async function planRoute() {
     stopAll();
     routePolyline = [];
+    routeDoorIds = [];
+    viewer?.clearNavRoute?.();
     lengthCm = 0;
     if (!view || !projectId) return;
     const start = placeById(startId);
@@ -314,12 +322,13 @@
         return;
       }
       routePolyline = result.polyline || [];
+      routeDoorIds = result.usedDoorIds || [];
       lengthCm = result.lengthCm || 0;
       const viaNote = vias.length ? ` · 经 ${vias.length} 个途经点` : '';
       const label = metersLabel(lengthCm) + viaNote;
       routeMessage = label;
       say(label);
-      viewer?.setNavRoute?.(routePolyline);
+      viewer?.setNavRoute?.(routePolyline, routeDoorIds);
       drawPlan();
     } catch {
       say('找路失败');
@@ -332,6 +341,8 @@
   async function loadNav(floorId: string) {
     stopAll();
     routePolyline = [];
+    routeDoorIds = [];
+    viewer?.clearNavRoute?.();
     waypoints = [];
     startId = '';
     endId = '';
@@ -465,7 +476,7 @@
         ></canvas>
         <div class="viewer" class:hidden={mode !== '3d'}>
           {#if ThreeViewer}
-            <ThreeViewer bind:this={viewer} navShell={true} routePolyline={routePolyline} onRouteProgress={handleRouteProgress} />
+            <ThreeViewer bind:this={viewer} navShell={true} routePolyline={routePolyline} routeDoorIds={routeDoorIds} onRouteProgress={handleRouteProgress} onNavWalkExit={handleNavWalkExit} />
           {/if}
         </div>
       </div>
@@ -521,6 +532,7 @@
               mode = '3d';
               walking = false;
               simulating = true;
+              playbackPlaying = true;
               pendingModeAction = 'simulate';
               say('模拟导航已开始');
             }}
@@ -533,6 +545,7 @@
               mode = '3d';
               simulating = false;
               walking = true;
+              playbackPlaying = true;
               pendingModeAction = 'walk';
               say('第一人称已开始');
             }}
@@ -541,20 +554,28 @@
             type="button"
             hidden={!simulating && !walking}
             onclick={() => {
-              if (simulating) {
-                viewer?.pauseRouteSimulation?.();
-                simulating = false;
-                say('已暂停');
-              }
+              viewer?.pauseRouteSimulation?.();
+              playbackPlaying = false;
+              say('已暂停');
             }}
+            disabled={!playbackPlaying}
           >暂停</button>
+          <button
+            type="button"
+            hidden={(!simulating && !walking) || playbackPlaying || Number(walkSeek) >= 100}
+            onclick={() => {
+              viewer?.resumeRouteSimulation?.();
+              playbackPlaying = true;
+              say(walking ? '继续自动行走' : '继续模拟导航');
+            }}
+          >继续</button>
           <button
             type="button"
             hidden={!simulating && !walking}
             onclick={() => { stopAll(); say('已结束'); }}
           >结束</button>
         </div>
-        <div class="playback" hidden={!simulating && !routePolyline.length}>
+        <div class="playback" hidden={(!simulating && !walking) || !routePolyline.length}>
           <label>速度
             <select
               aria-label="速度"
