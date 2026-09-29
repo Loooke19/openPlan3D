@@ -2101,9 +2101,15 @@
       }
 
       const tex = ownTexture(new THREE.CanvasTexture(canvas));
-      const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+      const spriteMat = new THREE.SpriteMaterial({
+        map: tex,
+        transparent: true,
+        depthTest: !navShell,
+        depthWrite: false,
+      });
       const sprite = new THREE.Sprite(spriteMat);
       sprite.position.set(centroid.x, 30, centroid.y);
+      sprite.renderOrder = navShell ? 10 : 0;
       sprite.scale.set((navShell ? 300 : 150) * labelScale, (navShell ? 60 : 40) * labelScale, 1);
       wallGroup.add(sprite);
 
