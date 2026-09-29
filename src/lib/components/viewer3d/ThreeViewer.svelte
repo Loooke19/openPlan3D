@@ -2072,7 +2072,9 @@
         // Nav wayfinding: dark name + white stroke, no area, no bubble.
         canvas.width = 256; canvas.height = 48;
         ctx2.clearRect(0, 0, 256, 48);
-        ctx2.font = 'bold 22px sans-serif';
+        const labelFont =
+          'bold 22px "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif';
+        ctx2.font = labelFont;
         ctx2.textAlign = 'center';
         ctx2.textBaseline = 'middle';
         ctx2.lineJoin = 'round';
