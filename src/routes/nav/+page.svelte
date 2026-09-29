@@ -345,9 +345,16 @@
       ctx.arc(x, y, 5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = '#333';
-      ctx.font = '12px system-ui, sans-serif';
-      ctx.fillText(place.name || place.id, x + 8, y + 4);
+      const placeName = place.name || place.id;
+      ctx.font = 'bold 24px "Noto Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.miterLimit = 2;
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#ffffff';
+      ctx.strokeText(placeName, x + 8, y);
+      ctx.fillStyle = '#222222';
+      ctx.fillText(placeName, x + 8, y);
     }
   }
 
