@@ -60,6 +60,7 @@
     toFloorId?: string;
     fromFloorName?: string;
     toFloorName?: string;
+    direction?: 'up' | 'down';
   };
   type NavRoom = {
     id: string;
@@ -133,8 +134,9 @@
     }
     const transfer = routeTransfers.find((item) => item.afterLeg === activeLegIndex);
     const next = routeLegs[activeLegIndex + 1];
+    const way = transfer?.direction === 'up' ? '上' : transfer?.direction === 'down' ? '下' : '';
     const tip = transfer
-      ? `乘${transfer.kindLabel || '电梯'}到 ${transfer.toFloorName || next?.floorName || '下一层'}`
+      ? `乘${transfer.kindLabel || '电梯'}${way}到 ${transfer.toFloorName || next?.floorName || '下一层'}`
       : `换到 ${next?.floorName || '下一层'}`;
     say(tip);
     pendingLegAdvance = true;
