@@ -1637,6 +1637,9 @@
       mesh.userData.renderExclude = excludeFromRender;
       // Nav FPS: shadow acne on thin jamb edges shows as fine vertical stripes.
       mesh.castShadow = !excludeFromRender && !navShell;
+      mesh.receiveShadow = !navShell;
+      // Draw frames after wall slabs so residual near-coplanar edges stay stable.
+      if (navShell) mesh.renderOrder = 1;
       wallGroup.add(mesh);
     }
   }
@@ -1846,21 +1849,26 @@
       const frameMat = new THREE.MeshStandardMaterial({
         color: 0x6b4423,
         roughness: 0.6,
-        // Keep jamb faces from z-fighting wall end-caps at the opening edge.
+        // Push frame depth bias so near-coplanar wall faces lose the fight.
         polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -1,
+        polygonOffsetFactor: -4,
+        polygonOffsetUnits: -4,
+        depthWrite: true,
       });
       const doorHeight = opening.top;
       const jamb = 5; // jamb thickness
       // Pull jambs into the opening so their faces are not coplanar with wall end-caps
       // (that coplanar pair showed as fine vertical stripes in first-person).
-      const jambClear = 1;
+      const jambClear = 3;
+      // Nav: make the frame slightly thicker than the wall so front/back faces sit
+      // proud of the wall slab (coplanar wt-depth frames still shimmered at FPS).
+      // Editor preview keeps flush depth.
+      const frameDepth = navShell ? wt + 4 : wt;
 
       // Clip jambs and header too when an opening reaches the wall profile.
-      addOpeningFrame(wall, (opening.left + jamb / 2 + jambClear) / length, jamb, 0, doorHeight, wt, frameMat);
-      addOpeningFrame(wall, (opening.right - jamb / 2 - jambClear) / length, jamb, 0, doorHeight, wt, frameMat);
-      addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - jambClear * 2), doorHeight, jamb, wt, frameMat);
+      addOpeningFrame(wall, (opening.left + jamb / 2 + jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
+      addOpeningFrame(wall, (opening.right - jamb / 2 - jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
+      addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - jambClear * 2), doorHeight, jamb, frameDepth, frameMat);
 
       if (door.type === 'opening') {
         // Plain doorway — jambs and header only, no door leaf
