@@ -22,14 +22,45 @@
   let waypoints = $state<string[]>([]);
   let routePolyline = $state<{ x: number; y: number }[]>([]);
   let routeDoorIds = $state<string[]>([]);
+  let routeLegs = $state<RouteLeg[]>([]);
+  let routeTransfers = $state<RouteTransfer[]>([]);
+  let activeLegIndex = $state(0);
   let lengthCm = $state(0);
   let walkSpeed = $state(1);
   let walkSeek = $state(0);
   let pendingModeAction = $state<'simulate' | 'walk' | null>(null);
+  let pendingLegAdvance = $state(false);
   let restoredViewer: any = null;
   let planCanvas: HTMLCanvasElement | undefined = $state();
+  let transferTimer: ReturnType<typeof setTimeout> | null = null;
 
-  type Place = { id: string; name: string; x: number; y: number; color?: string; category?: string };
+  type Place = {
+    id: string;
+    name: string;
+    x: number;
+    y: number;
+    color?: string;
+    category?: string;
+    floorId?: string;
+    floorName?: string;
+  };
+  type RouteLeg = {
+    floorId: string;
+    floorName?: string;
+    lengthCm?: number;
+    polyline: { x: number; y: number }[];
+    usedDoorIds?: string[];
+  };
+  type RouteTransfer = {
+    afterLeg: number;
+    kind?: string;
+    kindLabel?: string;
+    name?: string;
+    fromFloorId?: string;
+    toFloorId?: string;
+    fromFloorName?: string;
+    toFloorName?: string;
+  };
   type NavRoom = {
     id: string;
     name?: string;
@@ -38,8 +69,11 @@
   };
   type NavView = {
     floorId: string;
+    floorName?: string;
     floors?: { id: string; name: string }[];
     destinations?: Place[];
+    places?: Place[];
+    verticalLinks?: { id: string; kind: string; name: string }[];
     walls?: { start: { x: number; y: number }; end: { x: number; y: number }; thickness?: number }[];
     rooms?: NavRoom[];
     openings?: any[];
@@ -92,12 +126,29 @@
   function handleRouteProgress(ratio: number, playing: boolean) {
     walkSeek = Math.round(ratio * 1000) / 10;
     playbackPlaying = playing;
-    if (ratio >= 1 && !playing) say(walking ? '已到达终点' : '模拟导航已完成');
+    if (!(ratio >= 1 && !playing) || pendingLegAdvance) return;
+    if (!(simulating || walking) || activeLegIndex + 1 >= routeLegs.length) {
+      say(walking ? '已到达终点' : '模拟导航已完成');
+      return;
+    }
+    const transfer = routeTransfers.find((item) => item.afterLeg === activeLegIndex);
+    const next = routeLegs[activeLegIndex + 1];
+    const tip = transfer
+      ? `乘${transfer.kindLabel || '电梯'}到 ${transfer.toFloorName || next?.floorName || '下一层'}`
+      : `换到 ${next?.floorName || '下一层'}`;
+    say(tip);
+    pendingLegAdvance = true;
+    if (transferTimer) clearTimeout(transferTimer);
+    transferTimer = setTimeout(() => {
+      transferTimer = null;
+      void advanceToLeg(activeLegIndex + 1);
+    }, 450);
   }
 
   function handleNavWalkExit() {
     walking = false;
     playbackPlaying = false;
+    pendingLegAdvance = false;
   }
 
   function metersLabel(cm: number) {
@@ -105,14 +156,38 @@
     return meters < 1 ? '不到 1 米' : `约 ${meters} 米`;
   }
 
+  function placeKey(place: Place) {
+    return `${place.floorId || view?.floorId || ''}::${place.id}`;
+  }
+
+  function placeLabel(place: Place) {
+    const floor = place.floorName || place.floorId || '';
+    const name = place.name || place.id;
+    return floor ? `${floor} · ${name}` : name;
+  }
+
+  function allPlaces(): Place[] {
+    const listed = view?.places || [];
+    if (listed.length) return listed;
+    return (view?.destinations || []).map((place) => ({
+      ...place,
+      floorId: place.floorId || view?.floorId || '',
+      floorName: place.floorName || view?.floorName || view?.floorId || '',
+    }));
+  }
+
   function filteredPlaces(): Place[] {
-    const list = view?.destinations || [];
+    const list = allPlaces();
     if (category === 'all') return list;
     return list.filter((p) => p.category === category);
   }
 
-  function placeById(id: string) {
-    return (view?.destinations || []).find((p) => p.id === id);
+  function placeByKey(key: string) {
+    return allPlaces().find((place) => placeKey(place) === key);
+  }
+
+  function stopPoint(place: Place) {
+    return { x: place.x, y: place.y, floor: place.floorId || view?.floorId || '' };
   }
 
   function say(text: string) {
@@ -274,79 +349,46 @@
   }
 
   function stopAll() {
+    if (transferTimer) {
+      clearTimeout(transferTimer);
+      transferTimer = null;
+    }
     pendingModeAction = null;
+    pendingLegAdvance = false;
     simulating = false;
     walking = false;
     playbackPlaying = false;
     walkSeek = 0;
+    activeLegIndex = 0;
     viewer?.pauseRouteSimulation?.();
     viewer?.stopRouteSimulation?.();
     viewer?.exitNavWalk?.();
   }
 
-  async function planRoute() {
-    stopAll();
-    routePolyline = [];
-    routeDoorIds = [];
-    viewer?.clearNavRoute?.();
-    lengthCm = 0;
-    if (!view || !projectId) return;
-    const start = placeById(startId);
-    const end = placeById(endId);
-    const vias = waypoints.map(placeById).filter(Boolean) as Place[];
-    if (!start || !end) {
-      routeMessage = '选择起点和终点';
-      return;
-    }
-    if (start.id === end.id && !vias.length) {
-      routeMessage = '起终点相同';
-      return;
-    }
-    busy = true;
-    say('正在找路');
-    try {
-      const response = await fetch(`${apiOrigin}/api/projects/${projectId}/route`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          floor: view.floorId,
-          from: { x: start.x, y: start.y },
-          to: { x: end.x, y: end.y },
-          via: vias.map((p) => ({ x: p.x, y: p.y })),
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.ok) {
-        say(result.reason === 'off-plan' ? '点在可走的地方' : '走不过去');
-        routeMessage = '走不过去';
-        return;
-      }
-      routePolyline = result.polyline || [];
-      routeDoorIds = result.usedDoorIds || [];
-      lengthCm = result.lengthCm || 0;
-      const viaNote = vias.length ? ` · 经 ${vias.length} 个途经点` : '';
-      const label = metersLabel(lengthCm) + viaNote;
-      routeMessage = label;
-      say(label);
-      viewer?.setNavRoute?.(routePolyline, routeDoorIds);
-      drawPlan();
-    } catch {
-      say('找路失败');
-      routeMessage = '找路失败';
-    } finally {
-      busy = false;
-    }
+  function applyLeg(index: number) {
+    const leg = routeLegs[index];
+    if (!leg) return;
+    activeLegIndex = index;
+    routePolyline = leg.polyline || [];
+    routeDoorIds = leg.usedDoorIds || [];
+    walkSeek = 0;
+    viewer?.setNavRoute?.(routePolyline, routeDoorIds);
+    drawPlan();
   }
 
-  async function loadNav(floorId: string) {
-    stopAll();
-    routePolyline = [];
-    routeDoorIds = [];
-    viewer?.clearNavRoute?.();
-    waypoints = [];
-    startId = '';
-    endId = '';
-    say('正在打开');
+  async function loadNav(floorId: string, opts: { keepRoute?: boolean } = {}) {
+    if (!opts.keepRoute) {
+      stopAll();
+      routePolyline = [];
+      routeDoorIds = [];
+      routeLegs = [];
+      routeTransfers = [];
+      viewer?.clearNavRoute?.();
+      waypoints = [];
+      startId = '';
+      endId = '';
+      say('正在打开');
+    }
     const query = new URLSearchParams({ floor: floorId || '' });
     const response = await fetch(`${apiOrigin}/api/projects/${projectId}/nav.json?${query}`);
     if (!response.ok) {
@@ -363,9 +405,104 @@
       next.searchParams.set('floor', view.floorId);
       history.replaceState(null, '', next);
     }
-    say(view?.empty ? '这一层没有户型' : '选择起点和终点');
-    routeMessage = view?.empty ? '这一层没有户型' : '选择起点和终点';
+    if (!opts.keepRoute) {
+      say(view?.empty ? '这一层没有户型' : '选择起点和终点');
+      routeMessage = view?.empty ? '这一层没有户型' : '选择起点和终点';
+    }
     drawPlan();
+  }
+
+  async function advanceToLeg(index: number) {
+    const leg = routeLegs[index];
+    if (!leg) {
+      pendingLegAdvance = false;
+      say(walking ? '已到达终点' : '模拟导航已完成');
+      return;
+    }
+    if (view?.floorId !== leg.floorId) {
+      await loadNav(leg.floorId, { keepRoute: true });
+    }
+    applyLeg(index);
+    pendingLegAdvance = false;
+    mode = '3d';
+    pendingModeAction = walking ? 'walk' : 'simulate';
+    playbackPlaying = true;
+    say(walking ? `继续 ${leg.floorName || '这一层'}` : `继续模拟 ${leg.floorName || '这一层'}`);
+  }
+
+  async function planRoute() {
+    stopAll();
+    routePolyline = [];
+    routeDoorIds = [];
+    routeLegs = [];
+    routeTransfers = [];
+    viewer?.clearNavRoute?.();
+    lengthCm = 0;
+    if (!view || !projectId) return;
+    const start = placeByKey(startId);
+    const end = placeByKey(endId);
+    const vias = waypoints.map(placeByKey).filter(Boolean) as Place[];
+    if (!start || !end) {
+      routeMessage = '选择起点和终点';
+      return;
+    }
+    if (placeKey(start) === placeKey(end) && !vias.length) {
+      routeMessage = '起终点相同';
+      return;
+    }
+    busy = true;
+    say('正在找路');
+    try {
+      const response = await fetch(`${apiOrigin}/api/projects/${projectId}/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          floor: start.floorId || view.floorId,
+          from: stopPoint(start),
+          to: stopPoint(end),
+          via: vias.map(stopPoint),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) {
+        const reasons: Record<string, string> = {
+          'off-plan': '点在可走的地方',
+          'no-link': '没有电梯或楼梯连通',
+          blocked: '走不过去',
+          empty: '这一层没有户型',
+        };
+        say(reasons[result.reason] || '走不过去');
+        routeMessage = reasons[result.reason] || '走不过去';
+        return;
+      }
+      routeLegs = (result.legs || []).filter((leg: RouteLeg) => (leg.polyline || []).length > 1);
+      if (!routeLegs.length && result.polyline?.length > 1) {
+        routeLegs = [{
+          floorId: result.floorId || start.floorId || view.floorId,
+          floorName: view.floorName || view.floorId,
+          lengthCm: result.lengthCm || 0,
+          polyline: result.polyline,
+          usedDoorIds: result.usedDoorIds || [],
+        }];
+      }
+      routeTransfers = result.transfers || [];
+      lengthCm = result.lengthCm || 0;
+      const viaNote = vias.length ? ` · 经 ${vias.length} 个途经点` : '';
+      const crossNote = result.crossFloor ? ` · ${routeLegs.length} 段跨层` : '';
+      const label = metersLabel(lengthCm) + viaNote + crossNote;
+      routeMessage = label;
+      say(label);
+      const firstFloor = routeLegs[0]?.floorId;
+      if (firstFloor && view.floorId !== firstFloor) {
+        await loadNav(firstFloor, { keepRoute: true });
+      }
+      applyLeg(0);
+    } catch {
+      say('找路失败');
+      routeMessage = '找路失败';
+    } finally {
+      busy = false;
+    }
   }
 
   function onPlanClick(event: MouseEvent) {
@@ -386,7 +523,12 @@
     const my = (py - oy) / scale;
     let best: Place | null = null;
     let bestD = 18 / scale;
-    for (const place of view.destinations || []) {
+    const candidates = (view.destinations || []).map((place) => ({
+      ...place,
+      floorId: place.floorId || view!.floorId,
+      floorName: place.floorName || view!.floors?.find((f) => f.id === view!.floorId)?.name || view!.floorId,
+    }));
+    for (const place of candidates) {
       const d = Math.hypot(place.x - mx, place.y - my);
       if (d < bestD) {
         bestD = d;
@@ -394,8 +536,9 @@
       }
     }
     if (!best) return;
-    if (!startId) startId = best.id;
-    else endId = best.id;
+    const key = placeKey(best);
+    if (!startId) startId = key;
+    else endId = key;
     void planRoute();
   }
 
@@ -485,8 +628,8 @@
           <label class="route-stop"><span class="dot start-dot"></span>从
             <select bind:value={startId} aria-label="起点" onchange={() => planRoute()}>
               <option value="">选择</option>
-              {#each view?.destinations || [] as place}
-                <option value={place.id}>{place.name || place.id}</option>
+              {#each allPlaces() as place}
+                <option value={placeKey(place)}>{placeLabel(place)}</option>
               {/each}
             </select>
           </label>
@@ -499,8 +642,8 @@
                   onchange={() => planRoute()}
                 >
                   <option value="">选择</option>
-                  {#each view?.destinations || [] as place}
-                    <option value={place.id}>{place.name || place.id}</option>
+                  {#each allPlaces() as place}
+                    <option value={placeKey(place)}>{placeLabel(place)}</option>
                   {/each}
                 </select>
                 <button type="button" class="remove" onclick={() => { waypoints = waypoints.filter((_, i) => i !== index); planRoute(); }}>×</button>
@@ -516,8 +659,8 @@
           <label class="route-stop"><span class="dot end-dot"></span>到
             <select bind:value={endId} aria-label="终点" onchange={() => planRoute()}>
               <option value="">选择</option>
-              {#each view?.destinations || [] as place}
-                <option value={place.id}>{place.name || place.id}</option>
+              {#each allPlaces() as place}
+                <option value={placeKey(place)}>{placeLabel(place)}</option>
               {/each}
             </select>
           </label>
@@ -628,13 +771,14 @@
               type="button"
               class="place"
               onclick={() => {
-                if (!startId) startId = place.id;
-                else endId = place.id;
+                const key = placeKey(place);
+                if (!startId) startId = key;
+                else endId = key;
                 void planRoute();
               }}
             >
               <span class="swatch" style="background:{place.color || '#dce8df'}"></span>
-              <span>{place.name || place.id}</span>
+              <span>{placeLabel(place)}</span>
             </button>
           {/each}
         </div>
