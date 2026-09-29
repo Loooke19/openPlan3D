@@ -336,6 +336,7 @@
       }
     }
     for (const place of filteredPlaces()) {
+      if ((place.floorId || view.floorId) !== view.floorId) continue;
       const [x, y] = toScreen(place.x, place.y);
       ctx.fillStyle = place.color || '#dce8df';
       ctx.strokeStyle = '#fff';
