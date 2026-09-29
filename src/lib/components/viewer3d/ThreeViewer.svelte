@@ -2066,25 +2066,43 @@
       // Floating room label using sprite
       const centroid = roomLabelPosition(room, poly, holes[ri]);
       const canvas = document.createElement('canvas');
-      canvas.width = 256; canvas.height = 64;
       const ctx2 = canvas.getContext('2d')!;
-      ctx2.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx2.roundRect(0, 0, 256, 64, 8);
-      ctx2.fill();
-      ctx2.fillStyle = room.labelColor || '#ffffff';
-      ctx2.font = 'bold 22px sans-serif';
-      ctx2.textAlign = 'center';
-      ctx2.fillText(room.name, 128, 26);
-      ctx2.font = '16px sans-serif';
-      ctx2.fillStyle = '#d1d5db';
-      ctx2.fillText(formatArea(room.area, get(projectSettings).units), 128, 50);
+      const labelScale = roomLabelFontSize(room) / 13;
+      if (navShell) {
+        // Nav wayfinding: dark name + white stroke, no area, no bubble.
+        canvas.width = 256; canvas.height = 48;
+        ctx2.clearRect(0, 0, 256, 48);
+        const labelFont =
+          'bold 22px "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif';
+        ctx2.font = labelFont;
+        ctx2.textAlign = 'center';
+        ctx2.textBaseline = 'middle';
+        ctx2.lineJoin = 'round';
+        ctx2.miterLimit = 2;
+        ctx2.lineWidth = 5;
+        ctx2.strokeStyle = '#ffffff';
+        ctx2.strokeText(room.name, 128, 24);
+        ctx2.fillStyle = '#222222';
+        ctx2.fillText(room.name, 128, 24);
+      } else {
+        canvas.width = 256; canvas.height = 64;
+        ctx2.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx2.roundRect(0, 0, 256, 64, 8);
+        ctx2.fill();
+        ctx2.fillStyle = room.labelColor || '#ffffff';
+        ctx2.font = 'bold 22px sans-serif';
+        ctx2.textAlign = 'center';
+        ctx2.fillText(room.name, 128, 26);
+        ctx2.font = '16px sans-serif';
+        ctx2.fillStyle = '#d1d5db';
+        ctx2.fillText(formatArea(room.area, get(projectSettings).units), 128, 50);
+      }
 
       const tex = ownTexture(new THREE.CanvasTexture(canvas));
       const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
       const sprite = new THREE.Sprite(spriteMat);
-      const labelScale = roomLabelFontSize(room) / 13;
       sprite.position.set(centroid.x, 30, centroid.y);
-      sprite.scale.set(150 * labelScale, 40 * labelScale, 1);
+      sprite.scale.set(150 * labelScale, (navShell ? 30 : 40) * labelScale, 1);
       wallGroup.add(sprite);
 
       // A flat ceiling is valid only when this room's boundary has one height.
