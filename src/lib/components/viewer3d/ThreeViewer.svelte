@@ -21,7 +21,12 @@
   import { createSlopedBoxGeometry } from '$lib/utils/slopedWallGeometry';
   import { buildWallSegments, roomCeilingHeight, wallProfileSpans, wallPathProfile, pathOpening, doorPanelPose } from '$lib/utils/wallProfiles';
   import { assembleFloorStack } from '$lib/utils/floorStack';
-  import { setFloorCameraPose } from '$lib/utils/floorCamera';
+  import {
+    applyOrbitRelativeToFloor,
+    captureOrbitRelativeToFloor,
+    setFloorCameraPose,
+    type RelativeOrbitView,
+  } from '$lib/utils/floorCamera';
   import { frameScene } from '$lib/utils/frameScene';
   import { updateOrbitDamping } from '$lib/utils/orbitDamping';
   import { portableRenderSceneJSON } from '$lib/utils/portableRenderScene';
@@ -694,6 +699,30 @@
   /** Public alias for nav shell. */
   export function exitNavWalk() {
     exitWalkthroughMode();
+  }
+
+  /** Dev/nav test hook: orbit pose for floor-switch camera checks. */
+  export function getOrbitSnapshot() {
+    if (!camera || !controls) return null;
+    return {
+      position: camera.position.toArray() as [number, number, number],
+      target: controls.target.toArray() as [number, number, number],
+      radius: camera.position.distanceTo(controls.target),
+    };
+  }
+
+  /** Apply a deliberate orbit offset (rotate + zoom) without remounting. */
+  export function nudgeOrbitForTest(opts: { azimuth?: number; polar?: number; radiusScale?: number } = {}) {
+    if (!camera || !controls) return null;
+    const offset = camera.position.clone().sub(controls.target);
+    const spherical = new THREE.Spherical().setFromVector3(offset);
+    if (opts.azimuth != null) spherical.theta += opts.azimuth;
+    if (opts.polar != null) spherical.phi = Math.min(Math.PI / 2.05, Math.max(0.05, spherical.phi + opts.polar));
+    if (opts.radiusScale != null) spherical.radius *= opts.radiusScale;
+    camera.position.copy(controls.target).add(offset.setFromSpherical(spherical));
+    controls.update();
+    markSceneDirty();
+    return getOrbitSnapshot();
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -2112,7 +2141,6 @@
     buildColumns(floor);
 
     applyWallTransparency();
-    autoCenterCamera();
   }
 
   /** Build all floors stacked vertically in 3D */
@@ -2136,7 +2164,6 @@
     floorPlane.constant = -activeFloorElevation;
     // Keep the presentation ground below basements as well as above-ground floors.
     sceneGround.position.y = Math.min(0, ...entries.map(entry => entry.yOffset)) - 40;
-    autoCenterCamera();
   }
 
   function addFloorLabel(name: string, yOffset: number, labelX: number, labelZ: number) {
@@ -2253,6 +2280,12 @@
     if (!force && signature === renderedSignature) return;
     const walkingPosition = walkthroughMode ? camera.position.clone() : null;
     const walkingRotation = walkthroughMode ? camera.quaternion.clone() : null;
+    // Keep orbit zoom/rotation across floor rebuilds. World coords alone fly off
+    // when CAD floors do not share a plan origin — store pose relative to bbox center.
+    let preservedOrbit: RelativeOrbitView | null = null;
+    if (!walkthroughMode && renderedSignature && wallGroup?.children.length) {
+      preservedOrbit = captureOrbitRelativeToFloor(wallGroup, camera, controls.target);
+    }
     if (showAllFloors) {
       buildAllFloorsStacked();
     } else if (currentFloor) {
@@ -2267,6 +2300,11 @@
       camera.position.copy(walkingPosition);
       camera.position.y = activeFloorElevation + eyeHeight;
       camera.quaternion.copy(walkingRotation);
+    } else if (preservedOrbit) {
+      applyOrbitRelativeToFloor(wallGroup, camera, controls.target, preservedOrbit);
+      controls.update();
+    } else {
+      autoCenterCamera();
     }
     if (cameraPlaced) {
       updateInteriorCamera();
@@ -2454,6 +2492,10 @@
     init();
     viewerMounted = true;
     markSceneDirty();
+    (window as unknown as { __openPlan3dOrbit?: { get: typeof getOrbitSnapshot; nudge: typeof nudgeOrbitForTest } }).__openPlan3dOrbit = {
+      get: getOrbitSnapshot,
+      nudge: nudgeOrbitForTest,
+    };
 
     // Rebuild 3D scene when photo textures finish loading
     const stopTextures = setTextureLoadCallback(() => {
@@ -2484,6 +2526,7 @@
     });
 
     return () => {
+      delete (window as unknown as { __openPlan3dOrbit?: unknown }).__openPlan3dOrbit;
       viewerMounted = false;
       cancelAIRender();
       stopAISettings();
