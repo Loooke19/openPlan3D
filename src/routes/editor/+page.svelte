@@ -14,6 +14,7 @@
   import { autoSave, markClean, saveState } from '$lib/stores/saveStatus';
   import { createProjectFromRoomPlan, isRoomPlanJson } from '$lib/utils/roomplanImport';
   import { readProject } from '$lib/utils/projectValidation';
+  import { rememberImportOrigin } from '$lib/utils/importOrigin';
   import TopBar from '$lib/components/toolbar/TopBar.svelte';
   import BuildPanel from '$lib/components/sidebar/BuildPanel.svelte';
   import PropertiesPanel from '$lib/components/sidebar/PropertiesPanel.svelte';
@@ -159,6 +160,7 @@
         loadProject(project);
         markClean();
         try { await autoSave(); } catch { /* quota or storage; project stays in memory */ }
+        rememberImportOrigin(projectUrl);
         replaceState(`${base}/editor?id=${encodeURIComponent(project.id)}`, page.state);
         ready = true;
         return;

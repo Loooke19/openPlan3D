@@ -20,6 +20,7 @@
   import CustomModelPanel from './CustomModelPanel.svelte';
   import { createProjectFromRoomPlan, extractRoomJsonFromZip, roomPlanImportOptions, validateRoomPlan, ORTHO_VERSION } from '$lib/utils/roomplanImport';
   import { currentProject } from '$lib/stores/project';
+  import { importOrigin } from '$lib/utils/importOrigin';
 
   const openingLifetime = new AbortController();
   onDestroy(() => openingLifetime.abort());
@@ -211,20 +212,6 @@
     placingColumnShape.set(shape);
     selectedTool.set('select');
     placingFurnitureId.set(null);
-  }
-
-  // The import service that opened this editor (its ?projectUrl) takes the drawing.
-  function importOrigin(): string {
-    const params = new URL(window.location.href).searchParams;
-    for (const value of [params.get('projectUrl'), params.get('apiOrigin')]) {
-      if (!value) continue;
-      try {
-        return new URL(value).origin;
-      } catch {
-        // Ignore malformed values and fall through.
-      }
-    }
-    return (import.meta.env.VITE_IMPORT_ORIGIN || 'http://127.0.0.1:8882').replace(/\/$/, '');
   }
 
   function onImportDrawing() {
