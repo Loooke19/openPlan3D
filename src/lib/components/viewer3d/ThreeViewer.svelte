@@ -701,6 +701,30 @@
     exitWalkthroughMode();
   }
 
+  /** Dev/nav test hook: orbit pose for floor-switch camera checks. */
+  export function getOrbitSnapshot() {
+    if (!camera || !controls) return null;
+    return {
+      position: camera.position.toArray() as [number, number, number],
+      target: controls.target.toArray() as [number, number, number],
+      radius: camera.position.distanceTo(controls.target),
+    };
+  }
+
+  /** Apply a deliberate orbit offset (rotate + zoom) without remounting. */
+  export function nudgeOrbitForTest(opts: { azimuth?: number; polar?: number; radiusScale?: number } = {}) {
+    if (!camera || !controls) return null;
+    const offset = camera.position.clone().sub(controls.target);
+    const spherical = new THREE.Spherical().setFromVector3(offset);
+    if (opts.azimuth != null) spherical.theta += opts.azimuth;
+    if (opts.polar != null) spherical.phi = Math.min(Math.PI / 2.05, Math.max(0.05, spherical.phi + opts.polar));
+    if (opts.radiusScale != null) spherical.radius *= opts.radiusScale;
+    camera.position.copy(controls.target).add(offset.setFromSpherical(spherical));
+    controls.update();
+    markSceneDirty();
+    return getOrbitSnapshot();
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     if (hasOpenModal()) return;
     // ESC exits edit mode
@@ -2468,6 +2492,10 @@
     init();
     viewerMounted = true;
     markSceneDirty();
+    (window as unknown as { __openPlan3dOrbit?: { get: typeof getOrbitSnapshot; nudge: typeof nudgeOrbitForTest } }).__openPlan3dOrbit = {
+      get: getOrbitSnapshot,
+      nudge: nudgeOrbitForTest,
+    };
 
     // Rebuild 3D scene when photo textures finish loading
     const stopTextures = setTextureLoadCallback(() => {
@@ -2498,6 +2526,7 @@
     });
 
     return () => {
+      delete (window as unknown as { __openPlan3dOrbit?: unknown }).__openPlan3dOrbit;
       viewerMounted = false;
       cancelAIRender();
       stopAISettings();
