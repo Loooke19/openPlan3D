@@ -1578,25 +1578,45 @@
     doorAnimationRaf = requestAnimationFrame(tick);
   }
 
-  function addNavDoorLeaf(doorId: string, hinge: Point, width: number, height: number, angle: number, hingeSide: number, face: number) {
+  function addNavDoorLeaf(doorId: string, hinge: Point, width: number, height: number, angle: number, hingeSide: number, face: number, wallThickness: number) {
     const pivot = new THREE.Group();
-    pivot.position.set(hinge.x - Math.sin(angle) * face * 2, 0, hinge.y + Math.cos(angle) * face * 2);
+    // Park the slab just outside the swing-side wall face so thickness faces
+    // never share volume with full-depth jambs (coplanar z-fight → vertical stripes).
+    const panelDepth = 6;
+    const faceClear = wallThickness / 2 + panelDepth / 2 + 1;
+    pivot.position.set(hinge.x - Math.sin(angle) * face * faceClear, 0, hinge.y + Math.cos(angle) * face * faceClear);
     const closedYaw = -(angle + (hingeSide === 1 ? Math.PI : 0));
     const openYaw = closedYaw + hingeSide * face * Math.PI / 2;
     pivot.rotation.y = activeRouteDoorIds.has(doorId) ? openYaw : closedYaw;
 
-    const panelGeo = new THREE.BoxGeometry(Math.max(2, width - 2), height - 4, 4);
-    panelGeo.translate(width / 2 - 1, 0, 0);
-    const panel = new THREE.Mesh(panelGeo, new THREE.MeshStandardMaterial({ color: 0x8B6914, roughness: 0.5 }));
+    // Inset past in-opening jambs so leaf side faces are not coplanar with jambs.
+    const edgeClear = 7;
+    const panelWidth = Math.max(2, width - edgeClear * 2);
+    const panelGeo = new THREE.BoxGeometry(panelWidth, height - 4, panelDepth);
+    panelGeo.translate(edgeClear + panelWidth / 2, 0, 0);
+    const panel = new THREE.Mesh(
+      panelGeo,
+      new THREE.MeshStandardMaterial({
+        color: 0x8B6914,
+        roughness: 0.55,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
+    );
     panel.position.y = height / 2 - 2;
-    panel.castShadow = true;
+    // Shadows on thin door edges read as fine vertical stripes in first-person.
+    panel.castShadow = false;
+    panel.receiveShadow = false;
+    panel.renderOrder = 2;
     pivot.add(panel);
 
     const handle = new THREE.Mesh(
       new THREE.SphereGeometry(3, 8, 8),
       new THREE.MeshStandardMaterial({ color: 0xc0c0c0, metalness: 0.8, roughness: 0.2 }),
     );
-    handle.position.set(Math.max(8, width - 12), Math.min(100, height * 0.5), 3);
+    handle.position.set(Math.max(8, width - 12), Math.min(100, height * 0.5), panelDepth / 2 + 1);
+    handle.castShadow = false;
     pivot.add(handle);
     wallGroup.add(pivot);
     navDoorLeaves.push({ doorId, pivot, closedYaw, openYaw });
@@ -1615,7 +1635,8 @@
       mesh.position.set(center.x, (rect.bottom + rect.top) / 2, center.y);
       mesh.rotation.y = -Math.atan2(span.end.y - span.start.y, span.end.x - span.start.x);
       mesh.userData.renderExclude = excludeFromRender;
-      mesh.castShadow = !excludeFromRender;
+      // Nav FPS: shadow acne on thin jamb edges shows as fine vertical stripes.
+      mesh.castShadow = !excludeFromRender && !navShell;
       wallGroup.add(mesh);
     }
   }
@@ -1822,14 +1843,24 @@
       const angle = Math.atan2(right.y - left.y, right.x - left.x);
       const wt = Math.max(wall.thickness, WALL_THICKNESS);
 
-      const frameMat = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.6 });
+      const frameMat = new THREE.MeshStandardMaterial({
+        color: 0x6b4423,
+        roughness: 0.6,
+        // Keep jamb faces from z-fighting wall end-caps at the opening edge.
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      });
       const doorHeight = opening.top;
       const jamb = 5; // jamb thickness
+      // Pull jambs into the opening so their faces are not coplanar with wall end-caps
+      // (that coplanar pair showed as fine vertical stripes in first-person).
+      const jambClear = 1;
 
       // Clip jambs and header too when an opening reaches the wall profile.
-      addOpeningFrame(wall, (opening.left - jamb / 2) / length, jamb, 0, doorHeight, wt + 2, frameMat);
-      addOpeningFrame(wall, (opening.right + jamb / 2) / length, jamb, 0, doorHeight, wt + 2, frameMat);
-      addOpeningFrame(wall, t, opening.right - opening.left + jamb * 2, doorHeight, jamb, wt + 2, frameMat);
+      addOpeningFrame(wall, (opening.left + jamb / 2 + jambClear) / length, jamb, 0, doorHeight, wt, frameMat);
+      addOpeningFrame(wall, (opening.right - jamb / 2 - jambClear) / length, jamb, 0, doorHeight, wt, frameMat);
+      addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - jambClear * 2), doorHeight, jamb, wt, frameMat);
 
       if (door.type === 'opening') {
         // Plain doorway — jambs and header only, no door leaf
@@ -1851,11 +1882,11 @@
         if (navShell) {
           const face = door.flipSide ? -1 : 1;
           if (door.type === 'double' || door.type === 'french') {
-            addNavDoorLeaf(door.id, left, door.width / 2, doorHeight, angle, -1, face);
-            addNavDoorLeaf(door.id, right, door.width / 2, doorHeight, angle, 1, face);
+            addNavDoorLeaf(door.id, left, door.width / 2, doorHeight, angle, -1, face, wt);
+            addNavDoorLeaf(door.id, right, door.width / 2, doorHeight, angle, 1, face, wt);
           } else {
             const hingeSide = door.swingDirection === 'left' ? 1 : -1;
-            addNavDoorLeaf(door.id, hingeSide === 1 ? right : left, door.width, doorHeight, angle, hingeSide, face);
+            addNavDoorLeaf(door.id, hingeSide === 1 ? right : left, door.width, doorHeight, angle, hingeSide, face, wt);
           }
           continue;
         }
