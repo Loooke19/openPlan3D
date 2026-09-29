@@ -2070,20 +2070,22 @@
       const labelScale = roomLabelFontSize(room) / 13;
       if (navShell) {
         // Nav wayfinding: dark name + white stroke, no area, no bubble.
-        canvas.width = 256; canvas.height = 48;
-        ctx2.clearRect(0, 0, 256, 48);
+        // Canvas font/stroke are 2× the original 22px/5px so room names stay
+        // readable at overview zoom; sprite world size scales with them.
+        canvas.width = 512; canvas.height = 96;
+        ctx2.clearRect(0, 0, 512, 96);
         const labelFont =
-          'bold 22px "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif';
+          'bold 44px "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif';
         ctx2.font = labelFont;
         ctx2.textAlign = 'center';
         ctx2.textBaseline = 'middle';
         ctx2.lineJoin = 'round';
         ctx2.miterLimit = 2;
-        ctx2.lineWidth = 5;
+        ctx2.lineWidth = 10;
         ctx2.strokeStyle = '#ffffff';
-        ctx2.strokeText(room.name, 128, 24);
+        ctx2.strokeText(room.name, 256, 48);
         ctx2.fillStyle = '#222222';
-        ctx2.fillText(room.name, 128, 24);
+        ctx2.fillText(room.name, 256, 48);
       } else {
         canvas.width = 256; canvas.height = 64;
         ctx2.fillStyle = 'rgba(0,0,0,0.6)';
@@ -2099,10 +2101,16 @@
       }
 
       const tex = ownTexture(new THREE.CanvasTexture(canvas));
-      const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+      const spriteMat = new THREE.SpriteMaterial({
+        map: tex,
+        transparent: true,
+        depthTest: !navShell,
+        depthWrite: false,
+      });
       const sprite = new THREE.Sprite(spriteMat);
       sprite.position.set(centroid.x, 30, centroid.y);
-      sprite.scale.set(150 * labelScale, (navShell ? 30 : 40) * labelScale, 1);
+      sprite.renderOrder = navShell ? 10 : 0;
+      sprite.scale.set((navShell ? 300 : 150) * labelScale, (navShell ? 60 : 40) * labelScale, 1);
       wallGroup.add(sprite);
 
       // A flat ceiling is valid only when this room's boundary has one height.
