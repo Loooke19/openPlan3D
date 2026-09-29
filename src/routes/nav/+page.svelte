@@ -33,6 +33,21 @@
   let restoredViewer: any = null;
   let planCanvas: HTMLCanvasElement | undefined = $state();
   let transferTimer: ReturnType<typeof setTimeout> | null = null;
+  let transferNotice = $state('');
+  let legAdvanceToken = 0;
+  let accessible = $state(false);
+  let linkKind = $state('elevator');
+  let linkName = $state('');
+  let linkFrom = $state('');
+  let linkTo = $state('');
+  let linkBusy = $state(false);
+  let linkMessage = $state('');
+
+  const LINK_KINDS = [
+    ['elevator', '电梯'],
+    ['stairs', '楼梯'],
+    ['escalator', '扶梯'],
+  ];
 
   type Place = {
     id: string;
@@ -60,6 +75,17 @@
     toFloorId?: string;
     fromFloorName?: string;
     toFloorName?: string;
+    from?: { x: number; y: number };
+    to?: { x: number; y: number };
+  };
+  type LinkStop = { floorId: string; floorName?: string; placeId?: string; name?: string; x: number; y: number };
+  type VerticalLink = {
+    id: string;
+    kind: string;
+    kindLabel?: string;
+    name: string;
+    source?: 'auto' | 'manual';
+    stops: LinkStop[];
   };
   type NavRoom = {
     id: string;
@@ -73,7 +99,7 @@
     floors?: { id: string; name: string }[];
     destinations?: Place[];
     places?: Place[];
-    verticalLinks?: { id: string; kind: string; name: string }[];
+    verticalLinks?: VerticalLink[];
     walls?: { start: { x: number; y: number }; end: { x: number; y: number }; thickness?: number }[];
     rooms?: NavRoom[];
     openings?: any[];
@@ -137,18 +163,18 @@
       ? `乘${transfer.kindLabel || '电梯'}到 ${transfer.toFloorName || next?.floorName || '下一层'}`
       : `换到 ${next?.floorName || '下一层'}`;
     say(tip);
+    transferNotice = tip;
     pendingLegAdvance = true;
     if (transferTimer) clearTimeout(transferTimer);
     transferTimer = setTimeout(() => {
       transferTimer = null;
       void advanceToLeg(activeLegIndex + 1);
-    }, 450);
+    }, Math.max(450, 1200 / (Number(walkSpeed) || 1)));
   }
 
   function handleNavWalkExit() {
     walking = false;
     playbackPlaying = false;
-    pendingLegAdvance = false;
   }
 
   function metersLabel(cm: number) {
@@ -180,6 +206,18 @@
     const list = allPlaces();
     if (category === 'all') return list;
     return list.filter((p) => p.category === category);
+  }
+
+  function placesOnFloor(floorId: string): Place[] {
+    return allPlaces().filter((place) => place.floorId === floorId);
+  }
+
+  function multiFloor() {
+    return (view?.floors?.length || 0) > 1;
+  }
+
+  function transferAfter(index: number) {
+    return routeTransfers.find((item) => item.afterLeg === index);
   }
 
   function placeByKey(key: string) {
@@ -333,7 +371,7 @@
         }
       }
     }
-    for (const place of filteredPlaces()) {
+    for (const place of filteredPlaces().filter((item) => item.floorId === view!.floorId)) {
       const [x, y] = toScreen(place.x, place.y);
       ctx.fillStyle = place.color || '#dce8df';
       ctx.strokeStyle = '#fff';
@@ -346,15 +384,47 @@
       ctx.font = '12px system-ui, sans-serif';
       ctx.fillText(place.name || place.id, x + 8, y + 4);
     }
+    for (const transfer of routeTransfers) {
+      const ends = [
+        transfer.fromFloorId === view.floorId && transfer.from
+          ? { at: transfer.from, text: `${transfer.kindLabel || '电梯'} → ${transfer.toFloorName || ''}` }
+          : null,
+        transfer.toFloorId === view.floorId && transfer.to
+          ? { at: transfer.to, text: `${transfer.fromFloorName || ''} ${transfer.kindLabel || '电梯'}到达` }
+          : null,
+      ];
+      for (const end of ends) {
+        if (!end) continue;
+        const [x, y] = toScreen(end.at.x, end.at.y);
+        ctx.fillStyle = '#0f3d7a';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(x - 8, y - 8, 16, 16, 3);
+        ctx.fill();
+        ctx.stroke();
+        ctx.font = '600 12px system-ui, sans-serif';
+        const label = end.text.trim();
+        const w = ctx.measureText(label).width + 10;
+        ctx.fillStyle = 'rgba(15, 61, 122, 0.92)';
+        ctx.beginPath();
+        ctx.roundRect(x + 12, y - 11, w, 20, 3);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, x + 17, y + 3);
+      }
+    }
   }
 
   function stopAll() {
+    legAdvanceToken += 1;
     if (transferTimer) {
       clearTimeout(transferTimer);
       transferTimer = null;
     }
     pendingModeAction = null;
     pendingLegAdvance = false;
+    transferNotice = '';
     simulating = false;
     walking = false;
     playbackPlaying = false;
@@ -414,20 +484,27 @@
 
   async function advanceToLeg(index: number) {
     const leg = routeLegs[index];
+    // Switching floors exits first-person in the viewer, which clears `walking`.
+    const firstPerson = walking;
     if (!leg) {
       pendingLegAdvance = false;
-      say(walking ? '已到达终点' : '模拟导航已完成');
+      say(firstPerson ? '已到达终点' : '模拟导航已完成');
       return;
     }
+    const token = legAdvanceToken;
     if (view?.floorId !== leg.floorId) {
       await loadNav(leg.floorId, { keepRoute: true });
     }
+    if (token !== legAdvanceToken) return;
     applyLeg(index);
     pendingLegAdvance = false;
+    transferNotice = '';
     mode = '3d';
-    pendingModeAction = walking ? 'walk' : 'simulate';
+    walking = firstPerson;
+    simulating = !firstPerson;
+    pendingModeAction = firstPerson ? 'walk' : 'simulate';
     playbackPlaying = true;
-    say(walking ? `继续 ${leg.floorName || '这一层'}` : `继续模拟 ${leg.floorName || '这一层'}`);
+    say(firstPerson ? `继续 ${leg.floorName || '这一层'}` : `继续模拟 ${leg.floorName || '这一层'}`);
   }
 
   async function planRoute() {
@@ -461,6 +538,7 @@
           from: stopPoint(start),
           to: stopPoint(end),
           via: vias.map(stopPoint),
+          accessible,
         }),
       });
       const result = await response.json();
@@ -502,6 +580,99 @@
       routeMessage = '找路失败';
     } finally {
       busy = false;
+    }
+  }
+
+  async function showFloor(floorId: string) {
+    stopAll();
+    await loadNav(floorId, { keepRoute: true });
+    const index = routeLegs.findIndex((leg) => leg.floorId === floorId);
+    if (index >= 0) {
+      applyLeg(index);
+      return;
+    }
+    routePolyline = [];
+    routeDoorIds = [];
+    viewer?.clearNavRoute?.();
+    drawPlan();
+  }
+
+  async function showLeg(index: number) {
+    const leg = routeLegs[index];
+    if (!leg) return;
+    stopAll();
+    if (view?.floorId !== leg.floorId) await loadNav(leg.floorId, { keepRoute: true });
+    applyLeg(index);
+  }
+
+  const LINK_ERRORS: Record<string, string> = {
+    floor: '两端要在不同楼层',
+    stops: '选好两端',
+    stop: '选好两端',
+    kind: '类型不对',
+    full: '连通太多了',
+  };
+
+  async function afterLinksChanged(message: string) {
+    linkMessage = message;
+    await loadNav(view?.floorId || '', { keepRoute: true });
+    if (startId && endId) await planRoute();
+  }
+
+  async function addLink() {
+    const from = placeByKey(linkFrom);
+    const to = placeByKey(linkTo);
+    if (!from || !to) {
+      linkMessage = '选好两端';
+      return;
+    }
+    if (from.floorId === to.floorId) {
+      linkMessage = '两端要在不同楼层';
+      return;
+    }
+    linkBusy = true;
+    try {
+      const response = await fetch(`${apiOrigin}/api/projects/${projectId}/vertical-links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: linkKind,
+          name: linkName,
+          stops: [from, to].map((place) => ({ floorId: place.floorId, roomId: place.id, x: place.x, y: place.y })),
+        }),
+      });
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => ({})))?.detail;
+        linkMessage = LINK_ERRORS[detail] || '没有连上';
+        return;
+      }
+      linkName = '';
+      linkFrom = '';
+      linkTo = '';
+      await afterLinksChanged(`已连通 ${placeLabel(from)} ⇄ ${placeLabel(to)}`);
+    } catch {
+      linkMessage = '没有连上';
+    } finally {
+      linkBusy = false;
+    }
+  }
+
+  async function removeLink(link: VerticalLink) {
+    linkBusy = true;
+    try {
+      const response = await fetch(
+        `${apiOrigin}/api/projects/${projectId}/vertical-links/${encodeURIComponent(link.id)}`,
+        { method: 'DELETE' },
+      );
+      if (!response.ok) {
+        linkMessage = '没有删掉';
+        return;
+      }
+      await afterLinksChanged(`已删除 ${link.name}`);
+    } catch {
+      linkMessage = '没有删掉';
+    } finally {
+      linkBusy = false;
     }
   }
 
@@ -594,7 +765,7 @@
           <select
             aria-label="楼层"
             value={view?.floorId || ''}
-            onchange={(e) => loadNav((e.currentTarget as HTMLSelectElement).value)}
+            onchange={(e) => showFloor((e.currentTarget as HTMLSelectElement).value)}
           >
             {#each view?.floors || [] as floor}
               <option value={floor.id}>{floor.name}</option>
@@ -622,6 +793,9 @@
             <ThreeViewer bind:this={viewer} navShell={true} routePolyline={routePolyline} routeDoorIds={routeDoorIds} onRouteProgress={handleRouteProgress} onNavWalkExit={handleNavWalkExit} />
           {/if}
         </div>
+        {#if transferNotice}
+          <div class="transfer-notice" role="status">{transferNotice}</div>
+        {/if}
       </div>
       <aside class="side">
         <div class="route-stops">
@@ -664,6 +838,12 @@
               {/each}
             </select>
           </label>
+          {#if multiFloor()}
+            <label class="accessible">
+              <input type="checkbox" bind:checked={accessible} onchange={() => planRoute()} />
+              只乘电梯（无障碍）
+            </label>
+          {/if}
         </div>
         <div class="walk-row">
           <button
@@ -748,6 +928,27 @@
           </label>
         </div>
         <p class="route-message">{routeMessage}</p>
+        {#if routeLegs.length > 1}
+          <ol class="itinerary" aria-label="分段">
+            {#each routeLegs as leg, index}
+              <li>
+                <button
+                  type="button"
+                  class:is-active={index === activeLegIndex}
+                  aria-pressed={index === activeLegIndex}
+                  onclick={() => showLeg(index)}
+                >
+                  <span>{index + 1}. {leg.floorName || leg.floorId}</span>
+                  <span class="leg-length">{metersLabel(leg.lengthCm || 0)}</span>
+                </button>
+              </li>
+              {#if transferAfter(index)}
+                {@const ride = transferAfter(index)!}
+                <li class="ride">乘{ride.kindLabel || '电梯'}「{ride.name}」{ride.fromFloorName} → {ride.toFloorName}</li>
+              {/if}
+            {/each}
+          </ol>
+        {/if}
         <nav class="facility-bar" aria-label="设施">
           {#each [
             ['all', '全部'],
@@ -782,6 +983,51 @@
             </button>
           {/each}
         </div>
+        {#if multiFloor()}
+          <details class="links">
+            <summary>上下层连通 · {view?.verticalLinks?.length || 0}</summary>
+            {#each view?.verticalLinks || [] as link (link.id)}
+              <div class="link-row">
+                <span class="link-kind">{link.kindLabel || link.kind}</span>
+                <span class="link-text">
+                  <strong>{link.name}</strong>
+                  <span>{link.stops.map((stop) => `${stop.floorName || stop.floorId} ${stop.name || ''}`.trim()).join(' ⇄ ')}</span>
+                </span>
+                {#if link.source === 'manual'}
+                  <button type="button" class="remove" aria-label={`删除 ${link.name}`} disabled={linkBusy} onclick={() => removeLink(link)}>×</button>
+                {:else}
+                  <span class="link-auto" title="同名的电梯 / 楼梯房间自动配对">自动</span>
+                {/if}
+              </div>
+            {:else}
+              <p class="hint">还没有连通。把两层的房间都命名为「电梯」或「楼梯」会自动配对，也可以在下面手动连。</p>
+            {/each}
+            <form class="link-form" onsubmit={(event) => { event.preventDefault(); void addLink(); }}>
+              <div class="link-form-row">
+                <select bind:value={linkKind} aria-label="连通类型">
+                  {#each LINK_KINDS as [id, label]}
+                    <option value={id}>{label}</option>
+                  {/each}
+                </select>
+                <input bind:value={linkName} placeholder="名称（可空）" aria-label="连通名称" maxlength="40" />
+              </div>
+              {#snippet placeOptions(label: string)}
+                <option value="">{label}</option>
+                {#each view?.floors || [] as floor}
+                  <optgroup label={floor.name}>
+                    {#each placesOnFloor(floor.id) as place}
+                      <option value={placeKey(place)}>{place.name || place.id}</option>
+                    {/each}
+                  </optgroup>
+                {/each}
+              {/snippet}
+              <select bind:value={linkFrom} aria-label="一端">{@render placeOptions('一端')}</select>
+              <select bind:value={linkTo} aria-label="另一端">{@render placeOptions('另一端')}</select>
+              <button type="submit" disabled={linkBusy || !linkFrom || !linkTo}>添加连通</button>
+              {#if linkMessage}<p class="hint">{linkMessage}</p>{/if}
+            </form>
+          </details>
+        {/if}
       </aside>
     </div>
     <p class="status">{status}</p>
@@ -863,6 +1109,34 @@
     background: #fff; border-top: 1px solid #e6e6e6;
   }
   .remove { border: 0; background: transparent; cursor: pointer; font-size: 16px; color: #888; }
+  .transfer-notice {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 4;
+    padding: 8px 16px; background: rgba(15, 61, 122, 0.92); color: #fff;
+    font-size: 15px; font-weight: 600; pointer-events: none;
+  }
+  .accessible { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #444; }
+  .itinerary { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+  .itinerary button {
+    width: 100%; height: 30px; display: flex; justify-content: space-between; align-items: center;
+    padding: 0 8px; border: 1px solid #d9d9d9; background: #fff; cursor: pointer; font-size: 13px;
+  }
+  .itinerary button.is-active { border-color: #1a7af8; color: #1a7af8; }
+  .leg-length { color: #777; }
+  .itinerary .ride { padding: 2px 8px; color: #0f3d7a; font-size: 12px; }
+  .links { border-top: 1px solid #eee; padding-top: 8px; font-size: 13px; }
+  .links summary { cursor: pointer; color: #333; }
+  .link-row { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px solid #f2f2f2; }
+  .link-kind { flex: none; padding: 1px 6px; background: #0f3d7a; color: #fff; font-size: 12px; }
+  .link-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .link-text span { color: #666; font-size: 12px; }
+  .link-auto { flex: none; color: #888; font-size: 12px; }
+  .link-form { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; }
+  .link-form-row { display: flex; gap: 6px; }
+  .link-form select, .link-form input { height: 30px; border: 1px solid #d9d9d9; background: #fff; min-width: 0; }
+  .link-form-row input { flex: 1; padding: 0 6px; }
+  .link-form button { height: 30px; border: 1px solid #0f3d7a; background: #0f3d7a; color: #fff; cursor: pointer; }
+  .link-form button:disabled { opacity: 0.45; cursor: default; }
+  .hint { margin: 4px 0 0; color: #777; font-size: 12px; }
   .nav-error { padding: 24px; font-family: system-ui, sans-serif; }
   @media (max-width: 720px) {
     .stage { flex-direction: column; }
