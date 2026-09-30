@@ -11,7 +11,7 @@
   import { exportDXF } from '$lib/utils/cadExport';
   import { get } from 'svelte/store';
   import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
+  import { projectLibraryUrl } from '$lib/utils/projectLibraryUrl';
 
   interface Props {
     open: boolean;
@@ -54,7 +54,7 @@
     { id: 'a-undo', name: $t('commandPalette.undo'), icon: '⚡', category: 'action', categoryLabel: `⚡ ${$t('commandPalette.action')}`, action: () => undo() },
     { id: 'a-redo', name: $t('commandPalette.redo'), icon: '⚡', category: 'action', categoryLabel: `⚡ ${$t('commandPalette.action')}`, action: () => redo() },
     { id: 'a-settings', name: $t('settings.title'), icon: '⚡', category: 'action', categoryLabel: `⚡ ${$t('commandPalette.action')}`, action: () => { window.dispatchEvent(new CustomEvent('open-settings')); } },
-    { id: 'a-new-project', name: $t('library.new'), icon: '⚡', category: 'action', categoryLabel: `⚡ ${$t('commandPalette.action')}`, action: () => goto(base || '/') },
+    { id: 'a-new-project', name: $t('library.new'), icon: '⚡', category: 'action', categoryLabel: `⚡ ${$t('commandPalette.action')}`, action: () => goto(projectLibraryUrl()) },
     { id: 'a-toggle-3d', name: $t('commandPalette.toggle2d3d'), icon: '⚡', category: 'action', categoryLabel: `⚡ ${$t('commandPalette.action')}`, action: () => { viewMode.update(m => m === '2d' ? '3d' : '2d'); } },
   ]);
 

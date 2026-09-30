@@ -39,48 +39,55 @@
   });
 
   $effect(() => {
-    void room.id;
-    void floor.id;
-    void refreshSummary();
-  });
-
-  async function refreshSummary() {
-    const api = editorProjectApi();
-    apiMissing = !api;
-    if (!api) {
-      summary = '';
-      return;
-    }
-    try {
-      const { links } = await fetchVerticalLinks(api.apiOrigin, api.projectId);
-      // Prefer exact roomId; only fall back to bare landing points (no roomId).
-      const mine = links.find((link) =>
-        (link.stops || []).some((stop) => stop.floorId === floor.id && stop.roomId === room.id),
-      ) || links.find((link) => {
-        const center = centroid();
-        return (link.stops || []).some(
-          (stop) =>
-            stop.floorId === floor.id &&
-            !stop.roomId &&
-            Math.hypot((stop.x ?? 0) - center.x, (stop.y ?? 0) - center.y) <= 120,
-        );
-      });
-      if (!mine) {
-        summary = '尚未绑定上下层（任意房间都可连）';
+    const roomId = room.id;
+    const floorId = floor.id;
+    const roomName = room.name || roomId;
+    // Clear stale shaft text immediately so a prior room's name cannot linger.
+    summary = `当前竖井：${roomName}`;
+    let cancelled = false;
+    void (async () => {
+      const api = editorProjectApi();
+      apiMissing = !api;
+      if (!api) {
+        if (!cancelled) summary = `当前竖井：${roomName}`;
         return;
       }
-      const labels = (mine.stops || [])
-        .map((stop) => {
-          const floorName =
-            project?.floors.find((item) => item.id === stop.floorId)?.name || stop.floorId;
-          return floorName;
-        })
-        .join(' · ');
-      summary = `当前竖井：${mine.name || mine.kind}（${labels}）`;
-    } catch {
-      summary = '';
-    }
-  }
+      try {
+        const { links } = await fetchVerticalLinks(api.apiOrigin, api.projectId);
+        if (cancelled) return;
+        // Prefer exact roomId; only fall back to bare landing points (no roomId).
+        const mine = links.find((link) =>
+          (link.stops || []).some((stop) => stop.floorId === floorId && stop.roomId === roomId),
+        ) || links.find((link) => {
+          const center = centroid();
+          return (link.stops || []).some(
+            (stop) =>
+              stop.floorId === floorId &&
+              !stop.roomId &&
+              Math.hypot((stop.x ?? 0) - center.x, (stop.y ?? 0) - center.y) <= 120,
+          );
+        });
+        if (!mine) {
+          summary = `当前竖井：${roomName}（尚未绑定上下层）`;
+          return;
+        }
+        const labels = (mine.stops || [])
+          .map((stop) => {
+            const floorName =
+              project?.floors.find((item) => item.id === stop.floorId)?.name || stop.floorId;
+            return floorName;
+          })
+          .join(' · ');
+        // Shaft label follows the selected room — never keep a previous room's name.
+        summary = `当前竖井：${roomName}（${labels}）`;
+      } catch {
+        if (!cancelled) summary = `当前竖井：${roomName}`;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  });
 
   function centroid() {
     const polygon = getRoomPolygon(room, floor.walls || []);
