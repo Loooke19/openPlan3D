@@ -12,6 +12,7 @@ describe('roomMapLabel', () => {
     expect(resolveRoomLabelStyle(undefined)).toBe('stroke');
     expect(resolveRoomLabelStyle('nope')).toBe('stroke');
     expect(resolveRoomLabelStyle('mapPoi')).toBe('mapPoi');
+    expect(resolveRoomLabelStyle('mapPoiSoft')).toBe('mapPoiSoft');
     expect(resolveRoomLabelStyle('hidden')).toBe('hidden');
   });
 

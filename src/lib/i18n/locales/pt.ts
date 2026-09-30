@@ -714,7 +714,7 @@ export const pt = {
   "roomProperties.labelStyle": "Estilo do rótulo",
   "roomProperties.labelStyleStroke": "Texto contornado (padrão)",
   "roomProperties.labelStyleMapPoi": "Ícone de mapa + nome",
-  "roomProperties.labelStyleMapPoiSoft": "Ícone de mapa + chip suave",
+  "roomProperties.labelStyleMapPoiSoft": "Ícone de mapa + nome (sem chip)",
   "roomProperties.labelStyleHidden": "Ocultar rótulo",
   "roomProperties.labelIcon": "Categoria do ícone",
   "roomProperties.labelIconColor": "Cor do ícone",
