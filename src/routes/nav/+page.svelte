@@ -6,6 +6,7 @@
   import { markClean } from '$lib/stores/saveStatus';
   import { drawMapRoomLabel, resolveRoomLabelStyle, type RoomLabelStyle } from '$lib/utils/roomMapLabel';
   import { effectivePixelRatio } from '$lib/utils/pixelRatio';
+  import { resolveProjectLibraryUrl } from '$lib/utils/projectLibraryUrl';
   import type { Room } from '$lib/models/types';
 
   let ThreeViewer: any = $state(null);
@@ -92,7 +93,8 @@
   let view = $state<NavView | null>(null);
   let projectId = $state('');
   let apiOrigin = $state('http://127.0.0.1:8881');
-  let filesUrl = $state('http://127.0.0.1:8881/files');
+  /** Back target: openPlan project library (`/`), never the import API `/files` page. */
+  let libraryUrl = $state('/');
 
   const MAX_VIA = 6;
 
@@ -672,7 +674,7 @@
       try {
         const url = new URL(window.location.href);
         apiOrigin = (url.searchParams.get('apiOrigin') || 'http://127.0.0.1:8881').replace(/\/$/, '');
-        filesUrl = url.searchParams.get('filesUrl') || `${apiOrigin}/files`;
+        libraryUrl = resolveProjectLibraryUrl(url.searchParams, url.origin);
         projectId = url.searchParams.get('id') || '';
         const projectUrl = url.searchParams.get('projectUrl');
         if (!projectUrl && !projectId) {
@@ -712,7 +714,7 @@
 {:else if ready}
   <div class="nav" data-openplan-nav-shell>
     <header class="nav-bar">
-      <a class="back" href={filesUrl}>文件</a>
+      <a class="back" href={libraryUrl} data-testid="back-to-projects">返回项目列表</a>
       <h1>导航</h1>
       <label class="floor">
         {#if (view?.floors?.length || 0) > 1}

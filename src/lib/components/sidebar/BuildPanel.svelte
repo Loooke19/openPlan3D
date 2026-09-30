@@ -215,7 +215,8 @@
   }
 
   function onImportDrawing() {
-    window.location.assign(`${importOrigin()}/`);
+    // File cards on the import API (open existing / import new). Not the openPlan library.
+    window.location.assign(`${importOrigin()}/files`);
   }
 
   function onImportImage() {
