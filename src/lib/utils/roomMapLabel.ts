@@ -297,7 +297,7 @@ export function drawMapRoomLabel(ctx: CanvasRenderingContext2D, opts: DrawMapRoo
     ctx.lineWidth = opts.strokeWidth;
     ctx.strokeStyle = '#ffffff';
     ctx.strokeText(name, opts.x, opts.y);
-    ctx.fillStyle = opts.textColor || '#222222';
+    ctx.fillStyle = opts.textColor || '#000000';
     ctx.fillText(name, opts.x, opts.y);
     return true;
   }
@@ -332,7 +332,7 @@ export function drawMapRoomLabel(ctx: CanvasRenderingContext2D, opts: DrawMapRoo
   ctx.lineWidth = opts.strokeWidth;
   ctx.strokeStyle = '#ffffff';
   ctx.strokeText(name, textX, cy);
-  ctx.fillStyle = opts.textColor || '#1f2937';
+  ctx.fillStyle = opts.textColor || '#000000';
   ctx.fillText(name, textX, cy);
   return true;
 }
@@ -372,7 +372,7 @@ export function bakeNavRoomLabelSprite(opts: {
   icon?: string | null;
   iconColor?: string | null;
   labelColor?: string | null;
-  /** Logical font size in px (nav default 44); multiplied by pixelScale on canvas. */
+  /** Logical font size in px (nav default 48); multiplied by pixelScale on canvas. */
   fontSize?: number;
   strokeWidth?: number;
   /** Canvas supersampling (≥1). Default 4 for crisp CJK at overview distance. */
@@ -385,7 +385,7 @@ export function bakeNavRoomLabelSprite(opts: {
   if (!name) return null;
 
   const pixelScale = Math.max(1, opts.pixelScale ?? 4);
-  const fontSize = (opts.fontSize ?? 44) * pixelScale;
+  const fontSize = (opts.fontSize ?? 48) * pixelScale;
   const strokeWidth = (opts.strokeWidth ?? 5) * pixelScale;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
@@ -409,7 +409,7 @@ export function bakeNavRoomLabelSprite(opts: {
     drawMapRoomLabel(ctx, {
       name,
       style: 'stroke',
-      textColor: opts.labelColor || '#222222',
+      textColor: opts.labelColor || '#000000',
       fontSize,
       strokeWidth,
       align: 'center',
@@ -439,7 +439,7 @@ export function bakeNavRoomLabelSprite(opts: {
     style: style === 'mapPoiSoft' ? 'mapPoi' : style,
     icon: opts.icon,
     iconColor: opts.iconColor,
-    textColor: opts.labelColor || '#1f2937',
+    textColor: opts.labelColor || '#000000',
     fontSize,
     strokeWidth,
     iconRadius: iconR,

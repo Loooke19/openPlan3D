@@ -315,7 +315,7 @@
   function onRoomLabelSize(e: Event) {
     if (!selectedRoom) return;
     const room = selectedRoom;
-    scalarInput(e, room.labelSize ?? 13, value => {
+    scalarInput(e, room.labelSize ?? 17, value => {
       const labelSize = Math.min(72, Math.max(8, value));
       updateRoom(room.id, { labelSize });
       updateDetectedRoom(room.id, { labelSize });
@@ -323,7 +323,7 @@
   }
   function onApplyRoomLabels() {
     if (!selectedRoom) return;
-    applyRoomLabels(selectedRoom.labelSize ?? 13, selectedRoom.labelColor ?? '#9ca3af');
+    applyRoomLabels(selectedRoom.labelSize ?? 17, selectedRoom.labelColor ?? '#000000');
   }
   function onRoomLabelStyle(e: Event) {
     if (!selectedRoom) return;
@@ -828,13 +828,13 @@
       </label>
       <label class="block">
         <span class="text-xs text-gray-500">{$t('roomProperties.labelSize')}</span>
-        <input type="number" value={selectedRoom.labelSize ?? 13} min="8" max="72" step="1" oninput={onRoomLabelSize} onblur={onRoomLabelSize} class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
+        <input type="number" value={selectedRoom.labelSize ?? 17} min="8" max="72" step="1" oninput={onRoomLabelSize} onblur={onRoomLabelSize} class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <label class="block">
         <span class="text-xs text-gray-500">{$t('roomProperties.labelColor')}</span>
         <div class="flex items-center gap-2">
-          <input type="color" aria-label={$t('roomProperties.labelColor')} value={selectedRoom.labelColor ?? '#9ca3af'} oninput={(e) => onRoomLabelColor((e.target as HTMLInputElement).value)} class="w-8 h-6 rounded border border-gray-200 cursor-pointer" />
-          <span class="text-xs text-gray-400">{selectedRoom.labelColor ?? '#9ca3af'}</span>
+          <input type="color" aria-label={$t('roomProperties.labelColor')} value={selectedRoom.labelColor ?? '#000000'} oninput={(e) => onRoomLabelColor((e.target as HTMLInputElement).value)} class="w-8 h-6 rounded border border-gray-200 cursor-pointer" />
+          <span class="text-xs text-gray-400">{selectedRoom.labelColor ?? '#000000'}</span>
         </div>
       </label>
       <label class="block">
