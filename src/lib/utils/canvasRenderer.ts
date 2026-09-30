@@ -1526,7 +1526,7 @@ export function drawRooms(
           style,
           icon: room.labelIcon,
           iconColor: room.labelIconColor,
-          textColor: room.labelColor || '#1f2937',
+          textColor: room.labelColor || '#000000',
           fontSize,
           strokeWidth: Math.max(1.5, 2 * zoom),
           iconRadius: Math.max(7, fontSize * 0.7),
@@ -1535,7 +1535,7 @@ export function drawRooms(
           y: label.y,
         });
       } else {
-        ctx.fillStyle = room.labelColor || '#9ca3af';
+        ctx.fillStyle = room.labelColor || '#000000';
         ctx.font = `${fontSize}px sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(`${room.name} (${formatArea(room.area, dimSettings.units)})`, label.x, label.y);

@@ -8,7 +8,7 @@ import { roomHoles } from './roomNesting';
 import type { Point, Wall, Door, Window as Win, FurnitureItem, Stair, Column, Floor, Measurement, Annotation, TextAnnotation, EntourageItem } from '$lib/models/types';
 import type { Room } from '$lib/models/types';
 import { getFurnitureSize } from '$lib/utils/furnitureCatalog';
-import { getRoomPolygon, roomLabelFontSize, roomLabelPosition } from '$lib/utils/roomDetection';
+import { getRoomPolygon, roomLabelFontSize, roomLabelPosition, DEFAULT_ROOM_LABEL_SIZE } from '$lib/utils/roomDetection';
 import { wallPointAt, wallTangentAt } from '$lib/utils/canvasRenderer';
 import type { HandleType } from '$lib/utils/canvasInteraction';
 import { projectOntoWall } from './wallProjection';
@@ -209,7 +209,7 @@ export function findRoomLabelAt(p: Point, rooms: Room[], walls: Wall[], zoom: nu
     const poly=rings[index];
     if (poly.length<3) continue;
     const anchor=roomLabelPosition(room,poly,holes[index]), dx=p.x-anchor.x, dy=p.y-anchor.y;
-    const labelScale = roomLabelFontSize(room) / 13;
+    const labelScale = roomLabelFontSize(room) / DEFAULT_ROOM_LABEL_SIZE;
     if (Math.abs(dx)>=80*labelScale/zoom || Math.abs(dy)>=40*labelScale/zoom) continue;
     const distance=dx*dx+dy*dy, area=footprintArea(poly);
     if (distance<nearest || (distance===nearest && area<smallest)) {
