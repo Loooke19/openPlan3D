@@ -895,7 +895,7 @@ export function updateItemDetails(target: DetailTarget, patch: ItemDetails) {
   commitItemDetails(project, next, 'Changed item details', coalesceKeyFor(`details:${target.floorId}:${target.kind}`, target.id, { ...patch }));
 }
 
-export function updateRoom(id: string, updates: Partial<{ name: string; floorTexture: string; floorOpening: boolean; color: string; roomType: import('$lib/models/types').RoomCategory; labelOffset: import('$lib/models/types').Point | undefined; labelColor: string; labelSize: number }>) {
+export function updateRoom(id: string, updates: Partial<{ name: string; floorTexture: string; floorOpening: boolean; color: string; roomType: import('$lib/models/types').RoomCategory; labelOffset: import('$lib/models/types').Point | undefined; labelColor: string; labelSize: number; labelStyle: import('$lib/models/types').Room['labelStyle']; labelIcon: import('$lib/models/types').Room['labelIcon']; labelIconColor: string }>) {
   const floor = get(activeFloor);
   if (!floor || Object.keys(updates).length === 0) return;
   const saved = floor.rooms.find(room => room.id === id);

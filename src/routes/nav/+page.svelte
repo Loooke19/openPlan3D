@@ -4,6 +4,8 @@
   import { currentProject, loadProject, viewMode, setActiveFloor } from '$lib/stores/project';
   import { readProject } from '$lib/utils/projectValidation';
   import { markClean } from '$lib/stores/saveStatus';
+  import { drawMapRoomLabel, resolveRoomLabelStyle, type RoomLabelStyle } from '$lib/utils/roomMapLabel';
+  import type { Room } from '$lib/models/types';
 
   let ThreeViewer: any = $state(null);
   let viewer: any = $state(null);
@@ -230,6 +232,25 @@
     return { x: place.x, y: place.y, floor: place.floorId || view?.floorId || '' };
   }
 
+  /** Merge per-room map-label settings from the loaded project JSON. */
+  function roomLabelMeta(place: Place): {
+    style: RoomLabelStyle;
+    icon?: Room['labelIcon'];
+    iconColor?: string;
+    textColor?: string;
+  } {
+    const project = get(currentProject);
+    const floorId = view?.floorId || '';
+    const floor = project?.floors?.find((f) => f.id === floorId) ?? project?.floors?.[0];
+    const room = floor?.rooms?.find((r) => r.id === place.id);
+    return {
+      style: resolveRoomLabelStyle(room?.labelStyle),
+      icon: room?.labelIcon,
+      iconColor: room?.labelIconColor,
+      textColor: room?.labelColor,
+    };
+  }
+
   function say(text: string) {
     status = text;
   }
@@ -376,23 +397,42 @@
     for (const place of filteredPlaces()) {
       if ((place.floorId || view.floorId) !== view.floorId) continue;
       const [x, y] = toScreen(place.x, place.y);
-      ctx.fillStyle = place.color || '#dce8df';
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(x, y, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      const meta = roomLabelMeta(place);
+      if (meta.style === 'hidden') continue;
       const placeName = place.name || place.id;
-      ctx.font = 'bold 24px "Noto Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif';
-      ctx.textBaseline = 'middle';
-      ctx.lineJoin = 'round';
-      ctx.miterLimit = 2;
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = '#ffffff';
-      ctx.strokeText(placeName, x + 8, y);
-      ctx.fillStyle = '#222222';
-      ctx.fillText(placeName, x + 8, y);
+      if (meta.style === 'mapPoi' || meta.style === 'mapPoiSoft') {
+        drawMapRoomLabel(ctx, {
+          name: placeName,
+          style: meta.style,
+          icon: meta.icon,
+          iconColor: meta.iconColor || place.color,
+          textColor: meta.textColor || '#222222',
+          fontSize: 24,
+          strokeWidth: 1.5,
+          iconRadius: 10,
+          align: 'left',
+          x: x - 4,
+          y,
+        });
+      } else {
+        ctx.fillStyle = place.color || '#dce8df';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        drawMapRoomLabel(ctx, {
+          name: placeName,
+          style: 'stroke',
+          textColor: '#222222',
+          fontSize: 24,
+          strokeWidth: 1.5,
+          align: 'left',
+          x: x + 8,
+          y,
+        });
+      }
     }
     for (const transfer of routeTransfers) {
       const ends = [
