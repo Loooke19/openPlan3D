@@ -35,7 +35,7 @@
   import { disposeModel, ownTexture } from '$lib/utils/furnitureModelResources';
   import { createFurnitureModelWithGLB, createPlacedFurnitureModel } from '$lib/utils/furnitureModelLoader';
   import { addFurniture } from '$lib/stores/project';
-  import { detectRooms, roomFaces, getRoomPolygon, roomCentroid, roomLabelFontSize, roomLabelPosition } from '$lib/utils/roomDetection';
+  import { detectRooms, roomFaces, getRoomPolygon, roomCentroid, roomLabelFontSize, roomLabelPosition, DEFAULT_ROOM_LABEL_SIZE } from '$lib/utils/roomDetection';
   import { bakeNavRoomLabelSprite, lookupRoomLabelFields } from '$lib/utils/roomMapLabel';
   import { getMaterial } from '$lib/utils/materials';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
@@ -2066,7 +2066,7 @@
 
       // Floating room label using sprite
       const centroid = roomLabelPosition(room, poly, holes[ri]);
-      const labelScale = roomLabelFontSize(room) / 13;
+      const labelScale = roomLabelFontSize(room) / DEFAULT_ROOM_LABEL_SIZE;
       if (navShell) {
         // Nav wayfinding: per-room style (stroke / map POI / hidden). Keep 2× font
         // and halved stroke (5px). No area plate.
@@ -2083,8 +2083,8 @@
           style: labelFields.labelStyle ?? room.labelStyle,
           icon: labelFields.labelIcon ?? room.labelIcon,
           iconColor: labelFields.labelIconColor ?? room.labelIconColor,
-          labelColor: labelFields.labelColor ?? room.labelColor,
-          fontSize: 44,
+          labelColor: labelFields.labelColor ?? room.labelColor ?? '#000000',
+          fontSize: 48,
           strokeWidth: 3,
           // 4× canvas so top-down overview doesn't magnify a soft low-res atlas.
           pixelScale: Math.max(3, Math.min(4, Math.round((window.devicePixelRatio || 1) * 2))),

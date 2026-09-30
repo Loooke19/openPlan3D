@@ -290,9 +290,15 @@
           style: meta.style,
           icon: meta.icon,
           iconColor: meta.iconColor || place.color,
+<<<<<<< HEAD
           textColor: meta.textColor || '#222222',
           fontSize: 24,
           strokeWidth: 2,
+=======
+          textColor: meta.textColor || '#000000',
+          fontSize: 28,
+          strokeWidth: 1.5,
+>>>>>>> 2458308 (Default room labels to black and +4 font size)
           iconRadius: 10,
           align: 'left',
           x: x - 4,
@@ -309,9 +315,15 @@
         drawMapRoomLabel(ctx, {
           name: placeName,
           style: 'stroke',
+<<<<<<< HEAD
           textColor: '#222222',
           fontSize: 24,
           strokeWidth: 2,
+=======
+          textColor: '#000000',
+          fontSize: 28,
+          strokeWidth: 1.5,
+>>>>>>> 2458308 (Default room labels to black and +4 font size)
           align: 'left',
           x: x + 8,
           y,

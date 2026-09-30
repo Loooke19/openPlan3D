@@ -72,7 +72,7 @@ function extendBoundsForRoomLabels(floor: Floor, bounds: { minX: number; minY: n
     const labelSize = roomLabelFontSize(room);
     ctx.font = `bold ${labelSize}px sans-serif`;
     const nameWidth = ctx.measureText(room.name).width;
-    ctx.font = `${Math.max(8, labelSize * 11 / 13)}px sans-serif`;
+    ctx.font = `${Math.max(8, labelSize * 11 / 17)}px sans-serif`;
     const width = Math.max(nameWidth, ctx.measureText(formatArea(room.area, get(projectSettings).units)).width);
     bounds.minX = Math.min(bounds.minX, anchor.x - width / 2);
     bounds.maxX = Math.max(bounds.maxX, anchor.x + width / 2);
@@ -797,7 +797,7 @@ function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImag
     ctx.textAlign = 'center';
     ctx.fillText(room.name, c.x - minX + pad, c.y - minY + pad);
     ctx.fillStyle = '#888';
-    ctx.font = `${Math.max(8, labelSize * 11 / 13)}px sans-serif`;
+    ctx.font = `${Math.max(8, labelSize * 11 / 17)}px sans-serif`;
     ctx.fillText(formatArea(room.area, settings.units), c.x - minX + pad, c.y - minY + pad + labelSize + 2);
   }
 

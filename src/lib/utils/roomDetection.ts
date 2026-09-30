@@ -425,7 +425,7 @@ export function roomCentroid(polygon: Point[]): Point {
   return { x: cx, y: cy };
 }
 
-export const DEFAULT_ROOM_LABEL_SIZE = 13;
+export const DEFAULT_ROOM_LABEL_SIZE = 17;
 
 /** Plan size for a room name. Missing or unusable values stay at the default. */
 export function roomLabelFontSize(room: Pick<Room, 'labelSize'>): number {
