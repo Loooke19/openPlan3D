@@ -42,6 +42,7 @@
   import { addFurniture } from '$lib/stores/project';
   import { detectRooms, roomFaces, getRoomPolygon, roomCentroid, roomLabelFontSize, roomLabelPosition, DEFAULT_ROOM_LABEL_SIZE } from '$lib/utils/roomDetection';
   import { bakeNavRoomLabelSprite, lookupRoomLabelFields } from '$lib/utils/roomMapLabel';
+  import { effectivePixelRatio } from '$lib/utils/pixelRatio';
   import { getMaterial } from '$lib/utils/materials';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
   import {
@@ -867,7 +868,8 @@
 
     renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, logarithmicDepthBuffer: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
+    // Glass/Electron often reports DPR=1 on 200% OS scale; floor at measured default 2.
+    renderer.setPixelRatio(effectivePixelRatio());
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -2167,8 +2169,8 @@
           labelColor: labelFields.labelColor ?? room.labelColor ?? '#000000',
           fontSize: 48,
           strokeWidth: 3,
-          // 4× canvas so top-down overview doesn't magnify a soft low-res atlas.
-          pixelScale: Math.max(3, Math.min(4, Math.round((window.devicePixelRatio || 1) * 2))),
+          // Supersample from effective DPR (default 2 on glass browser host).
+          pixelScale: Math.max(3, Math.min(4, Math.round(effectivePixelRatio() * 2))),
         });
         if (!baked) {
           // hidden or empty name — skip sprite
