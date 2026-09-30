@@ -5,7 +5,7 @@ import {
   roomLabelIconColor,
   ROOM_LABEL_ICONS,
   ROOM_LABEL_STYLES,
-} from './roomMapLabel';
+} from '../src/lib/utils/roomMapLabel';
 
 describe('roomMapLabel', () => {
   it('defaults unknown style to stroke', () => {
