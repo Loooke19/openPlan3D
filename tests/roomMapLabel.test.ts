@@ -24,3 +24,22 @@ describe('roomMapLabel', () => {
     expect(ROOM_LABEL_STYLES.map((s) => s.id)).toEqual(['stroke', 'mapPoi', 'mapPoiSoft', 'hidden']);
   });
 });
+
+import { lookupRoomLabelFields } from '../src/lib/utils/roomMapLabel';
+
+describe('lookupRoomLabelFields', () => {
+  it('finds saved map style by containment', () => {
+    const saved = [{
+      id: 'a',
+      name: '电梯',
+      labelStyle: 'mapPoi' as const,
+      labelIcon: 'elevator' as const,
+      floorPolygon: [
+        { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 },
+      ],
+    }];
+    const hit = lookupRoomLabelFields(saved, { id: 'other', name: 'Room' }, { x: 50, y: 50 });
+    expect(hit.labelStyle).toBe('mapPoi');
+    expect(hit.labelIcon).toBe('elevator');
+  });
+});

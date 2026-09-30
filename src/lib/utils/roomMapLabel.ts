@@ -56,6 +56,79 @@ export function roomLabelIconColor(icon?: string | null, override?: string | nul
   return ICON_BY_ID.get(resolveRoomLabelIcon(icon))?.color ?? '#64748B';
 }
 
+/** Pull per-room label settings from saved floor rooms when face-id merge misses. */
+export function lookupRoomLabelFields(
+  floorRooms: Array<{
+    id?: string;
+    name?: string;
+    labelStyle?: string | null;
+    labelIcon?: string | null;
+    labelIconColor?: string | null;
+    labelColor?: string | null;
+    labelSize?: number | null;
+    floorPolygon?: { x: number; y: number }[];
+  }> | undefined,
+  room: {
+    id?: string;
+    name?: string;
+    labelStyle?: string | null;
+    labelIcon?: string | null;
+    labelIconColor?: string | null;
+    labelColor?: string | null;
+    labelSize?: number | null;
+  },
+  centroid?: { x: number; y: number } | null,
+): {
+  labelStyle?: string | null;
+  labelIcon?: string | null;
+  labelIconColor?: string | null;
+  labelColor?: string | null;
+  labelSize?: number | null;
+  name?: string;
+} {
+  const list = floorRooms ?? [];
+  const byId = room.id ? list.find((item) => item.id === room.id) : undefined;
+  if (byId) return byId;
+  if (room.labelStyle || room.labelIcon) return room;
+  const byName = room.name ? list.find((item) => item.name === room.name) : undefined;
+  if (byName) return byName;
+  if (centroid) {
+    for (const item of list) {
+      const poly = item.floorPolygon;
+      if (!poly || poly.length < 3) continue;
+      if (pointInPoly(centroid, poly)) return item;
+    }
+    // Nearest saved room that carries label settings (wall-key merge may have missed).
+    let best: (typeof list)[number] | null = null;
+    let bestDist = Infinity;
+    for (const item of list) {
+      if (!item.labelStyle && !item.labelIcon) continue;
+      const poly = item.floorPolygon;
+      if (!poly || poly.length < 3) continue;
+      let sx = 0, sy = 0;
+      for (const pt of poly) { sx += pt.x; sy += pt.y; }
+      const cx = sx / poly.length, cy = sy / poly.length;
+      const d = (cx - centroid.x) ** 2 + (cy - centroid.y) ** 2;
+      if (d < bestDist) { bestDist = d; best = item; }
+    }
+    if (best && bestDist < 250000) return best; // within ~5m
+  }
+  return room;
+}
+
+function pointInPoly(point: { x: number; y: number }, poly: { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    const intersect =
+      a.y > point.y !== b.y > point.y &&
+      point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y || Number.EPSILON) + a.x;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
 const CJK_FONT =
   '"Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif';
 

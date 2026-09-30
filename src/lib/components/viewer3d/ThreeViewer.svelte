@@ -41,7 +41,7 @@
   import { createFurnitureModelWithGLB, createPlacedFurnitureModel } from '$lib/utils/furnitureModelLoader';
   import { addFurniture } from '$lib/stores/project';
   import { detectRooms, roomFaces, getRoomPolygon, roomCentroid, roomLabelFontSize, roomLabelPosition } from '$lib/utils/roomDetection';
-  import { bakeNavRoomLabelSprite } from '$lib/utils/roomMapLabel';
+  import { bakeNavRoomLabelSprite, lookupRoomLabelFields } from '$lib/utils/roomMapLabel';
   import { getMaterial } from '$lib/utils/materials';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
   import {
@@ -2151,12 +2151,20 @@
       if (navShell) {
         // Nav wayfinding: per-room style (stroke / map POI / hidden). Keep 2× font
         // and tip narrow stroke (3px from #11). No area plate.
+        // Face-id merge can miss saved metadata; fall back by id/name/containment.
+        const savedWithPolys = (floor.rooms ?? []).map((saved) => ({
+          ...saved,
+          floorPolygon: saved.floorPolygon && saved.floorPolygon.length >= 3
+            ? saved.floorPolygon
+            : getRoomPolygon(saved, floor.walls),
+        }));
+        const labelFields = lookupRoomLabelFields(savedWithPolys, room, centroid);
         const baked = bakeNavRoomLabelSprite({
-          name: room.name,
-          style: room.labelStyle,
-          icon: room.labelIcon,
-          iconColor: room.labelIconColor,
-          labelColor: room.labelColor,
+          name: labelFields.name || room.name,
+          style: labelFields.labelStyle ?? room.labelStyle,
+          icon: labelFields.labelIcon ?? room.labelIcon,
+          iconColor: labelFields.labelIconColor ?? room.labelIconColor,
+          labelColor: labelFields.labelColor ?? room.labelColor,
           fontSize: 44,
           strokeWidth: 3,
         });
