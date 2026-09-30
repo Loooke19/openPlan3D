@@ -11,7 +11,7 @@
   import { generateOpenAIRenderImage, validateOpenAIConfig, getEffectiveModel, normalizeBaseUrl } from '$lib/utils/openaiClient';
   import OpenAIModelPicker from '$lib/components/ai/OpenAIModelPicker.svelte';
   import { activeFloor, currentProject, selectedElementId } from '$lib/stores/project';
-  import type { Floor, Wall, Door, Window as Win, Stair } from '$lib/models/types';
+  import type { Floor, Wall, Door, Window as Win, Stair, Point } from '$lib/models/types';
   import { getWallStartHeight, getWallEndHeight } from '$lib/models/types';
   import { wallColors, type WallColor } from '$lib/utils/materials';
   import { projectSettings, formatArea } from '$lib/stores/settings';
@@ -21,7 +21,12 @@
   import { createSlopedBoxGeometry } from '$lib/utils/slopedWallGeometry';
   import { buildWallSegments, roomCeilingHeight, wallProfileSpans, wallPathProfile, pathOpening, doorPanelPose } from '$lib/utils/wallProfiles';
   import { assembleFloorStack } from '$lib/utils/floorStack';
-  import { setFloorCameraPose } from '$lib/utils/floorCamera';
+  import {
+    applyOrbitRelativeToFloor,
+    captureOrbitRelativeToFloor,
+    setFloorCameraPose,
+    type RelativeOrbitView,
+  } from '$lib/utils/floorCamera';
   import { frameScene } from '$lib/utils/frameScene';
   import { updateOrbitDamping } from '$lib/utils/orbitDamping';
   import { portableRenderSceneJSON } from '$lib/utils/portableRenderScene';
@@ -35,9 +40,31 @@
   import { disposeModel, ownTexture } from '$lib/utils/furnitureModelResources';
   import { createFurnitureModelWithGLB, createPlacedFurnitureModel } from '$lib/utils/furnitureModelLoader';
   import { addFurniture } from '$lib/stores/project';
-  import { detectRooms, resolveRoomGeometry, getRoomPolygon, roomCentroid, roomLabelPosition } from '$lib/utils/roomDetection';
+  import { detectRooms, roomFaces, getRoomPolygon, roomCentroid, roomLabelFontSize, roomLabelPosition, DEFAULT_ROOM_LABEL_SIZE } from '$lib/utils/roomDetection';
+  import { bakeNavRoomLabelSprite, lookupRoomLabelFields } from '$lib/utils/roomMapLabel';
+  import { effectivePixelRatio } from '$lib/utils/pixelRatio';
   import { getMaterial } from '$lib/utils/materials';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
+  import {
+    createHospitalSurfaceMaterial,
+    isHospitalFloorTexture,
+    isHospitalWallTexture,
+  } from '$lib/utils/hospitalMaterials';
+
+  /** Nav shell: hide editor tools; route overlay + walk/simulate APIs. */
+  let {
+    navShell = false,
+    routePolyline = [] as { x: number; y: number }[],
+    routeDoorIds = [] as string[],
+    onRouteProgress,
+    onNavWalkExit,
+  }: {
+    navShell?: boolean;
+    routePolyline?: { x: number; y: number }[];
+    routeDoorIds?: string[];
+    onRouteProgress?: (ratio: number, playing: boolean) => void;
+    onNavWalkExit?: () => void;
+  } = $props();
 
   let container: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -87,11 +114,36 @@
 
   // Walkthrough mode
   let walkthroughMode = $state(false);
+  let navAutoWalking = $state(false);
+  let navSavedView: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
   let walkthroughMouseUnavailable = $state(false);
   const walkthroughMotion = new WalkthroughMotion();
   let moveSpeed = $state(800);
   let sprintSpeed = $state(1600);
   let eyeHeight = $state(160); // cm
+
+  // Navigation route overlay (cm plan → Three x/z)
+  let routeGroup: THREE.Group;
+  let routeMarker: THREE.Mesh | null = null;
+  let routeArrowGroup: THREE.Group | null = null;
+  type NavDoorLeaf = { doorId: string; pivot: THREE.Group; closedYaw: number; openYaw: number };
+  let navDoorLeaves: NavDoorLeaf[] = [];
+  let activeRouteDoorIds = new Set<string>();
+  let doorAnimationRaf = 0;
+  let simPlaying = $state(false);
+  let simProgress = $state(0);
+  let simSpeed = $state(1);
+  let simRaf = 0;
+  let simLastTs = 0;
+  let simRoute: { x: number; y: number }[] = [];
+  let simSegLens: number[] = [];
+  let simTotalLen = 0;
+  const ROUTE_ARROW_SPACING = 280; // sparse direction cues along the route (cm)
+  const ROUTE_ACCENT = '#1a7af8';
+  const ROUTE_TRAVELED = '#8b9490';
+  // The active room finish is at y=3cm. Keep the route only slightly above it.
+  const ROUTE_STROKE_Y = 4.5;
+  const ROUTE_ARROW_Y = 5;
 
   // Lighting controls state
   let lightingPanelOpen = $state(false);
@@ -619,39 +671,68 @@
   const BASEBOARD_HEIGHT = 8;
 
   // Create a canvas-based floor texture
-  function createFloorTexture(): THREE.CanvasTexture {
-    const size = 256;
-    const c = document.createElement('canvas');
-    c.width = size; c.height = size;
-    const cx = c.getContext('2d')!;
-    // Hardwood pattern
-    cx.fillStyle = '#c4a882';
-    cx.fillRect(0, 0, size, size);
-    for (let y = 0; y < size; y += 32) {
-      for (let x = 0; x < size; x += 64) {
-        const offset = (y / 32) % 2 === 0 ? 0 : 32;
-        cx.fillStyle = y % 64 < 32 ? '#b89b72' : '#d4b892';
-        cx.fillRect(x + offset, y, 62, 30);
-        cx.strokeStyle = '#a08060';
-        cx.lineWidth = 0.5;
-        cx.strokeRect(x + offset, y, 62, 30);
-      }
-    }
-    const tex = ownTexture(new THREE.CanvasTexture(c));
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(10, 10);
-    return tex;
+  function restoreNavView() {
+    if (!navSavedView) return;
+    camera.position.copy(navSavedView.position);
+    controls.target.copy(navSavedView.target);
+    navSavedView = null;
+    controls.update();
+    markSceneDirty();
   }
 
   function exitWalkthroughMode() {
+    if (navAutoWalking) {
+      navAutoWalking = false;
+      pauseRouteSimulation();
+      onRouteProgress?.(simProgress, false);
+      onNavWalkExit?.();
+    }
     walkthroughMode = false;
     controls.enabled = true;
     walkthroughMotion.reset();
+    restoreNavView();
     markSceneDirty();
 
     if (typeof document !== 'undefined' && document.pointerLockElement) {
       document.exitPointerLock();
     }
+  }
+
+  /** Public alias for nav shell. */
+  export function exitNavWalk() {
+    exitWalkthroughMode();
+  }
+
+  /** Dev/nav test hook: orbit pose for floor-switch camera checks. */
+  export function getOrbitSnapshot() {
+    if (!camera || !controls) return null;
+    const offset = camera.position.clone().sub(controls.target);
+    const spherical = new THREE.Spherical().setFromVector3(offset);
+    // Three.js: phi=0 looks straight down; phi=π/2 is horizon.
+    const look = camera.getWorldDirection(new THREE.Vector3());
+    return {
+      position: camera.position.toArray() as [number, number, number],
+      target: controls.target.toArray() as [number, number, number],
+      radius: camera.position.distanceTo(controls.target),
+      phi: spherical.phi,
+      theta: spherical.theta,
+      lookY: look.y,
+      topDown: spherical.phi < 0.12 && look.y < -0.98,
+    };
+  }
+
+  /** Apply a deliberate orbit offset (rotate + zoom) without remounting. */
+  export function nudgeOrbitForTest(opts: { azimuth?: number; polar?: number; radiusScale?: number } = {}) {
+    if (!camera || !controls) return null;
+    const offset = camera.position.clone().sub(controls.target);
+    const spherical = new THREE.Spherical().setFromVector3(offset);
+    if (opts.azimuth != null) spherical.theta += opts.azimuth;
+    if (opts.polar != null) spherical.phi = Math.min(Math.PI / 2.05, Math.max(0.05, spherical.phi + opts.polar));
+    if (opts.radiusScale != null) spherical.radius *= opts.radiusScale;
+    camera.position.copy(controls.target).add(offset.setFromSpherical(spherical));
+    controls.update();
+    markSceneDirty();
+    return getOrbitSnapshot();
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -671,6 +752,7 @@
     }
     if (!walkthroughMode) return;
     if (event.code === 'Escape') { exitWalkthroughMode(); return; }
+    if (navAutoWalking) return;
     if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey
       || isWalkthroughField(event.target)) return;
     if (walkthroughMotion.setKey(event.code, true, event.repeat)) {
@@ -680,6 +762,7 @@
   }
 
   function onKeyUp(event: KeyboardEvent) {
+    if (navAutoWalking) return;
     walkthroughMotion.setKey(event.code, false);
     wakeWalkthrough();
   }
@@ -776,16 +859,17 @@
     const ground = new THREE.Mesh(groundGeo, groundMat);
     sceneGround = ground;
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -1;
+    ground.position.y = -40;
     ground.receiveShadow = true;
     scene.add(ground);
 
     camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 1, 20000);
     camera.position.set(800, 600, 800);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, logarithmicDepthBuffer: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
+    // Glass/Electron often reports DPR=1 on 200% OS scale; floor at measured default 2.
+    renderer.setPixelRatio(effectivePixelRatio());
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -976,18 +1060,13 @@
     rimLight.position.set(-200, 600, 1000);
     scene.add(rimLight);
 
-    // Textured floor
-    const floorTex = createFloorTexture();
-    const floorGeo = new THREE.PlaneGeometry(4000, 4000);
-    const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, side: THREE.DoubleSide, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-    const floorMesh = new THREE.Mesh(floorGeo, floorMat);
-    floorMesh.rotation.x = -Math.PI / 2;
-    floorMesh.position.y = 0.5;
-    floorMesh.receiveShadow = true;
-    scene.add(floorMesh);
-
+    // Room slabs are the floors. A fixed 40m hardwood plane sits at the origin
+    // and reads as a striped sheet outside the building once the plan is offset.
     wallGroup = new THREE.Group();
     scene.add(wallGroup);
+    routeGroup = new THREE.Group();
+    scene.add(routeGroup);
+    if (routePolyline?.length) drawNavRoute(routePolyline);
   }
 
   function createGhostPreview(catalogId: string) {
@@ -1010,7 +1089,12 @@
   }
 
   function autoCenterCamera() {
-    frameScene(camera, new THREE.Box3().setFromObject(wallGroup), controls.target);
+    // Nav shell matches wxb3d default: near-vertical top-down (not oblique perspective).
+    // Editor keeps the existing angled framing; users can still orbit after entry.
+    frameScene(camera, new THREE.Box3().setFromObject(wallGroup), controls.target,
+      navShell
+        ? { view: 'top-down', verticalInset: Math.min(64 / Math.max(container?.clientHeight || 1, 1), 0.2) }
+        : { view: 'perspective' });
     controls.update();
   }
 
@@ -1181,6 +1265,408 @@
     group.clear();
   }
 
+  function pointOnRoute(distance: number): { x: number; y: number; yaw: number } | null {
+    if (simRoute.length < 2 || simTotalLen <= 0) return null;
+    let remain = Math.max(0, Math.min(distance, simTotalLen));
+    for (let i = 0; i < simSegLens.length; i++) {
+      const len = simSegLens[i];
+      const a = simRoute[i];
+      const b = simRoute[i + 1];
+      if (remain <= len || i === simSegLens.length - 1) {
+        const t = len > 0 ? remain / len : 0;
+        return {
+          x: a.x + (b.x - a.x) * t,
+          y: a.y + (b.y - a.y) * t,
+          yaw: Math.atan2(b.y - a.y, b.x - a.x),
+        };
+      }
+      remain -= len;
+    }
+    const last = simRoute[simRoute.length - 1];
+    const prev = simRoute[simRoute.length - 2];
+    return { x: last.x, y: last.y, yaw: Math.atan2(last.y - prev.y, last.x - prev.x) };
+  }
+
+  function placeRouteMarker(x: number, z: number) {
+    if (!routeMarker) {
+      const geo = new THREE.SphereGeometry(18, 16, 12);
+      const mat = new THREE.MeshStandardMaterial({ color: ROUTE_ACCENT, emissive: '#0a3a80', roughness: 0.4 });
+      routeMarker = new THREE.Mesh(geo, mat);
+      routeGroup.add(routeMarker);
+    }
+    routeMarker.position.set(x, 40, z);
+    routeMarker.visible = true;
+  }
+
+  function splitRouteAt(distance: number): { traveled: { x: number; y: number }[]; remaining: { x: number; y: number }[] } {
+    if (simRoute.length < 2) return { traveled: [], remaining: [] };
+    const pose = pointOnRoute(distance);
+    if (!pose) return { traveled: simRoute.slice(), remaining: [] };
+    let remain = Math.max(0, Math.min(distance, simTotalLen));
+    const traveled: { x: number; y: number }[] = [simRoute[0]];
+    for (let i = 0; i < simSegLens.length; i++) {
+      const len = simSegLens[i];
+      if (remain >= len - 1e-6) {
+        traveled.push(simRoute[i + 1]);
+        remain -= len;
+        continue;
+      }
+      traveled.push({ x: pose.x, y: pose.y });
+      break;
+    }
+    const remaining: { x: number; y: number }[] = [{ x: pose.x, y: pose.y }];
+    let acc = 0;
+    let started = false;
+    for (let i = 0; i < simSegLens.length; i++) {
+      acc += simSegLens[i];
+      if (!started && acc >= distance - 1e-6) started = true;
+      if (started) remaining.push(simRoute[i + 1]);
+    }
+    if (remaining.length < 2 && distance < simTotalLen) remaining.push(simRoute[simRoute.length - 1]);
+    return { traveled, remaining };
+  }
+
+  function routeArrowPlacements(points: { x: number; y: number }[], spacing = ROUTE_ARROW_SPACING) {
+    const arrows: { x: number; y: number; angle: number }[] = [];
+    if (points.length < 2) return arrows;
+    let total = 0;
+    const segs: { a: { x: number; y: number }; dx: number; dy: number; start: number; length: number }[] = [];
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 1) continue;
+      segs.push({ a, dx: dx / length, dy: dy / length, start: total, length });
+      total += length;
+    }
+    let index = 0;
+    for (let distance = spacing * 0.5; distance < total - spacing * 0.5; distance += spacing) {
+      while (index < segs.length - 1 && distance > segs[index].start + segs[index].length) index++;
+      const s = segs[index];
+      const t = distance - s.start;
+      // A cue straddling a turn reads as a wrong direction from oblique views.
+      if (t < 16 || s.length - t < 16) continue;
+      arrows.push({ x: s.a.x + s.dx * t, y: s.a.y + s.dy * t, angle: Math.atan2(s.dy, s.dx) });
+    }
+    return arrows;
+  }
+
+  function addRouteStroke(points: { x: number; y: number }[], color: string, radius = 8) {
+    if (points.length < 2) return;
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.92,
+    });
+    for (let i = 0; i + 1 < points.length; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 1) continue;
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(len, radius * 2), mat);
+      mesh.position.set((a.x + b.x) / 2, ROUTE_STROKE_Y, (a.y + b.y) / 2);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.rotation.z = -Math.atan2(b.y - a.y, b.x - a.x);
+      mesh.renderOrder = 2;
+      routeGroup.add(mesh);
+      const joint = new THREE.Mesh(new THREE.CircleGeometry(radius, 16), mat);
+      joint.position.set(a.x, ROUTE_STROKE_Y, a.y);
+      joint.rotation.x = -Math.PI / 2;
+      joint.renderOrder = 2;
+      routeGroup.add(joint);
+    }
+    const end = points[points.length - 1];
+    const endJoint = new THREE.Mesh(new THREE.CircleGeometry(radius, 16), mat);
+    endJoint.position.set(end.x, ROUTE_STROKE_Y, end.y);
+    endJoint.rotation.x = -Math.PI / 2;
+    endJoint.renderOrder = 2;
+    routeGroup.add(endJoint);
+  }
+
+  function addRouteArrows(points: { x: number; y: number }[], color = '#ffffff') {
+    if (!routeGroup) return;
+    const arrows = routeArrowPlacements(points);
+    if (!arrows.length) return;
+    // A small white chevron sits inside the blue stripe, like a navigation route cue.
+    const shape = new THREE.Shape();
+    shape.moveTo(8, 0);
+    shape.lineTo(-5, 5);
+    shape.lineTo(-1, 0);
+    shape.lineTo(-5, -5);
+    shape.closePath();
+    const geo = new THREE.ShapeGeometry(shape);
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.95,
+    });
+    for (const arrow of arrows) {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(arrow.x, ROUTE_ARROW_Y, arrow.y);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.rotation.z = -arrow.angle;
+      mesh.renderOrder = 3;
+      routeGroup.add(mesh);
+    }
+  }
+
+  function paintRouteVisual(traveledRatio = 0, simulating = false) {
+    if (!routeGroup) return;
+    const keepMarker = routeMarker;
+    if (keepMarker) routeGroup.remove(keepMarker);
+    clearGroup(routeGroup);
+    routeMarker = null;
+    if (simRoute.length < 2) {
+      markSceneDirty();
+      return;
+    }
+    if (simulating && traveledRatio > 0.001) {
+      const { traveled, remaining } = splitRouteAt(traveledRatio * simTotalLen);
+      addRouteStroke(traveled, ROUTE_TRAVELED, 7);
+      addRouteStroke(remaining, ROUTE_ACCENT, 8);
+      addRouteArrows(remaining, '#ffffff');
+    } else {
+      addRouteStroke(simRoute, ROUTE_ACCENT, 8);
+      addRouteArrows(simRoute, '#ffffff');
+    }
+    if (keepMarker) {
+      routeGroup.add(keepMarker);
+      routeMarker = keepMarker;
+    }
+    markSceneDirty();
+  }
+
+  function drawNavRoute(points: { x: number; y: number }[]) {
+    if (!routeGroup) return;
+    routeGroup.position.y = activeFloorElevation;
+    clearGroup(routeGroup);
+    routeMarker = null;
+    simRoute = points.slice();
+    simSegLens = [];
+    simTotalLen = 0;
+    for (let i = 0; i + 1 < simRoute.length; i++) {
+      const len = Math.hypot(simRoute[i + 1].x - simRoute[i].x, simRoute[i + 1].y - simRoute[i].y);
+      simSegLens.push(len);
+      simTotalLen += len;
+    }
+    paintRouteVisual(0, false);
+  }
+
+  export function stopRouteSimulation() {
+    simPlaying = false;
+    if (simRaf) cancelAnimationFrame(simRaf);
+    simRaf = 0;
+    simLastTs = 0;
+    simProgress = 0;
+    if (navAutoWalking) {
+      navAutoWalking = false;
+      walkthroughMode = false;
+      controls.enabled = true;
+      restoreNavView();
+    }
+    if (routeMarker) routeMarker.visible = false;
+    paintRouteVisual(0, false);
+    onRouteProgress?.(0, false);
+  }
+
+  function tickSimulation(ts: number) {
+    if (!simPlaying) return;
+    if (!simLastTs) simLastTs = ts;
+    const dt = Math.min(0.05, (ts - simLastTs) / 1000);
+    simLastTs = ts;
+    // ~120 cm/s at 1×
+    simProgress = Math.min(1, simProgress + (dt * simSpeed * 120) / Math.max(1, simTotalLen));
+    const dist = simProgress * simTotalLen;
+    const pose = pointOnRoute(dist);
+    if (navAutoWalking) placeNavWalkCamera(dist);
+    else if (pose) placeRouteMarker(pose.x, pose.y);
+    paintRouteVisual(simProgress, true);
+    onRouteProgress?.(simProgress, simProgress < 1);
+    if (simProgress >= 1) {
+      simPlaying = false;
+      simRaf = 0;
+      simLastTs = 0;
+      return;
+    }
+    simRaf = requestAnimationFrame(tickSimulation);
+  }
+
+  /** Public nav API — called from /nav shell. */
+  export function setNavRoute(points: { x: number; y: number }[], doorIds: string[] = []) {
+    stopRouteSimulation();
+    drawNavRoute(points);
+    setNavDoorStates(doorIds);
+  }
+
+  export function clearNavRoute() {
+    stopRouteSimulation();
+    drawNavRoute([]);
+    setNavDoorStates([]);
+  }
+
+  export function startRouteSimulation(speed = 1) {
+    if (simRoute.length < 2) return;
+    if (walkthroughMode) exitWalkthroughMode();
+    simSpeed = speed;
+    simProgress = 0;
+    simPlaying = true;
+    simLastTs = 0;
+    onRouteProgress?.(0, true);
+    const start = simRoute[0];
+    placeRouteMarker(start.x, start.y);
+    paintRouteVisual(0, true);
+    simRaf = requestAnimationFrame(tickSimulation);
+  }
+
+  export function setSimulationSpeed(speed: number) {
+    simSpeed = Math.max(0.25, Math.min(4, speed));
+  }
+
+  export function setSimulationProgress(ratio: number) {
+    if (simRoute.length < 2) return;
+    simProgress = Math.max(0, Math.min(1, ratio));
+    const pose = pointOnRoute(simProgress * simTotalLen);
+    if (navAutoWalking) placeNavWalkCamera(simProgress * simTotalLen);
+    else if (pose) placeRouteMarker(pose.x, pose.y);
+    paintRouteVisual(simProgress, simPlaying || simProgress > 0);
+    onRouteProgress?.(simProgress, simPlaying);
+    markSceneDirty();
+  }
+
+  export function pauseRouteSimulation() {
+    simPlaying = false;
+    if (simRaf) cancelAnimationFrame(simRaf);
+    simRaf = 0;
+    simLastTs = 0;
+  }
+
+  export function resumeRouteSimulation() {
+    if (simRoute.length < 2 || simProgress >= 1) return;
+    simPlaying = true;
+    simLastTs = 0;
+    simRaf = requestAnimationFrame(tickSimulation);
+  }
+
+  function placeNavWalkCamera(distance: number) {
+    const pose = pointOnRoute(distance);
+    if (!pose) return;
+    const ahead = pointOnRoute(Math.min(simTotalLen, distance + 80));
+    const lookX = ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 1
+      ? ahead.x : pose.x + Math.cos(pose.yaw) * 80;
+    const lookY = ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 1
+      ? ahead.y : pose.y + Math.sin(pose.yaw) * 80;
+    setFloorCameraPose(camera, activeFloorElevation,
+      { x: pose.x, y: eyeHeight, z: pose.y },
+      { x: lookX, y: eyeHeight, z: lookY });
+    markSceneDirty();
+  }
+
+  export function enterWalkAlongRoute(speed = 1) {
+    if (simRoute.length < 2) return;
+    if (walkthroughMode) exitWalkthroughMode();
+    stopRouteSimulation();
+    navSavedView = { position: camera.position.clone(), target: controls.target.clone() };
+    cancelAIRender();
+    walkthroughMotion.reset();
+    walkthroughMouseUnavailable = false;
+    navAutoWalking = true;
+    walkthroughMode = true;
+    controls.enabled = false;
+    simSpeed = Math.max(0.25, Math.min(4, speed));
+    simProgress = 0;
+    simPlaying = true;
+    simLastTs = 0;
+    placeNavWalkCamera(0);
+    paintRouteVisual(0, true);
+    onRouteProgress?.(0, true);
+    simRaf = requestAnimationFrame(tickSimulation);
+    markSceneDirty();
+  }
+
+  export function isSimulating() {
+    return simPlaying;
+  }
+
+  // Ensure route paints after the Three scene/routeGroup exists.
+  $effect(() => {
+    if (!routeGroup) return;
+    drawNavRoute(routePolyline ?? []);
+    setNavDoorStates(routeDoorIds ?? []);
+  });
+
+  function setNavDoorStates(doorIds: string[]) {
+    activeRouteDoorIds = new Set(doorIds);
+    if (doorAnimationRaf) cancelAnimationFrame(doorAnimationRaf);
+    doorAnimationRaf = 0;
+    if (!navShell || !navDoorLeaves.length) return;
+    const startAngles = navDoorLeaves.map((leaf) => leaf.pivot.rotation.y);
+    const targetAngles = navDoorLeaves.map((leaf) => activeRouteDoorIds.has(leaf.doorId) ? leaf.openYaw : leaf.closedYaw);
+    if (targetAngles.every((target, index) => Math.abs(target - startAngles[index]) < 0.001)) return;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / 360);
+      const eased = progress * progress * (3 - 2 * progress);
+      navDoorLeaves.forEach((leaf, index) => {
+        leaf.pivot.rotation.y = startAngles[index] + (targetAngles[index] - startAngles[index]) * eased;
+      });
+      markSceneDirty();
+      doorAnimationRaf = progress < 1 ? requestAnimationFrame(tick) : 0;
+    };
+    doorAnimationRaf = requestAnimationFrame(tick);
+  }
+
+  function addNavDoorLeaf(doorId: string, hinge: Point, width: number, height: number, angle: number, hingeSide: number, face: number, wallThickness: number) {
+    const pivot = new THREE.Group();
+    // Park the slab just outside the swing-side wall face so thickness faces
+    // never share volume with full-depth jambs (coplanar z-fight → vertical stripes).
+    const panelDepth = 6;
+    const faceClear = wallThickness / 2 + panelDepth / 2 + 1;
+    pivot.position.set(hinge.x - Math.sin(angle) * face * faceClear, 0, hinge.y + Math.cos(angle) * face * faceClear);
+    const closedYaw = -(angle + (hingeSide === 1 ? Math.PI : 0));
+    const openYaw = closedYaw + hingeSide * face * Math.PI / 2;
+    pivot.rotation.y = activeRouteDoorIds.has(doorId) ? openYaw : closedYaw;
+
+    // Inset past in-opening jambs so leaf side faces are not coplanar with jambs.
+    const edgeClear = 7;
+    const panelWidth = Math.max(2, width - edgeClear * 2);
+    const panelGeo = new THREE.BoxGeometry(panelWidth, height - 4, panelDepth);
+    panelGeo.translate(edgeClear + panelWidth / 2, 0, 0);
+    const panel = new THREE.Mesh(
+      panelGeo,
+      new THREE.MeshStandardMaterial({
+        color: 0x8B6914,
+        roughness: 0.55,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
+    );
+    panel.position.y = height / 2 - 2;
+    // Shadows on thin door edges read as fine vertical stripes in first-person.
+    panel.castShadow = false;
+    panel.receiveShadow = false;
+    panel.renderOrder = 2;
+    pivot.add(panel);
+
+    const handle = new THREE.Mesh(
+      new THREE.SphereGeometry(3, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xc0c0c0, metalness: 0.8, roughness: 0.2 }),
+    );
+    handle.position.set(Math.max(8, width - 12), Math.min(100, height * 0.5), panelDepth / 2 + 1);
+    handle.castShadow = false;
+    pivot.add(handle);
+    wallGroup.add(pivot);
+    navDoorLeaves.push({ doorId, pivot, closedYaw, openYaw });
+  }
+
   function addOpeningFrame(wall: Wall, position: number, width: number, bottom: number, height: number, depth: number, material: THREE.Material, excludeFromRender = false) {
     const path = wallPathProfile(wall);
     const rect = pathOpening(path, position * path.length, width, bottom, height);
@@ -1194,13 +1680,20 @@
       mesh.position.set(center.x, (rect.bottom + rect.top) / 2, center.y);
       mesh.rotation.y = -Math.atan2(span.end.y - span.start.y, span.end.x - span.start.x);
       mesh.userData.renderExclude = excludeFromRender;
-      mesh.castShadow = !excludeFromRender;
+      // Nav FPS: shadow acne on thin jamb edges shows as fine vertical stripes.
+      mesh.castShadow = !excludeFromRender && !navShell;
+      mesh.receiveShadow = !navShell;
+      // Draw frames after wall slabs so residual near-coplanar edges stay stable.
+      if (navShell) mesh.renderOrder = 1;
       wallGroup.add(mesh);
     }
   }
 
   function buildWalls(floor: Floor) {
     wallHighlight.clear();
+    if (doorAnimationRaf) cancelAnimationFrame(doorAnimationRaf);
+    doorAnimationRaf = 0;
+    navDoorLeaves = [];
     clearGroup(wallGroup);
     cameraHelper = null;
     wallMeshMap.clear();
@@ -1216,6 +1709,11 @@
 
       function resolveWallMat(color: string | undefined, texture: string | undefined, fallback: THREE.MeshStandardMaterial, isInterior: boolean = false): THREE.MeshStandardMaterial {
         const polyOff = isInterior ? { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 } : {};
+        if (isHospitalWallTexture(texture)) {
+          const mat = createHospitalSurfaceMaterial('wall', color || '#e2e6e3');
+          Object.assign(mat, polyOff);
+          return mat;
+        }
         if (texture) {
           const tex = generateWallTexture(texture, color || '#888888', wLen, wall.height);
           return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, ...polyOff });
@@ -1393,14 +1891,29 @@
       const angle = Math.atan2(right.y - left.y, right.x - left.x);
       const wt = Math.max(wall.thickness, WALL_THICKNESS);
 
-      const frameMat = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.6 });
+      const frameMat = new THREE.MeshStandardMaterial({
+        color: 0x6b4423,
+        roughness: 0.6,
+        // Push frame depth bias so near-coplanar wall faces lose the fight.
+        polygonOffset: true,
+        polygonOffsetFactor: -4,
+        polygonOffsetUnits: -4,
+        depthWrite: true,
+      });
       const doorHeight = opening.top;
       const jamb = 5; // jamb thickness
+      // Pull jambs into the opening so their faces are not coplanar with wall end-caps
+      // (that coplanar pair showed as fine vertical stripes in first-person).
+      const jambClear = 3;
+      // Nav: make the frame slightly thicker than the wall so front/back faces sit
+      // proud of the wall slab (coplanar wt-depth frames still shimmered at FPS).
+      // Editor preview keeps flush depth.
+      const frameDepth = navShell ? wt + 4 : wt;
 
       // Clip jambs and header too when an opening reaches the wall profile.
-      addOpeningFrame(wall, (opening.left - jamb / 2) / length, jamb, 0, doorHeight, wt + 2, frameMat);
-      addOpeningFrame(wall, (opening.right + jamb / 2) / length, jamb, 0, doorHeight, wt + 2, frameMat);
-      addOpeningFrame(wall, t, opening.right - opening.left + jamb * 2, doorHeight, jamb, wt + 2, frameMat);
+      addOpeningFrame(wall, (opening.left + jamb / 2 + jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
+      addOpeningFrame(wall, (opening.right - jamb / 2 - jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
+      addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - jambClear * 2), doorHeight, jamb, frameDepth, frameMat);
 
       if (door.type === 'opening') {
         // Plain doorway — jambs and header only, no door leaf
@@ -1419,7 +1932,18 @@
           wallGroup.add(secMesh);
         }
       } else {
-        // Door panel — honor the saved hinge and opening side, slightly ajar (15°)
+        if (navShell) {
+          const face = door.flipSide ? -1 : 1;
+          if (door.type === 'double' || door.type === 'french') {
+            addNavDoorLeaf(door.id, left, door.width / 2, doorHeight, angle, -1, face, wt);
+            addNavDoorLeaf(door.id, right, door.width / 2, doorHeight, angle, 1, face, wt);
+          } else {
+            const hingeSide = door.swingDirection === 'left' ? 1 : -1;
+            addNavDoorLeaf(door.id, hingeSide === 1 ? right : left, door.width, doorHeight, angle, hingeSide, face, wt);
+          }
+          continue;
+        }
+        // Editor preview keeps its existing, slightly ajar (15°) door pose.
         const panelMat = new THREE.MeshStandardMaterial({ color: 0x8B6914, roughness: 0.5 });
         const panelGeo = new THREE.BoxGeometry(door.width - 2, doorHeight - 4, 4);
         // Shift geometry so pivot is at left edge
@@ -1507,7 +2031,7 @@
     // Room floors with materials + floating labels
     const FALLBACK_ROOM_COLORS = [0xbfdbfe, 0xfde68a, 0xbbf7d0, 0xfecaca, 0xddd6fe, 0xa5f3fc, 0xfed7aa];
     // Resolve labels and materials from this floor, including after a 3D floor switch.
-    const rooms = resolveRoomGeometry(floor);
+    const rooms = roomFaces(floor);
     const holes = roomHoles(rooms.map(r => r.polygon));
     for (let ri = 0; ri < rooms.length; ri++) {
       const { room, polygon: poly } = rooms[ri];
@@ -1515,7 +2039,13 @@
 
       const slabGeometry = room.floorOpening ? null : createRoomSlabGeometry(poly, floor.slabThickness, holes[ri]);
       if (slabGeometry) {
-        const slab = new THREE.Mesh(slabGeometry, new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.9 }));
+        const slab = new THREE.Mesh(slabGeometry, new THREE.MeshStandardMaterial({
+          color: 0xcccccc,
+          roughness: 0.9,
+          polygonOffset: true,
+          polygonOffsetFactor: 4,
+          polygonOffsetUnits: 4,
+        }));
         slab.userData.renderMaterial = 'floor';
         slab.receiveShadow = true;
         wallGroup.add(slab);
@@ -1557,7 +2087,12 @@
 
       // Use room's floor material or fallback to color coding
       let material: THREE.MeshStandardMaterial;
-      if (room.floorTexture === 'none') {
+      if (isHospitalFloorTexture(room.floorTexture)) {
+        material = createHospitalSurfaceMaterial(
+          'floor',
+          room.color || getMaterial('hospital-floor').color,
+        );
+      } else if (room.floorTexture === 'none') {
         // Solid-color floor: no texture; use the room's picked color
         material = new THREE.MeshStandardMaterial({
           color: new THREE.Color(room.color ?? getMaterial('none').color),
@@ -1600,36 +2135,92 @@
       }
 
       const mesh = new THREE.Mesh(geo, material);
-      // Rotate to lie on XZ plane, slightly above base floor
+      // The slab cap sits at y=0. Keep the finish above it and bias depth so
+      // the two coplanar floors do not flicker at building scale.
+      material.polygonOffset = true;
+      material.polygonOffsetFactor = -2;
+      material.polygonOffsetUnits = -2;
       mesh.userData.renderMaterial = 'floor';
       mesh.rotation.x = -Math.PI / 2;
-      mesh.position.y = 1;
+      mesh.position.y = 3;
       mesh.receiveShadow = true;
       if (room.floorOpening) { geo.dispose(); material.dispose(); }
       else wallGroup.add(mesh);
 
       // Floating room label using sprite
       const centroid = roomLabelPosition(room, poly, holes[ri]);
-      const canvas = document.createElement('canvas');
-      canvas.width = 256; canvas.height = 64;
-      const ctx2 = canvas.getContext('2d')!;
-      ctx2.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx2.roundRect(0, 0, 256, 64, 8);
-      ctx2.fill();
-      ctx2.fillStyle = '#ffffff';
-      ctx2.font = 'bold 22px sans-serif';
-      ctx2.textAlign = 'center';
-      ctx2.fillText(room.name, 128, 26);
-      ctx2.font = '16px sans-serif';
-      ctx2.fillStyle = '#d1d5db';
-      ctx2.fillText(formatArea(room.area, get(projectSettings).units), 128, 50);
+      const labelScale = roomLabelFontSize(room) / DEFAULT_ROOM_LABEL_SIZE;
+      if (navShell) {
+        // Nav wayfinding: per-room style (stroke / map POI / hidden). Keep 2× font
+        // and tip narrow stroke (3px from #11). No area plate.
+        // Face-id merge can miss saved metadata; fall back by id/name/containment.
+        const savedWithPolys = (floor.rooms ?? []).map((saved) => ({
+          ...saved,
+          floorPolygon: saved.floorPolygon && saved.floorPolygon.length >= 3
+            ? saved.floorPolygon
+            : getRoomPolygon(saved, floor.walls),
+        }));
+        const labelFields = lookupRoomLabelFields(savedWithPolys, room, centroid);
+        const baked = bakeNavRoomLabelSprite({
+          name: labelFields.name || room.name,
+          style: labelFields.labelStyle ?? room.labelStyle,
+          icon: labelFields.labelIcon ?? room.labelIcon,
+          iconColor: labelFields.labelIconColor ?? room.labelIconColor,
+          labelColor: labelFields.labelColor ?? room.labelColor ?? '#000000',
+          fontSize: 48,
+          strokeWidth: 3,
+          // Supersample from effective DPR (default 2 on glass browser host).
+          pixelScale: Math.max(3, Math.min(4, Math.round(effectivePixelRatio() * 2))),
+        });
+        if (!baked) {
+          // hidden or empty name — skip sprite
+        } else {
+          const tex = ownTexture(new THREE.CanvasTexture(baked.canvas));
+          tex.generateMipmaps = true;
+          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          tex.magFilter = THREE.LinearFilter;
+          tex.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy?.() || 1);
+          tex.needsUpdate = true;
+          const spriteMat = new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+          });
+          const sprite = new THREE.Sprite(spriteMat);
+          sprite.position.set(centroid.x, 30, centroid.y);
+          sprite.renderOrder = 10;
+          sprite.scale.set(baked.scaleX * labelScale, baked.scaleY * labelScale, 1);
+          wallGroup.add(sprite);
+        }
+      } else {
+        const canvas = document.createElement('canvas');
+        const ctx2 = canvas.getContext('2d')!;
+        canvas.width = 256; canvas.height = 64;
+        ctx2.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx2.roundRect(0, 0, 256, 64, 8);
+        ctx2.fill();
+        ctx2.fillStyle = room.labelColor || '#ffffff';
+        ctx2.font = 'bold 22px sans-serif';
+        ctx2.textAlign = 'center';
+        ctx2.fillText(room.name, 128, 26);
+        ctx2.font = '16px sans-serif';
+        ctx2.fillStyle = '#d1d5db';
+        ctx2.fillText(formatArea(room.area, get(projectSettings).units), 128, 50);
 
-      const tex = ownTexture(new THREE.CanvasTexture(canvas));
-      const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
-      const sprite = new THREE.Sprite(spriteMat);
-      sprite.position.set(centroid.x, 30, centroid.y);
-      sprite.scale.set(150, 40, 1);
-      wallGroup.add(sprite);
+        const tex = ownTexture(new THREE.CanvasTexture(canvas));
+        const spriteMat = new THREE.SpriteMaterial({
+          map: tex,
+          transparent: true,
+          depthTest: true,
+          depthWrite: false,
+        });
+        const sprite = new THREE.Sprite(spriteMat);
+        sprite.position.set(centroid.x, 30, centroid.y);
+        sprite.renderOrder = 0;
+        sprite.scale.set(150 * labelScale, 40 * labelScale, 1);
+        wallGroup.add(sprite);
+      }
 
       // A flat ceiling is valid only when this room's boundary has one height.
       const ceilingHeight = roomCeilingHeight(room.walls, floor.walls);
@@ -1656,7 +2247,6 @@
     buildColumns(floor);
 
     applyWallTransparency();
-    autoCenterCamera();
   }
 
   /** Build all floors stacked vertically in 3D */
@@ -1679,8 +2269,7 @@
     activeFloorElevation = entries.find(entry => entry.floor.id === activeF.id)?.yOffset ?? 0;
     floorPlane.constant = -activeFloorElevation;
     // Keep the presentation ground below basements as well as above-ground floors.
-    sceneGround.position.y = Math.min(0, ...entries.map(entry => entry.yOffset)) - 1;
-    autoCenterCamera();
+    sceneGround.position.y = Math.min(0, ...entries.map(entry => entry.yOffset)) - 40;
   }
 
   function addFloorLabel(name: string, yOffset: number, labelX: number, labelZ: number) {
@@ -1756,7 +2345,7 @@
 
     }
     // Match active-floor footprints instead of bridging recesses and separate rooms.
-    const rooms = resolveRoomGeometry(floor);
+    const rooms = roomFaces(floor);
     const holes = roomHoles(rooms.map(r => r.polygon));
     for (const [index, { room, polygon }] of rooms.entries()) {
       if (room.floorOpening) continue;
@@ -1797,19 +2386,31 @@
     if (!force && signature === renderedSignature) return;
     const walkingPosition = walkthroughMode ? camera.position.clone() : null;
     const walkingRotation = walkthroughMode ? camera.quaternion.clone() : null;
+    // Keep orbit zoom/rotation across floor rebuilds. World coords alone fly off
+    // when CAD floors do not share a plan origin — store pose relative to bbox center.
+    let preservedOrbit: RelativeOrbitView | null = null;
+    if (!walkthroughMode && renderedSignature && wallGroup?.children.length) {
+      preservedOrbit = captureOrbitRelativeToFloor(wallGroup, camera, controls.target);
+    }
     if (showAllFloors) {
       buildAllFloorsStacked();
     } else if (currentFloor) {
       activeFloorElevation = 0;
       floorPlane.constant = 0;
-      sceneGround.position.y = -1;
+      sceneGround.position.y = -40;
       buildWalls(currentFloor);
     }
+    if (routeGroup) routeGroup.position.y = activeFloorElevation;
     wallHighlight.apply(wallMeshMap, selectedWallId3D);
     if (walkingPosition && walkingRotation) {
       camera.position.copy(walkingPosition);
       camera.position.y = activeFloorElevation + eyeHeight;
       camera.quaternion.copy(walkingRotation);
+    } else if (preservedOrbit) {
+      applyOrbitRelativeToFloor(wallGroup, camera, controls.target, preservedOrbit);
+      controls.update();
+    } else {
+      autoCenterCamera();
     }
     if (cameraPlaced) {
       updateInteriorCamera();
@@ -1931,14 +2532,14 @@
 
     if (walkthroughMode) {
       lastOrbitFrame = undefined;
-      const moving = walkthroughMotion.active;
-      walkthroughMotion.advance(timestamp, camera, { moveSpeed, sprintSpeed, eyeHeight, floorElevation: activeFloorElevation });
+      const moving = !navAutoWalking && walkthroughMotion.active;
+      if (!navAutoWalking) walkthroughMotion.advance(timestamp, camera, { moveSpeed, sprintSpeed, eyeHeight, floorElevation: activeFloorElevation });
       if (sceneDirty || moving) {
         sceneDirty = false;
         renderer.render(scene, camera);
         renderer.domElement.dataset.rendered = 'true';
       }
-      if (walkthroughMotion.active) requestRender();
+      if (moving) requestRender();
       else walkthroughMotion.stopClock();
     } else {
       // A change event schedules the next damping step. Once the controls settle,
@@ -1997,6 +2598,10 @@
     init();
     viewerMounted = true;
     markSceneDirty();
+    (window as unknown as { __openPlan3dOrbit?: { get: typeof getOrbitSnapshot; nudge: typeof nudgeOrbitForTest } }).__openPlan3dOrbit = {
+      get: getOrbitSnapshot,
+      nudge: nudgeOrbitForTest,
+    };
 
     // Rebuild 3D scene when photo textures finish loading
     const stopTextures = setTextureLoadCallback(() => {
@@ -2027,6 +2632,7 @@
     });
 
     return () => {
+      delete (window as unknown as { __openPlan3dOrbit?: unknown }).__openPlan3dOrbit;
       viewerMounted = false;
       cancelAIRender();
       stopAISettings();
@@ -2036,6 +2642,7 @@
       stopSettings();
       unsubSel();
       if (animId !== undefined) cancelAnimationFrame(animId);
+      if (doorAnimationRaf) cancelAnimationFrame(doorAnimationRaf);
       animId = undefined;
       document.removeEventListener('keydown', onKeyDown, false);
       document.removeEventListener('keyup', onKeyUp, false);
@@ -2043,6 +2650,7 @@
       document.removeEventListener('visibilitychange', resetWalkthroughInput);
       document.removeEventListener('focusin', onWalkthroughFocus);
       walkthroughMotion.reset();
+      stopRouteSimulation();
       releaseCameraPreview();
       wallHighlight.clear();
       removeGhostPreview();
@@ -2059,11 +2667,13 @@
 </script>
 
 <div bind:this={container} class="w-full h-full relative" role="region" aria-label={$t('viewerNav.region')}>
+  {#if !navShell}
   <div class="absolute bottom-16 left-4 z-10 max-w-xs">
     {#if renderExportMessage}<p role="status" class="mb-2 rounded bg-black/80 p-2 text-xs text-white">{renderExportLabels[renderExportMessage] ? $t(renderExportLabels[renderExportMessage]) : renderExportMessage}</p>{/if}
     <button class="rounded bg-black/70 px-3 py-2 text-sm text-white hover:bg-black/80" onclick={exportBlenderScene}
       title={$t('viewerExport.help')}>{$t('viewerExport.button')}</button>
   </div>
+  {/if}
   {#if showAllFloors && currentFloor}
     <div class="absolute bottom-4 right-4 z-10 rounded bg-black/70 px-3 py-2 text-xs text-white pointer-events-none">
       {$t('viewerExport.elevation', { name: currentFloor.name, value: activeFloorElevation })}
@@ -2071,6 +2681,7 @@
   {/if}
   <!-- 3D Toolbar Row -->
   <div class="absolute top-4 right-4 z-50 flex gap-1.5">
+    {#if !navShell}
     <!-- Multi-Floor Stacking Toggle -->
     <button
       onclick={() => { showAllFloors = !showAllFloors; rebuildScene(); }}
@@ -2084,6 +2695,7 @@
         <rect x="4" y="2" width="16" height="4" rx="1" opacity="0.3"/>
       </svg>
     </button>
+    {/if}
 
     <!-- Top-Down View Button -->
     <button
@@ -2115,6 +2727,7 @@
       </svg>
     </button>
 
+    {#if !navShell}
     <!-- Edit Mode Toggle -->
     <button
       onclick={() => { editMode = !editMode; if (editMode && walkthroughMode) { exitWalkthroughMode(); } if (!editMode) { selectedElementId.set(null); } }}
@@ -2163,6 +2776,7 @@
         <circle cx="12" cy="13" r="4"/>
       </svg>
     </button>
+    {/if}
 
     <!-- Walkthrough Mode Toggle Button -->
     <button
@@ -2391,6 +3005,9 @@
       </div>
     </div>
 
+    {#if navAutoWalking}
+      <div class="absolute top-4 left-4 z-10 bg-black/70 text-white text-xs rounded-lg p-3">沿路线自动行走</div>
+    {:else}
     <!-- Controls Panel -->
     <div class="absolute top-4 left-4 z-10 bg-black/70 text-white text-xs rounded-lg backdrop-blur-sm p-3 space-y-2 min-w-[180px]">
       <div class="font-semibold text-white/90 mb-1">{$t('viewerNav.walkControls')}</div>
@@ -2426,6 +3043,7 @@
         {$t('viewerNav.walkHelp')}
       </div>
     </div>
+    {/if}
   {/if}
 
   {#if editMode && !walkthroughMode}

@@ -1,7 +1,7 @@
 import { beforeEach, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { get } from 'svelte/store';
-import { currentProject, updateRoom, undo, redo, detectedRoomsStore, beginUndoGroup, endUndoGroup } from '$lib/stores/project';
+import { currentProject, updateRoom, undo, redo, detectedRoomsStore, beginUndoGroup, endUndoGroup, applyRoomLabels, createDefaultFloor } from '$lib/stores/project';
 import { resolveRooms } from '$lib/utils/roomDetection';
 import { roomProject } from './fixtures/project';
 
@@ -24,6 +24,34 @@ it('unchanged room fields neither add Undo steps nor discard Redo', () => {
   updateRoom(room.id, {});
   redo();
   expect(get(currentProject)!.floors[0]).toEqual(edited);
+});
+
+it('applies one label size and color to every room name', () => {
+  const project = roomProject();
+  const floor = project.floors[0];
+  const detected = resolveRooms(floor);
+  const saved = { ...detected[0], name: '甲' };
+  floor.rooms = [saved];
+  const other = createDefaultFloor(1);
+  other.rooms = [{ ...saved, id: 'other-room', name: '乙', walls: [] }];
+  project.floors.push(other);
+  currentProject.set(project);
+  const unsaved = { ...saved, id: 'detected-only', name: '丙', walls: ['loose'] };
+  detectedRoomsStore.set([saved, unsaved]);
+  const before = structuredClone(get(currentProject));
+
+  applyRoomLabels(32, '#dc2626');
+
+  const next = get(currentProject)!;
+  expect(next.floors[0].rooms.map((room) => [room.id, room.labelSize, room.labelColor])).toEqual([
+    [saved.id, 32, '#dc2626'],
+    ['detected-only', 32, '#dc2626'],
+  ]);
+  expect(next.floors[1].rooms[0]).toMatchObject({ labelSize: 32, labelColor: '#dc2626' });
+  expect(get(detectedRoomsStore).every((room) => room.labelSize === 32 && room.labelColor === '#dc2626')).toBe(true);
+
+  undo();
+  expect(get(currentProject)).toEqual(before);
 });
 
 it('still persists metadata for a newly detected room', () => {

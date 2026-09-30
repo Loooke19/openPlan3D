@@ -3,6 +3,7 @@ import { get } from 'svelte/store';
 import { initializeLocale, locale, t, translate, type Locale } from '../src/lib/i18n';
 import { en } from '../src/lib/i18n/locales/en';
 import { pt } from '../src/lib/i18n/locales/pt';
+import { zh } from '../src/lib/i18n/locales/zh';
 
 afterEach(() => { vi.unstubAllGlobals(); locale.set('en'); });
 
@@ -14,9 +15,12 @@ describe('locale preferences', () => {
   });
   it('keeps dictionary keys and substitution tokens in agreement', () => {
     expect(Object.keys(pt).sort()).toEqual(Object.keys(en).sort());
+    expect(Object.keys(zh).sort()).toEqual(Object.keys(en).sort());
     for (const key of Object.keys(en) as (keyof typeof en)[]) {
       expect(pt[key].trim()).not.toBe('');
+      expect(zh[key].trim()).not.toBe('');
       expect(pt[key].match(/\{\w+\}/g) ?? []).toEqual(en[key].match(/\{\w+\}/g) ?? []);
+      expect(zh[key].match(/\{\w+\}/g) ?? []).toEqual(en[key].match(/\{\w+\}/g) ?? []);
     }
   });
   it('updates subscribed text, persists the choice and sets document language', () => {
@@ -38,9 +42,9 @@ describe('locale preferences', () => {
     expect(get(locale)).toBe('pt');
     getItem.mockReturnValue('fr');
     initializeLocale();
-    expect(get(locale)).toBe('en');
+    expect(get(locale)).toBe('zh');
     locale.set('fr' as Locale);
-    expect(get(locale)).toBe('en');
+    expect(get(locale)).toBe('zh');
   });
   it('works in memory when storage access throws', () => {
     vi.stubGlobal('localStorage', { getItem() { throw new Error('denied'); }, setItem() { throw new Error('quota'); } });

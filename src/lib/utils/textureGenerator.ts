@@ -1,5 +1,11 @@
 import { wallTextureFiles, floorTextureFiles } from './textureFiles';
 import { catalogAssetUrl } from '$lib/utils/catalogAssetUrl';
+import {
+  HOSPITAL_FLOOR_ID,
+  HOSPITAL_WALL_ID,
+  drawHospitalFloorSwatch,
+  drawHospitalWallSwatch,
+} from './hospitalMaterials';
 /**
  * High-quality texture generator for walls and floors.
  * Uses real photo textures from ambientCG (CC0) with procedural fallback.
@@ -506,6 +512,9 @@ const LEGACY_FLOOR_MAP: Record<string, string> = {
 export function getFloorTextureCanvas(materialId: string): HTMLCanvasElement | null {
   // Resolve legacy IDs to actual texture keys
   const resolvedId = LEGACY_FLOOR_MAP[materialId] || materialId;
+  if (resolvedId === HOSPITAL_FLOOR_ID) {
+    return getOrCreate(`hospital-floor-swatch`, 512, (cx, S) => drawHospitalFloorSwatch(cx, S, '#fbfcfa'));
+  }
   const cacheKey = `photo-floor-${resolvedId}`;
   if (cache.has(cacheKey)) return cache.get(cacheKey)!;
 
@@ -552,6 +561,9 @@ export function setTextureLoadCallback(cb: () => void): () => void {
 }
 
 export function getWallTextureCanvas(textureId: string, color: string): HTMLCanvasElement | null {
+  if (textureId === HOSPITAL_WALL_ID) {
+    return getOrCreate(`hospital-wall-${color}`, 512, (cx, S) => drawHospitalWallSwatch(cx, S, color));
+  }
   // Try photo texture first
   const photo = loadPhotoTexture(textureId, notifyTextureLoad);
   if (photo) return photo;

@@ -32,7 +32,8 @@ export const floorGroupLabels: Record<string, TranslationKey> = {
   "🪵 Wood": "floorGroupLabel.1",
   "🔲 Tile": "floorGroupLabel.2",
   "🪨 Stone": "floorGroupLabel.3",
-  "🧶 Carpet": "floorGroupLabel.4"
+  "🧶 Carpet": "floorGroupLabel.4",
+  "🏥 Hospital": "floorGroupLabel.5"
 };
 
 export const floorMaterialLabels: Record<string, TranslationKey> = {
@@ -50,5 +51,6 @@ export const floorMaterialLabels: Record<string, TranslationKey> = {
   "carpet-gray": "floorMaterialLabel.carpet-gray",
   "concrete": "floorMaterialLabel.concrete",
   "slate": "floorMaterialLabel.slate",
-  "vinyl": "floorMaterialLabel.vinyl"
+  "vinyl": "floorMaterialLabel.vinyl",
+  "hospital-floor": "floorMaterialLabel.hospital-floor"
 };
