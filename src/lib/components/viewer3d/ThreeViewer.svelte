@@ -36,6 +36,7 @@
   import { createFurnitureModelWithGLB, createPlacedFurnitureModel } from '$lib/utils/furnitureModelLoader';
   import { addFurniture } from '$lib/stores/project';
   import { detectRooms, roomFaces, getRoomPolygon, roomCentroid, roomLabelFontSize, roomLabelPosition } from '$lib/utils/roomDetection';
+  import { bakeNavRoomLabelSprite, lookupRoomLabelFields } from '$lib/utils/roomMapLabel';
   import { getMaterial } from '$lib/utils/materials';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
   import {
@@ -2065,28 +2066,53 @@
 
       // Floating room label using sprite
       const centroid = roomLabelPosition(room, poly, holes[ri]);
-      const canvas = document.createElement('canvas');
-      const ctx2 = canvas.getContext('2d')!;
       const labelScale = roomLabelFontSize(room) / 13;
       if (navShell) {
-        // Nav wayfinding: dark name + white stroke, no area, no bubble.
-        // Font stays 2× (44px) for overview readability; stroke is back to
-        // the original 5px so glyphs don't look over-outlined.
-        canvas.width = 512; canvas.height = 96;
-        ctx2.clearRect(0, 0, 512, 96);
-        const labelFont =
-          'bold 44px "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif';
-        ctx2.font = labelFont;
-        ctx2.textAlign = 'center';
-        ctx2.textBaseline = 'middle';
-        ctx2.lineJoin = 'round';
-        ctx2.miterLimit = 2;
-        ctx2.lineWidth = 5;
-        ctx2.strokeStyle = '#ffffff';
-        ctx2.strokeText(room.name, 256, 48);
-        ctx2.fillStyle = '#222222';
-        ctx2.fillText(room.name, 256, 48);
+        // Nav wayfinding: per-room style (stroke / map POI / hidden). Keep 2× font
+        // and halved stroke (5px). No area plate.
+        // Face-id merge can miss saved metadata; fall back by id/name/containment.
+        const savedWithPolys = (floor.rooms ?? []).map((saved) => ({
+          ...saved,
+          floorPolygon: saved.floorPolygon && saved.floorPolygon.length >= 3
+            ? saved.floorPolygon
+            : getRoomPolygon(saved, floor.walls),
+        }));
+        const labelFields = lookupRoomLabelFields(savedWithPolys, room, centroid);
+        const baked = bakeNavRoomLabelSprite({
+          name: labelFields.name || room.name,
+          style: labelFields.labelStyle ?? room.labelStyle,
+          icon: labelFields.labelIcon ?? room.labelIcon,
+          iconColor: labelFields.labelIconColor ?? room.labelIconColor,
+          labelColor: labelFields.labelColor ?? room.labelColor,
+          fontSize: 44,
+          strokeWidth: 3,
+          // 4× canvas so top-down overview doesn't magnify a soft low-res atlas.
+          pixelScale: Math.max(3, Math.min(4, Math.round((window.devicePixelRatio || 1) * 2))),
+        });
+        if (!baked) {
+          // hidden or empty name — skip sprite
+        } else {
+          const tex = ownTexture(new THREE.CanvasTexture(baked.canvas));
+          tex.generateMipmaps = true;
+          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          tex.magFilter = THREE.LinearFilter;
+          tex.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy?.() || 1);
+          tex.needsUpdate = true;
+          const spriteMat = new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+          });
+          const sprite = new THREE.Sprite(spriteMat);
+          sprite.position.set(centroid.x, 30, centroid.y);
+          sprite.renderOrder = 10;
+          sprite.scale.set(baked.scaleX * labelScale, baked.scaleY * labelScale, 1);
+          wallGroup.add(sprite);
+        }
       } else {
+        const canvas = document.createElement('canvas');
+        const ctx2 = canvas.getContext('2d')!;
         canvas.width = 256; canvas.height = 64;
         ctx2.fillStyle = 'rgba(0,0,0,0.6)';
         ctx2.roundRect(0, 0, 256, 64, 8);
@@ -2098,20 +2124,20 @@
         ctx2.font = '16px sans-serif';
         ctx2.fillStyle = '#d1d5db';
         ctx2.fillText(formatArea(room.area, get(projectSettings).units), 128, 50);
-      }
 
-      const tex = ownTexture(new THREE.CanvasTexture(canvas));
-      const spriteMat = new THREE.SpriteMaterial({
-        map: tex,
-        transparent: true,
-        depthTest: !navShell,
-        depthWrite: false,
-      });
-      const sprite = new THREE.Sprite(spriteMat);
-      sprite.position.set(centroid.x, 30, centroid.y);
-      sprite.renderOrder = navShell ? 10 : 0;
-      sprite.scale.set((navShell ? 300 : 150) * labelScale, (navShell ? 60 : 40) * labelScale, 1);
-      wallGroup.add(sprite);
+        const tex = ownTexture(new THREE.CanvasTexture(canvas));
+        const spriteMat = new THREE.SpriteMaterial({
+          map: tex,
+          transparent: true,
+          depthTest: true,
+          depthWrite: false,
+        });
+        const sprite = new THREE.Sprite(spriteMat);
+        sprite.position.set(centroid.x, 30, centroid.y);
+        sprite.renderOrder = 0;
+        sprite.scale.set(150 * labelScale, 40 * labelScale, 1);
+        wallGroup.add(sprite);
+      }
 
       // A flat ceiling is valid only when this room's boundary has one height.
       const ceilingHeight = roomCeilingHeight(room.walls, floor.walls);

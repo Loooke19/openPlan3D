@@ -15,6 +15,7 @@ import { formatLength, formatArea } from '$lib/stores/settings';
 import { getCatalogItem, getFurnitureSize } from '$lib/utils/furnitureCatalog';
 import { drawFurnitureIcon } from '$lib/utils/furnitureIcons';
 import { getRoomPolygon, roomCentroid, roomLabelFontSize, roomLabelPosition } from '$lib/utils/roomDetection';
+import { drawMapRoomLabel, resolveRoomLabelStyle } from '$lib/utils/roomMapLabel';
 import { getWallTextureCanvas, getFloorTextureCanvas } from '$lib/utils/textureGenerator';
 import { getEntourageDef } from '$lib/utils/entourageCatalog';
 import type { EntourageItem, CustomEntourageDef } from '$lib/models/types';
@@ -1514,12 +1515,31 @@ export function drawRooms(
     const labelBase = roomLabelFontSize(room);
     const fontSize = room.labelSize ? Math.max(8, labelBase * zoom) : Math.max(11, 13 * zoom);
     if (showRoomLabels) {
-      ctx.fillStyle = room.labelColor || '#9ca3af';
-      ctx.font = `${fontSize}px sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const anchor = roomLabelPosition(room, poly, holes[ri]);
       const label = wts(cs, anchor.x, anchor.y);
-      ctx.fillText(`${room.name} (${formatArea(room.area, dimSettings.units)})`, label.x, label.y);
+      const style = resolveRoomLabelStyle(room.labelStyle);
+      if (style === 'hidden') {
+        // omit
+      } else if (style === 'mapPoi' || style === 'mapPoiSoft') {
+        drawMapRoomLabel(ctx, {
+          name: room.name,
+          style,
+          icon: room.labelIcon,
+          iconColor: room.labelIconColor,
+          textColor: room.labelColor || '#1f2937',
+          fontSize,
+          strokeWidth: Math.max(1.5, 2 * zoom),
+          iconRadius: Math.max(7, fontSize * 0.7),
+          align: 'center',
+          x: label.x,
+          y: label.y,
+        });
+      } else {
+        ctx.fillStyle = room.labelColor || '#9ca3af';
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(`${room.name} (${formatArea(room.area, dimSettings.units)})`, label.x, label.y);
+      }
     }
 
     if (showDimensions && dimSettings.showInternalDimensions && poly.length >= 3) {
