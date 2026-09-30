@@ -246,7 +246,7 @@ export async function exportAsPNG(canvas: HTMLCanvasElement | null, project?: Pr
         // Room label
         const c = roomLabelPosition(room, poly, holes[ri]);
         const labelSize = room.labelSize ? roomLabelFontSize(room) : 12;
-        ctx.fillStyle = room.labelColor || '#444';
+        ctx.fillStyle = room.labelColor || '#000000';
         ctx.font = `bold ${labelSize}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillText(room.name, c.x - minX + pad, c.y - minY + pad);
@@ -375,7 +375,7 @@ export function exportAsSVG(project: Project, language: Locale = 'en') {
     const cx = c.x - minX + pad;
     const cy = c.y - minY + pad;
     const labelSize = room.labelSize ? roomLabelFontSize(room) : 12;
-    const labelColor = escapeXml(room.labelColor || '#444');
+    const labelColor = escapeXml(room.labelColor || '#000000');
     paths += `  <text x="${cx}" y="${cy}" text-anchor="middle" font-size="${labelSize}" fill="${labelColor}" font-family="sans-serif" font-weight="bold">${escapeXml(room.name)}</text>\n`;
     paths += `  <text x="${cx}" y="${cy + labelSize + 2}" text-anchor="middle" font-size="${Math.max(8, labelSize * 10 / 12)}" fill="#888" font-family="sans-serif">${formatArea(room.area, get(projectSettings).units)}</text>\n`;
   }
@@ -792,7 +792,7 @@ function renderPDF(project: Project, preparedImages: ReadonlyMap<string,HTMLImag
     ctx.globalAlpha = 1;
     const c = roomLabelPosition(room, poly, holes[ri]);
     const labelSize = roomLabelFontSize(room);
-    ctx.fillStyle = room.labelColor || '#444';
+    ctx.fillStyle = room.labelColor || '#000000';
     ctx.font = `bold ${labelSize}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(room.name, c.x - minX + pad, c.y - minY + pad);
