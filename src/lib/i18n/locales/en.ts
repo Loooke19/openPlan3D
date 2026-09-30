@@ -714,7 +714,7 @@ export const en = {
   "roomProperties.labelStyle": "Label Style",
   "roomProperties.labelStyleStroke": "Outlined text (default)",
   "roomProperties.labelStyleMapPoi": "Map icon + name",
-  "roomProperties.labelStyleMapPoiSoft": "Map icon + soft chip",
+  "roomProperties.labelStyleMapPoiSoft": "Map icon + name (no chip)",
   "roomProperties.labelStyleHidden": "Hide label",
   "roomProperties.labelIcon": "Icon category",
   "roomProperties.labelIconColor": "Icon color",
