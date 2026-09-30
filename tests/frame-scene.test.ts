@@ -89,3 +89,19 @@ it('reserves vertical overlay space on a short landscape viewport', () => {
     expect(Math.abs(projected.y)).toBeLessThan(1 - 2 * 64 / 342);
   }
 });
+
+/** Nav shell default framing must match wxb3d: near-vertical top-down, not oblique. */
+it('nav-default top-down looks nearly straight down (phi≈0)', () => {
+  const camera = new PerspectiveCamera(50, 1440 / 900, 1, 100000);
+  camera.position.set(800, 600, 800); // same oblique seed as ThreeViewer.init
+  const target = new Vector3();
+  const bounds = new Box3(new Vector3(-500, 0, -500), new Vector3(1500, 280, 1200));
+  frameScene(camera, bounds, target, { view: 'top-down', verticalInset: 64 / 900 });
+  const look = camera.getWorldDirection(new Vector3());
+  expect(look.y).toBeCloseTo(-1, 5);
+  // Horizontal offset from target should be tiny vs height (strict top-down).
+  const dx = camera.position.x - target.x;
+  const dz = camera.position.z - target.z;
+  const dy = camera.position.y - target.y;
+  expect(Math.hypot(dx, dz) / Math.max(dy, 1)).toBeLessThan(0.02);
+});
