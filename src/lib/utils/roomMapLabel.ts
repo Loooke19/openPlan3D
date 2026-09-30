@@ -129,8 +129,9 @@ function pointInPoly(point: { x: number; y: number }, poly: { x: number; y: numb
   return inside;
 }
 
+// Prefer YaHei Bold face when present; Noto SC VF often ignores canvas `bold`.
 const CJK_FONT =
-  '"Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif';
+  '"Microsoft YaHei", "Microsoft YaHei UI", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif';
 
 function drawGlyph(
   ctx: CanvasRenderingContext2D,
@@ -296,7 +297,7 @@ export function drawMapRoomLabel(ctx: CanvasRenderingContext2D, opts: DrawMapRoo
     ctx.lineWidth = opts.strokeWidth;
     ctx.strokeStyle = '#ffffff';
     ctx.strokeText(name, opts.x, opts.y);
-    ctx.fillStyle = opts.textColor || '#222222';
+    ctx.fillStyle = opts.textColor || '#000000';
     ctx.fillText(name, opts.x, opts.y);
     return true;
   }
@@ -313,29 +314,8 @@ export function drawMapRoomLabel(ctx: CanvasRenderingContext2D, opts: DrawMapRoo
   const iconCx = left + radius;
   const textX = left + radius * 2 + gap;
 
-  if (style === 'mapPoiSoft') {
-    const padX = Math.max(6, fontSize * 0.35);
-    const padY = Math.max(4, fontSize * 0.28);
-    const chipH = Math.max(radius * 2, fontSize) + padY * 2;
-    const chipW = blockW + padX * 2;
-    const chipX = left - padX;
-    const chipY = cy - chipH / 2;
-    ctx.save();
-    ctx.fillStyle = 'rgba(255,255,255,0.92)';
-    ctx.strokeStyle = 'rgba(15,23,42,0.08)';
-    ctx.lineWidth = 1;
-    const r = chipH / 2;
-    ctx.beginPath();
-    ctx.moveTo(chipX + r, chipY);
-    ctx.arcTo(chipX + chipW, chipY, chipX + chipW, chipY + chipH, r);
-    ctx.arcTo(chipX + chipW, chipY + chipH, chipX, chipY + chipH, r);
-    ctx.arcTo(chipX, chipY + chipH, chipX, chipY, r);
-    ctx.arcTo(chipX, chipY, chipX + chipW, chipY, r);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
-  }
+  // mapPoi / mapPoiSoft: colored icon circle + dark stroked name only.
+  // Never wrap the name in a light chip / rounded bar (soft used to).
 
   // Colored circle + white glyph
   ctx.beginPath();
@@ -347,35 +327,56 @@ export function drawMapRoomLabel(ctx: CanvasRenderingContext2D, opts: DrawMapRoo
   ctx.stroke();
   drawGlyph(ctx, icon, iconCx, cy, radius);
 
-  // Name: dark, optional white stroke (mapPoi); soft chip already provides contrast
+  // Name: dark fill + white stroke for contrast on the floor (no text backdrop)
   ctx.textAlign = 'left';
-  if (style === 'mapPoi') {
-    ctx.lineWidth = opts.strokeWidth;
-    ctx.strokeStyle = '#ffffff';
-    ctx.strokeText(name, textX, cy);
-  }
-  ctx.fillStyle = opts.textColor || '#1f2937';
+  ctx.lineWidth = opts.strokeWidth;
+  ctx.strokeStyle = '#ffffff';
+  ctx.strokeText(name, textX, cy);
+  ctx.fillStyle = opts.textColor || '#000000';
   ctx.fillText(name, textX, cy);
   return true;
 }
 
 export interface BakeNavLabelSpriteResult {
   canvas: HTMLCanvasElement;
-  /** World-scale width/height multipliers relative to default stroke sprite. */
+  /** World-space sprite size; must match canvas width/height aspect. */
   scaleX: number;
   scaleY: number;
 }
 
-/** Bake a nav 3D sprite canvas for one room label. */
+/**
+ * World sprite size from canvas pixel size. Keeps glyphs undistorted:
+ * scaleX / scaleY === width / height.
+ */
+export function worldScaleFromCanvasSize(
+  width: number,
+  height: number,
+  /** World-unit height of the label sprite (nav overview default). */
+  refHeight = 44,
+): { scaleX: number; scaleY: number } {
+  const h = Math.max(1, height);
+  const w = Math.max(1, width);
+  const scaleY = refHeight;
+  const scaleX = refHeight * (w / h);
+  return { scaleX, scaleY };
+}
+
+/**
+ * Bake a nav 3D sprite canvas for one room label.
+ * Draws at `pixelScale`× logical size so top-down far views stay sharp when
+ * the sprite is downscaled; world scale preserves canvas aspect (no X-stretch).
+ */
 export function bakeNavRoomLabelSprite(opts: {
   name: string;
   style?: string | null;
   icon?: string | null;
   iconColor?: string | null;
   labelColor?: string | null;
-  /** Font size in px on the canvas (nav default 44). */
+  /** Logical font size in px (nav default 48); multiplied by pixelScale on canvas. */
   fontSize?: number;
   strokeWidth?: number;
+  /** Canvas supersampling (≥1). Default 4 for crisp CJK at overview distance. */
+  pixelScale?: number;
 }): BakeNavLabelSpriteResult | null {
   const style = resolveRoomLabelStyle(opts.style);
   if (style === 'hidden') return null;
@@ -383,35 +384,49 @@ export function bakeNavRoomLabelSprite(opts: {
   const name = (opts.name || '').trim();
   if (!name) return null;
 
-  const fontSize = opts.fontSize ?? 44;
-  const strokeWidth = opts.strokeWidth ?? 5;
+  const pixelScale = Math.max(1, opts.pixelScale ?? 4);
+  const fontSize = (opts.fontSize ?? 48) * pixelScale;
+  const strokeWidth = (opts.strokeWidth ?? 5) * pixelScale;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
+  // Prefer crisp glyph edges when the GPU later mipmaps the texture down.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  // Reference world height (tighter than legacy 60) for overview sharpness.
+  const refHeight = 44;
 
   if (style === 'stroke') {
-    canvas.width = 512;
-    canvas.height = 96;
-    ctx.clearRect(0, 0, 512, 96);
+    ctx.font = `bold ${fontSize}px ${CJK_FONT}`;
+    const textW = ctx.measureText(name).width;
+    const padX = Math.ceil(strokeWidth + 12 * pixelScale);
+    const padY = Math.ceil(strokeWidth + 10 * pixelScale);
+    const width = Math.max(64, Math.ceil(textW + padX * 2));
+    const height = Math.max(32, Math.ceil(fontSize + padY * 2));
+    canvas.width = width;
+    canvas.height = height;
+    ctx.clearRect(0, 0, width, height);
     drawMapRoomLabel(ctx, {
       name,
       style: 'stroke',
-      textColor: opts.labelColor || '#222222',
+      textColor: opts.labelColor || '#000000',
       fontSize,
       strokeWidth,
       align: 'center',
-      x: 256,
-      y: 48,
+      x: width / 2,
+      y: height / 2,
     });
-    return { canvas, scaleX: 300, scaleY: 60 };
+    const { scaleX, scaleY } = worldScaleFromCanvasSize(width, height, refHeight);
+    return { canvas, scaleX, scaleY };
   }
 
-  // Measure for map styles
+  // Measure for map styles (icon + name, no chip padding)
   ctx.font = `bold ${fontSize}px ${CJK_FONT}`;
   const textW = ctx.measureText(name).width;
-  const iconR = Math.max(18, fontSize * 0.72);
-  const gap = Math.max(8, fontSize * 0.28);
-  const padX = style === 'mapPoiSoft' ? Math.max(14, fontSize * 0.4) : 16;
-  const padY = style === 'mapPoiSoft' ? Math.max(10, fontSize * 0.3) : 12;
+  const iconR = Math.max(18 * pixelScale, fontSize * 0.72);
+  const gap = Math.max(8 * pixelScale, fontSize * 0.28);
+  const padX = Math.max(12 * pixelScale, strokeWidth + 4 * pixelScale);
+  const padY = Math.max(10 * pixelScale, strokeWidth + 4 * pixelScale);
   const contentW = iconR * 2 + gap + textW;
   const width = Math.ceil(contentW + padX * 2);
   const height = Math.ceil(Math.max(iconR * 2, fontSize) + padY * 2);
@@ -420,10 +435,11 @@ export function bakeNavRoomLabelSprite(opts: {
   ctx.clearRect(0, 0, width, height);
   drawMapRoomLabel(ctx, {
     name,
-    style,
+    // Soft historically drew a chip; bake as mapPoi (icon + stroked name).
+    style: style === 'mapPoiSoft' ? 'mapPoi' : style,
     icon: opts.icon,
     iconColor: opts.iconColor,
-    textColor: opts.labelColor || '#1f2937',
+    textColor: opts.labelColor || '#000000',
     fontSize,
     strokeWidth,
     iconRadius: iconR,
@@ -432,8 +448,6 @@ export function bakeNavRoomLabelSprite(opts: {
     y: height / 2,
   });
 
-  // Keep roughly same physical size as stroke sprites for the name portion
-  const scaleX = 300 * (width / 512);
-  const scaleY = 60 * (height / 96);
+  const { scaleX, scaleY } = worldScaleFromCanvasSize(width, height, refHeight);
   return { canvas, scaleX, scaleY };
 }

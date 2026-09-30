@@ -714,7 +714,7 @@ export const zh = {
   "roomProperties.labelStyle": "标签样式",
   "roomProperties.labelStyleStroke": "描边字（默认）",
   "roomProperties.labelStyleMapPoi": "地图图标 + 名称",
-  "roomProperties.labelStyleMapPoiSoft": "地图图标 + 浅底条",
+  "roomProperties.labelStyleMapPoiSoft": "地图图标 + 名称（无底）",
   "roomProperties.labelStyleHidden": "不显示标签",
   "roomProperties.labelIcon": "图标类别",
   "roomProperties.labelIconColor": "图标颜色",

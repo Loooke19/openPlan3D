@@ -35,8 +35,9 @@
   import { disposeModel, ownTexture } from '$lib/utils/furnitureModelResources';
   import { createFurnitureModelWithGLB, createPlacedFurnitureModel } from '$lib/utils/furnitureModelLoader';
   import { addFurniture } from '$lib/stores/project';
-  import { detectRooms, roomFaces, getRoomPolygon, roomCentroid, roomLabelFontSize, roomLabelPosition } from '$lib/utils/roomDetection';
+  import { detectRooms, roomFaces, getRoomPolygon, roomCentroid, roomLabelFontSize, roomLabelPosition, DEFAULT_ROOM_LABEL_SIZE } from '$lib/utils/roomDetection';
   import { bakeNavRoomLabelSprite, lookupRoomLabelFields } from '$lib/utils/roomMapLabel';
+  import { effectivePixelRatio } from '$lib/utils/pixelRatio';
   import { getMaterial } from '$lib/utils/materials';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
   import {
@@ -830,7 +831,8 @@
 
     renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, logarithmicDepthBuffer: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
+    // Glass/Electron often reports DPR=1 on 200% OS scale; floor at measured default 2.
+    renderer.setPixelRatio(effectivePixelRatio());
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -2066,7 +2068,7 @@
 
       // Floating room label using sprite
       const centroid = roomLabelPosition(room, poly, holes[ri]);
-      const labelScale = roomLabelFontSize(room) / 13;
+      const labelScale = roomLabelFontSize(room) / DEFAULT_ROOM_LABEL_SIZE;
       if (navShell) {
         // Nav wayfinding: per-room style (stroke / map POI / hidden). Keep 2× font
         // and halved stroke (5px). No area plate.
@@ -2083,14 +2085,21 @@
           style: labelFields.labelStyle ?? room.labelStyle,
           icon: labelFields.labelIcon ?? room.labelIcon,
           iconColor: labelFields.labelIconColor ?? room.labelIconColor,
-          labelColor: labelFields.labelColor ?? room.labelColor,
-          fontSize: 44,
-          strokeWidth: 5,
+          labelColor: labelFields.labelColor ?? room.labelColor ?? '#000000',
+          fontSize: 48,
+          strokeWidth: 3,
+          // Supersample from effective DPR (default 2 on glass browser host).
+          pixelScale: Math.max(3, Math.min(4, Math.round(effectivePixelRatio() * 2))),
         });
         if (!baked) {
           // hidden or empty name — skip sprite
         } else {
           const tex = ownTexture(new THREE.CanvasTexture(baked.canvas));
+          tex.generateMipmaps = true;
+          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          tex.magFilter = THREE.LinearFilter;
+          tex.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy?.() || 1);
+          tex.needsUpdate = true;
           const spriteMat = new THREE.SpriteMaterial({
             map: tex,
             transparent: true,

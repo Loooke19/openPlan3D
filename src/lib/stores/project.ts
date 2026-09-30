@@ -944,8 +944,8 @@ function stampRoomLabels(saved: Room[], visible: Room[], size: number, color: st
 export function applyRoomLabels(labelSize: number, labelColor: string) {
   const project = get(currentProject);
   if (!project) return;
-  const size = Math.min(72, Math.max(8, Math.round(labelSize) || 13));
-  const color = labelColor || '#9ca3af';
+  const size = Math.min(72, Math.max(8, Math.round(labelSize) || 17));
+  const color = labelColor || '#000000';
   const activeId = project.activeFloorId;
   const detected = get(detectedRoomsStore);
   snapshot('Applied room label style');

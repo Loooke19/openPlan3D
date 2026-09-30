@@ -5,6 +5,7 @@
   import { readProject } from '$lib/utils/projectValidation';
   import { markClean } from '$lib/stores/saveStatus';
   import { drawMapRoomLabel, resolveRoomLabelStyle, type RoomLabelStyle } from '$lib/utils/roomMapLabel';
+  import { effectivePixelRatio } from '$lib/utils/pixelRatio';
   import type { Room } from '$lib/models/types';
 
   let ThreeViewer: any = $state(null);
@@ -145,7 +146,7 @@
     if (!canvas || !view) return;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
-    const ratio = window.devicePixelRatio || 1;
+    const ratio = effectivePixelRatio();
     canvas.width = Math.max(1, Math.floor(width * ratio));
     canvas.height = Math.max(1, Math.floor(height * ratio));
     const ctx = canvas.getContext('2d');
@@ -290,9 +291,9 @@
           style: meta.style,
           icon: meta.icon,
           iconColor: meta.iconColor || place.color,
-          textColor: meta.textColor || '#222222',
-          fontSize: 24,
-          strokeWidth: 2,
+          textColor: meta.textColor || '#000000',
+          fontSize: 28,
+          strokeWidth: 1.5,
           iconRadius: 10,
           align: 'left',
           x: x - 4,
@@ -309,9 +310,9 @@
         drawMapRoomLabel(ctx, {
           name: placeName,
           style: 'stroke',
-          textColor: '#222222',
-          fontSize: 24,
-          strokeWidth: 2,
+          textColor: '#000000',
+          fontSize: 28,
+          strokeWidth: 1.5,
           align: 'left',
           x: x + 8,
           y,
