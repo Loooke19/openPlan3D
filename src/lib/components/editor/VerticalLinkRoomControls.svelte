@@ -24,13 +24,19 @@
   let summary = $state('');
   let apiMissing = $state(false);
   let project = $state<Project | null>(null);
+  let kind = $state<VerticalKind>('elevator');
 
   onDestroy(currentProject.subscribe((value) => { project = value; }));
 
-  const facility = $derived(verticalKindFromName(room.name));
   const show = $derived((project?.floors.length || 0) > 1);
   const above = $derived(getFloorAbove(project));
   const below = $derived(getFloorBelow(project));
+
+  $effect(() => {
+    void room.id;
+    void room.name;
+    kind = verticalKindFromName(room.name) || 'elevator';
+  });
 
   $effect(() => {
     void room.id;
@@ -47,17 +53,20 @@
     }
     try {
       const { links } = await fetchVerticalLinks(api.apiOrigin, api.projectId);
-      const center = centroid();
+      // Prefer exact roomId; only fall back to bare landing points (no roomId).
       const mine = links.find((link) =>
-        (link.stops || []).some(
+        (link.stops || []).some((stop) => stop.floorId === floor.id && stop.roomId === room.id),
+      ) || links.find((link) => {
+        const center = centroid();
+        return (link.stops || []).some(
           (stop) =>
             stop.floorId === floor.id &&
-            (stop.roomId === room.id ||
-              Math.hypot((stop.x ?? 0) - center.x, (stop.y ?? 0) - center.y) <= 400),
-        ),
-      );
+            !stop.roomId &&
+            Math.hypot((stop.x ?? 0) - center.x, (stop.y ?? 0) - center.y) <= 120,
+        );
+      });
       if (!mine) {
-        summary = '尚未绑定上下层';
+        summary = '尚未绑定上下层（任意房间都可连）';
         return;
       }
       const labels = (mine.stops || [])
@@ -94,7 +103,6 @@
       verticalBindMessage.set('当前房间没有可用轮廓');
       return;
     }
-    const kind: VerticalKind = facility || 'elevator';
     busy = true;
     verticalBindMessage.set('');
     verticalBindSession.set({
@@ -120,13 +128,21 @@
   <div class="vertical-bind">
     <div class="head">上下层连通</div>
     <p class="hint">
-      一对一绑定：本层该楼梯/电梯只能连楼上（或楼下）一个；再选会改绑替换。
+      任意房间都可绑定。一对一：本层该房间向上/向下各只能连一个；再选会改绑替换。
       整井可保留多站，不影响跨多层直达。
     </p>
     {#if apiMissing}
       <p class="warn">需要通过导入服务打开工程（带 projectUrl）才能保存连通。</p>
     {:else}
       {#if summary}<p class="summary">{summary}</p>{/if}
+      <label class="kind">
+        <span>连通类型</span>
+        <select bind:value={kind} aria-label="连通类型">
+          <option value="elevator">电梯</option>
+          <option value="stairs">楼梯</option>
+          <option value="escalator">扶梯</option>
+        </select>
+      </label>
       <div class="actions">
         <button type="button" disabled={busy || !above} onclick={() => startBind('up')}>
           连接上层
@@ -162,6 +178,22 @@
     color: #6b7280;
   }
   .warn { color: #b45309; }
+  .kind {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    color: #6b7280;
+  }
+  .kind select {
+    height: 30px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    color: #111827;
+    font-size: 12px;
+    padding: 0 8px;
+  }
   .actions {
     display: grid;
     grid-template-columns: 1fr 1fr;

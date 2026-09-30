@@ -113,7 +113,7 @@
       <strong>连接{session.direction === 'up' ? '上层' : '下层'}</strong>
       <span>
         已选 {session.fromFloorName}「{session.fromRoomName || session.fromRoomId}」·
-        请在 {session.toFloorName} 平面图上点选楼梯/电梯房间完成绑定。
+        请在 {session.toFloorName} 平面图上点选任意房间完成绑定。
         若该侧已有绑定，将直接改绑替换（一对一）。
       </span>
     </div>
