@@ -704,10 +704,18 @@
   /** Dev/nav test hook: orbit pose for floor-switch camera checks. */
   export function getOrbitSnapshot() {
     if (!camera || !controls) return null;
+    const offset = camera.position.clone().sub(controls.target);
+    const spherical = new THREE.Spherical().setFromVector3(offset);
+    // Three.js: phi=0 looks straight down; phi=π/2 is horizon.
+    const look = camera.getWorldDirection(new THREE.Vector3());
     return {
       position: camera.position.toArray() as [number, number, number],
       target: controls.target.toArray() as [number, number, number],
       radius: camera.position.distanceTo(controls.target),
+      phi: spherical.phi,
+      theta: spherical.theta,
+      lookY: look.y,
+      topDown: spherical.phi < 0.12 && look.y < -0.98,
     };
   }
 
@@ -1078,7 +1086,12 @@
   }
 
   function autoCenterCamera() {
-    frameScene(camera, new THREE.Box3().setFromObject(wallGroup), controls.target);
+    // Nav shell matches wxb3d default: near-vertical top-down (not oblique perspective).
+    // Editor keeps the existing angled framing; users can still orbit after entry.
+    frameScene(camera, new THREE.Box3().setFromObject(wallGroup), controls.target,
+      navShell
+        ? { view: 'top-down', verticalInset: Math.min(64 / Math.max(container?.clientHeight || 1, 1), 0.2) }
+        : { view: 'perspective' });
     controls.update();
   }
 
