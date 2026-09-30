@@ -2167,8 +2167,8 @@
           labelColor: labelFields.labelColor ?? room.labelColor,
           fontSize: 44,
           strokeWidth: 3,
-          // 3× canvas so top-down overview doesn't magnify a soft low-res atlas.
-          pixelScale: Math.max(2, Math.min(3, Math.round(window.devicePixelRatio || 2))),
+          // 4× canvas so top-down overview doesn't magnify a soft low-res atlas.
+          pixelScale: Math.max(3, Math.min(4, Math.round((window.devicePixelRatio || 1) * 2))),
         });
         if (!baked) {
           // hidden or empty name — skip sprite
@@ -2177,7 +2177,7 @@
           tex.generateMipmaps = true;
           tex.minFilter = THREE.LinearMipmapLinearFilter;
           tex.magFilter = THREE.LinearFilter;
-          tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy?.() || 1);
+          tex.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy?.() || 1);
           tex.needsUpdate = true;
           const spriteMat = new THREE.SpriteMaterial({
             map: tex,

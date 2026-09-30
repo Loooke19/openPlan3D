@@ -129,8 +129,9 @@ function pointInPoly(point: { x: number; y: number }, poly: { x: number; y: numb
   return inside;
 }
 
+// Prefer YaHei Bold face when present; Noto SC VF often ignores canvas `bold`.
 const CJK_FONT =
-  '"Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif';
+  '"Microsoft YaHei", "Microsoft YaHei UI", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif';
 
 function drawGlyph(
   ctx: CanvasRenderingContext2D,
@@ -357,7 +358,7 @@ export function bakeNavRoomLabelSprite(opts: {
   /** Logical font size in px (nav default 44); multiplied by pixelScale on canvas. */
   fontSize?: number;
   strokeWidth?: number;
-  /** Canvas supersampling (≥1). Default 3 for crisp CJK at overview distance. */
+  /** Canvas supersampling (≥1). Default 4 for crisp CJK at overview distance. */
   pixelScale?: number;
 }): BakeNavLabelSpriteResult | null {
   const style = resolveRoomLabelStyle(opts.style);
@@ -366,7 +367,7 @@ export function bakeNavRoomLabelSprite(opts: {
   const name = (opts.name || '').trim();
   if (!name) return null;
 
-  const pixelScale = Math.max(1, opts.pixelScale ?? 3);
+  const pixelScale = Math.max(1, opts.pixelScale ?? 4);
   const fontSize = (opts.fontSize ?? 44) * pixelScale;
   const strokeWidth = (opts.strokeWidth ?? 5) * pixelScale;
   const canvas = document.createElement('canvas');
@@ -374,6 +375,10 @@ export function bakeNavRoomLabelSprite(opts: {
   // Prefer crisp glyph edges when the GPU later mipmaps the texture down.
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
+
+  // Tighter world size than legacy 300×60 → more texels per screen px at overview.
+  const worldW = 220;
+  const worldH = 44;
 
   if (style === 'stroke') {
     ctx.font = `bold ${fontSize}px ${CJK_FONT}`;
@@ -395,8 +400,7 @@ export function bakeNavRoomLabelSprite(opts: {
       x: width / 2,
       y: height / 2,
     });
-    // Slightly tighter than old 300×60 so overview distance packs more texels/px.
-    return { canvas, scaleX: 260, scaleY: 52 };
+    return { canvas, scaleX: worldW, scaleY: worldH };
   }
 
   // Measure for map styles (icon + name, no chip padding)
@@ -427,8 +431,8 @@ export function bakeNavRoomLabelSprite(opts: {
     y: height / 2,
   });
 
-  // World size tracks aspect vs the legacy 512×96 stroke atlas, then tightens a bit.
-  const scaleX = 260 * (width / (512 * pixelScale));
-  const scaleY = 52 * (height / (96 * pixelScale));
+  // World size tracks aspect vs the legacy 512×96 stroke atlas, then tightens.
+  const scaleX = worldW * (width / (512 * pixelScale));
+  const scaleY = worldH * (height / (96 * pixelScale));
   return { canvas, scaleX, scaleY };
 }
