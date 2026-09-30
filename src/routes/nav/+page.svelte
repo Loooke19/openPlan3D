@@ -39,18 +39,6 @@
   let transferNotice = $state('');
   let legAdvanceToken = 0;
   let accessible = $state(false);
-  let linkKind = $state('elevator');
-  let linkName = $state('');
-  let linkFrom = $state('');
-  let linkTo = $state('');
-  let linkBusy = $state(false);
-  let linkMessage = $state('');
-
-  const LINK_KINDS = [
-    ['elevator', '电梯'],
-    ['stairs', '楼梯'],
-    ['escalator', '扶梯'],
-  ];
 
   type Place = {
     id: string;
@@ -82,15 +70,6 @@
     from?: { x: number; y: number };
     to?: { x: number; y: number };
   };
-  type LinkStop = { floorId: string; floorName?: string; placeId?: string; name?: string; x: number; y: number };
-  type VerticalLink = {
-    id: string;
-    kind: string;
-    kindLabel?: string;
-    name: string;
-    source?: 'auto' | 'manual';
-    stops: LinkStop[];
-  };
   type NavRoom = {
     id: string;
     name?: string;
@@ -103,7 +82,6 @@
     floors?: { id: string; name: string }[];
     destinations?: Place[];
     places?: Place[];
-    verticalLinks?: VerticalLink[];
     walls?: { start: { x: number; y: number }; end: { x: number; y: number }; thickness?: number }[];
     rooms?: NavRoom[];
     openings?: any[];
@@ -211,10 +189,6 @@
     const list = allPlaces();
     if (category === 'all') return list;
     return list.filter((p) => p.category === category);
-  }
-
-  function placesOnFloor(floorId: string): Place[] {
-    return allPlaces().filter((place) => place.floorId === floorId);
   }
 
   function multiFloor() {
@@ -656,77 +630,6 @@
     applyLeg(index);
   }
 
-  const LINK_ERRORS: Record<string, string> = {
-    floor: '两端要在不同楼层',
-    stops: '选好两端',
-    stop: '选好两端',
-    kind: '类型不对',
-    full: '连通太多了',
-  };
-
-  async function afterLinksChanged(message: string) {
-    linkMessage = message;
-    await loadNav(view?.floorId || '', { keepRoute: true });
-    if (startId && endId) await planRoute();
-  }
-
-  async function addLink() {
-    const from = placeByKey(linkFrom);
-    const to = placeByKey(linkTo);
-    if (!from || !to) {
-      linkMessage = '选好两端';
-      return;
-    }
-    if (from.floorId === to.floorId) {
-      linkMessage = '两端要在不同楼层';
-      return;
-    }
-    linkBusy = true;
-    try {
-      const response = await fetch(`${apiOrigin}/api/projects/${projectId}/vertical-links`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kind: linkKind,
-          name: linkName,
-          stops: [from, to].map((place) => ({ floorId: place.floorId, roomId: place.id, x: place.x, y: place.y })),
-        }),
-      });
-      if (!response.ok) {
-        const detail = (await response.json().catch(() => ({})))?.detail;
-        linkMessage = LINK_ERRORS[detail] || '没有连上';
-        return;
-      }
-      linkName = '';
-      linkFrom = '';
-      linkTo = '';
-      await afterLinksChanged(`已连通 ${placeLabel(from)} ⇄ ${placeLabel(to)}`);
-    } catch {
-      linkMessage = '没有连上';
-    } finally {
-      linkBusy = false;
-    }
-  }
-
-  async function removeLink(link: VerticalLink) {
-    linkBusy = true;
-    try {
-      const response = await fetch(
-        `${apiOrigin}/api/projects/${projectId}/vertical-links/${encodeURIComponent(link.id)}`,
-        { method: 'DELETE' },
-      );
-      if (!response.ok) {
-        linkMessage = '没有删掉';
-        return;
-      }
-      await afterLinksChanged(`已删除 ${link.name}`);
-    } catch {
-      linkMessage = '没有删掉';
-    } finally {
-      linkBusy = false;
-    }
-  }
-
   function onPlanClick(event: MouseEvent) {
     if (!planCanvas || !view?.bounds || mode !== '2d' || busy) return;
     const rect = planCanvas.getBoundingClientRect();
@@ -1034,51 +937,6 @@
             </button>
           {/each}
         </div>
-        {#if multiFloor()}
-          <details class="links">
-            <summary>上下层连通 · {view?.verticalLinks?.length || 0}</summary>
-            {#each view?.verticalLinks || [] as link (link.id)}
-              <div class="link-row">
-                <span class="link-kind">{link.kindLabel || link.kind}</span>
-                <span class="link-text">
-                  <strong>{link.name}</strong>
-                  <span>{link.stops.map((stop) => `${stop.floorName || stop.floorId} ${stop.name || ''}`.trim()).join(' ⇄ ')}</span>
-                </span>
-                {#if link.source === 'manual'}
-                  <button type="button" class="remove" aria-label={`删除 ${link.name}`} disabled={linkBusy} onclick={() => removeLink(link)}>×</button>
-                {:else}
-                  <span class="link-auto" title="同名的电梯 / 楼梯房间自动配对">自动</span>
-                {/if}
-              </div>
-            {:else}
-              <p class="hint">还没有连通。把两层的房间都命名为「电梯」或「楼梯」会自动配对，也可以在下面手动连。</p>
-            {/each}
-            <form class="link-form" onsubmit={(event) => { event.preventDefault(); void addLink(); }}>
-              <div class="link-form-row">
-                <select bind:value={linkKind} aria-label="连通类型">
-                  {#each LINK_KINDS as [id, label]}
-                    <option value={id}>{label}</option>
-                  {/each}
-                </select>
-                <input bind:value={linkName} placeholder="名称（可空）" aria-label="连通名称" maxlength="40" />
-              </div>
-              {#snippet placeOptions(label: string)}
-                <option value="">{label}</option>
-                {#each view?.floors || [] as floor}
-                  <optgroup label={floor.name}>
-                    {#each placesOnFloor(floor.id) as place}
-                      <option value={placeKey(place)}>{place.name || place.id}</option>
-                    {/each}
-                  </optgroup>
-                {/each}
-              {/snippet}
-              <select bind:value={linkFrom} aria-label="一端">{@render placeOptions('一端')}</select>
-              <select bind:value={linkTo} aria-label="另一端">{@render placeOptions('另一端')}</select>
-              <button type="submit" disabled={linkBusy || !linkFrom || !linkTo}>添加连通</button>
-              {#if linkMessage}<p class="hint">{linkMessage}</p>{/if}
-            </form>
-          </details>
-        {/if}
       </aside>
     </div>
     <p class="status">{status}</p>

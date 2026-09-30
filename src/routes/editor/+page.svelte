@@ -29,6 +29,7 @@
   import PrintLayout from '$lib/components/editor/PrintLayout.svelte';
   import OnboardingTooltip from '$lib/components/OnboardingTooltip.svelte';
   import McpStatusBubble from '$lib/components/editor/McpStatusBubble.svelte';
+  import VerticalLinkBindBanner from '$lib/components/editor/VerticalLinkBindBanner.svelte';
   import { triggerTip } from '$lib/stores/onboarding.svelte';
 
   let commandPaletteOpen = $state(false);
@@ -259,6 +260,7 @@
         </div>
       {/if}
       <div class="flex-1 min-w-0 relative">
+        <VerticalLinkBindBanner />
         {#if mode === '2d'}
           <FloorPlanCanvas />
           <AlignmentToolbar />

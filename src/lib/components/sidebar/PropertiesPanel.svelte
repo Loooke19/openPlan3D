@@ -12,6 +12,7 @@
   import ItemDetailsPanel from './ItemDetailsPanel.svelte';
   import type { DetailTarget } from '$lib/models/types';
   import { catalogAssetUrl } from '$lib/utils/catalogAssetUrl';
+  import VerticalLinkRoomControls from '$lib/components/editor/VerticalLinkRoomControls.svelte';
 
   import { currentProject, activeFloor, selectedElementId, selectedRoomId, updateWall, resizeWallLength, reverseWall, updateDoor, updateWindow, updateRoom, updateFurniture, detectedRoomsStore, updateStair, updateColumn, updateBackgroundImage, setBackgroundImage, calibrationMode, calibrationPoints, updateTextAnnotation, toggleFurnitureLock, updateEntourageItem, removeElement, elevationWallId, applyRoomLabels } from '$lib/stores/project';
   import { wallLength as calcWallLength, MIN_WALL_LENGTH, type WallEndpoint } from '$lib/utils/wallEditing';
@@ -865,6 +866,9 @@
       <button type="button" onclick={onApplyRoomLabels} class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm text-gray-700 hover:bg-gray-50 transition-colors">
         {$t('roomProperties.applyLabels')}
       </button>
+      {#if floor && selectedRoom}
+        <VerticalLinkRoomControls room={selectedRoom} floor={floor} />
+      {/if}
       <label class="block">
         <span class="text-xs text-gray-500">{$t('roomProperties.category')}</span>
         <select value={selectedRoom.roomType ?? 'indoor'} onchange={(e) => { if (selectedRoom) { const v = (e.target as HTMLSelectElement).value as RoomCategory; updateRoom(selectedRoom.id, { roomType: v }); updateDetectedRoom(selectedRoom.id, { roomType: v } as any); } }} class="w-full px-2 py-1 border border-gray-200 rounded text-sm">
