@@ -83,11 +83,14 @@ const result = {
   afterOrbitFloor,
   defaultTopDown: !!defaultPose?.topDown,
   floorSwitchKeptTopDown: !!afterFloor?.topDown,
+  // Relative orbit preserve: radius/angles stay; absolute XYZ may move when
+  // CAD floors do not share a plan origin (PR #5).
   orbitPreserved: afterNudge && afterOrbitFloor
     ? Math.abs(afterNudge.radius - afterOrbitFloor.radius) < 1
       && Math.abs(afterNudge.phi - afterOrbitFloor.phi) < 0.05
-      && posDelta(afterNudge, afterOrbitFloor) < 80
+      && Math.abs(afterNudge.theta - afterOrbitFloor.theta) < 0.05
     : null,
+  orbitPositionDelta: posDelta(afterNudge, afterOrbitFloor),
   switchedFloor,
 };
 fs.writeFileSync(path.join(OUT, `${LABEL}-metrics.json`), JSON.stringify(result, null, 2));
