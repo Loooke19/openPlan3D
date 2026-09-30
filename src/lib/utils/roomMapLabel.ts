@@ -339,15 +339,32 @@ export function drawMapRoomLabel(ctx: CanvasRenderingContext2D, opts: DrawMapRoo
 
 export interface BakeNavLabelSpriteResult {
   canvas: HTMLCanvasElement;
-  /** World-scale width/height multipliers relative to default stroke sprite. */
+  /** World-space sprite size; must match canvas width/height aspect. */
   scaleX: number;
   scaleY: number;
 }
 
 /**
+ * World sprite size from canvas pixel size. Keeps glyphs undistorted:
+ * scaleX / scaleY === width / height.
+ */
+export function worldScaleFromCanvasSize(
+  width: number,
+  height: number,
+  /** World-unit height of the label sprite (nav overview default). */
+  refHeight = 44,
+): { scaleX: number; scaleY: number } {
+  const h = Math.max(1, height);
+  const w = Math.max(1, width);
+  const scaleY = refHeight;
+  const scaleX = refHeight * (w / h);
+  return { scaleX, scaleY };
+}
+
+/**
  * Bake a nav 3D sprite canvas for one room label.
  * Draws at `pixelScale`× logical size so top-down far views stay sharp when
- * the sprite is downscaled; world scale stays near the historical 300×60.
+ * the sprite is downscaled; world scale preserves canvas aspect (no X-stretch).
  */
 export function bakeNavRoomLabelSprite(opts: {
   name: string;
@@ -376,9 +393,8 @@ export function bakeNavRoomLabelSprite(opts: {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  // Tighter world size than legacy 300×60 → more texels per screen px at overview.
-  const worldW = 220;
-  const worldH = 44;
+  // Reference world height (tighter than legacy 60) for overview sharpness.
+  const refHeight = 44;
 
   if (style === 'stroke') {
     ctx.font = `bold ${fontSize}px ${CJK_FONT}`;
@@ -400,7 +416,8 @@ export function bakeNavRoomLabelSprite(opts: {
       x: width / 2,
       y: height / 2,
     });
-    return { canvas, scaleX: worldW, scaleY: worldH };
+    const { scaleX, scaleY } = worldScaleFromCanvasSize(width, height, refHeight);
+    return { canvas, scaleX, scaleY };
   }
 
   // Measure for map styles (icon + name, no chip padding)
@@ -431,8 +448,6 @@ export function bakeNavRoomLabelSprite(opts: {
     y: height / 2,
   });
 
-  // World size tracks aspect vs the legacy 512×96 stroke atlas, then tightens.
-  const scaleX = worldW * (width / (512 * pixelScale));
-  const scaleY = worldH * (height / (96 * pixelScale));
+  const { scaleX, scaleY } = worldScaleFromCanvasSize(width, height, refHeight);
   return { canvas, scaleX, scaleY };
 }
