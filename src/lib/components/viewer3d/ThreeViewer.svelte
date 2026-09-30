@@ -2137,9 +2137,8 @@
       const ctx2 = canvas.getContext('2d')!;
       const labelScale = roomLabelFontSize(room) / 13;
       if (navShell) {
-        // Nav wayfinding: dark name + white stroke, no area, no bubble.
-        // Font stays 2× (44px) for overview readability; stroke is back to
-        // the original 5px so glyphs don't look over-outlined.
+        // Nav wayfinding: bold dark name + narrow white stroke, no area, no bubble.
+        // Font stays 2× bold (44px); stroke 5→3 so outlines read thinner.
         canvas.width = 512; canvas.height = 96;
         ctx2.clearRect(0, 0, 512, 96);
         const labelFont =
@@ -2149,7 +2148,7 @@
         ctx2.textBaseline = 'middle';
         ctx2.lineJoin = 'round';
         ctx2.miterLimit = 2;
-        ctx2.lineWidth = 5;
+        ctx2.lineWidth = 3;
         ctx2.strokeStyle = '#ffffff';
         ctx2.strokeText(room.name, 256, 48);
         ctx2.fillStyle = '#222222';

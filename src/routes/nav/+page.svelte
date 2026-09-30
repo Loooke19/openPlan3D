@@ -388,7 +388,7 @@
       ctx.textBaseline = 'middle';
       ctx.lineJoin = 'round';
       ctx.miterLimit = 2;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1.5;
       ctx.strokeStyle = '#ffffff';
       ctx.strokeText(placeName, x + 8, y);
       ctx.fillStyle = '#222222';
