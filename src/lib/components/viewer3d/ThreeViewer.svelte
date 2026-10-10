@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { stepProgress, isFinished } from '$lib/utils/routeProgress';
+  import { toiletDisplay } from '$lib/utils/placeSearch';
   import { t, locale, type TranslationKey } from '$lib/i18n';
   import { furnitureName } from '$lib/i18n/furnitureNames';
   import { catalogCategoryLabels } from '$lib/i18n/catalogCategories';
@@ -1315,7 +1317,7 @@
         doors.push({ center: { x: wall.start.x + dx * door.position, y: wall.start.y + dy * door.position }, along: { x: dx / len, y: dy / len },
           normal: { x: -dy / len, y: dx / len }, width: door.width, wallThickness: wall.thickness || 15, height: door.height || 210 });
       }
-      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: r.room.displayName, polygon: r.polygon }));
+      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
       navSigns = new NavSigns(doors, named, activeFloorElevation);
       scene.add(navSigns.group);
     }
@@ -1406,7 +1408,7 @@
       const caps = new NavDressing(g, { look: 'overview', floorY: 0, rooms: [], ceilings: [] });
       // Same room signs as the main floor, lifted above the walls.
       const faces = roomFaces(floor);
-      const stackNames = mapLabels(faces.map(f => ({ name: f.room.displayName || f.room.name, polygon: f.polygon })));
+      const stackNames = mapLabels(faces.map(f => ({ name: f.room.displayName || toiletDisplay(f.room.name || '') || f.room.name, polygon: f.polygon })));
       for (const [fi, { room, polygon }] of faces.entries()) {
         if (!room.name || polygon.length < 3) continue;
         const baked = bakeNavRoomLabelSprite({ name: stackNames[fi] || room.name, style: room.labelStyle, labelColor: room.labelColor ?? '#000000' });
@@ -1960,22 +1962,30 @@
     // Time-based: slow frames must not slow the walk (cap only long stalls, e.g. tab switches).
     // Wall-clock time: on a busy machine frames can take >1 s; the walk still covers real
     // distance (route-following, so no collision substeps needed). Cap only tab-switch stalls.
-    const dt = Math.min(2, (ts - simLastTs) / 1000);
+    const dt = (ts - simLastTs) / 1000;
     simLastTs = ts;
-    // ~120 cm/s at 1×
-    simProgress = Math.min(1, simProgress + (dt * simSpeed * 120) / Math.max(1, simTotalLen));
+    // ~120 cm/s at 1×; pure stepper snaps to exactly 1 at the path end (unit-tested).
+    simProgress = stepProgress(simProgress, dt, simSpeed, simTotalLen);
+    const done = isFinished(simProgress);
     const dist = simProgress * simTotalLen;
-    const pose = pointOnRoute(dist);
-    if (navAutoWalking) placeNavWalkCamera(dist);
-    else if (pose) placeRouteMarker(pose.x, pose.y);
-    paintRouteVisual(simProgress, true);
-    onRouteProgress?.(simProgress, simProgress < 1);
-    if (simProgress >= 1) {
+    try {
+      const pose = pointOnRoute(dist);
+      if (navAutoWalking) placeNavWalkCamera(dist);
+      else if (pose) placeRouteMarker(pose.x, pose.y);
+      paintRouteVisual(simProgress, true);
+    } catch (err) {
+      // A visual glitch must never stall playback before arrival.
+      console.warn('route playback frame failed', err);
+    }
+    if (done) {
+      // Stop first, then report: arrival handlers may restart/stop playback themselves.
       simPlaying = false;
       simRaf = 0;
       simLastTs = 0;
+      onRouteProgress?.(1, false);
       return;
     }
+    onRouteProgress?.(simProgress, true);
     simRaf = requestAnimationFrame(tickSimulation);
   }
 
@@ -2737,7 +2747,7 @@
     const rooms = roomFaces(floor);
     const holes = roomHoles(rooms.map(r => r.polygon));
     // Same name twice on a floor (two 楼梯): label them by side, e.g. 楼梯（东）.
-    const mapNames = navShell ? mapLabels(rooms.map(r => ({ name: r.room.displayName || r.room.name, polygon: r.polygon }))) : [];
+    const mapNames = navShell ? mapLabels(rooms.map(r => ({ name: r.room.displayName || toiletDisplay(r.room.name || '') || r.room.name, polygon: r.polygon }))) : [];
     for (let ri = 0; ri < rooms.length; ri++) {
       const { room, polygon: poly } = rooms[ri];
       if (poly.length < 3) continue;

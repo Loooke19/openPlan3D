@@ -51,3 +51,18 @@ describe('toilets', () => {
     expect(nearestToilets(L, from, idx, true)[0].p.name).toBe('残卫');
   });
 });
+
+import { toiletDisplay, withToiletDisplay, indexPlaces as ip2, searchPlaces as sp2 } from '../src/lib/utils/placeSearch';
+it('toilets display as 卫生间, printed form kept as alias, 卫生/卫生间 hit', () => {
+  expect(toiletDisplay('卫')).toBe('卫生间');
+  expect(toiletDisplay('卫A')).toBe('卫生间');
+  expect(toiletDisplay('男卫')).toBe('男卫生间');
+  expect(toiletDisplay('女厕')).toBe('女卫生间');
+  expect(toiletDisplay('残卫')).toBe('无障碍卫生间');
+  expect(toiletDisplay('卫生间')).toBeNull();
+  expect(toiletDisplay('卫生健康监督协管办公室')).toBeNull();
+  const p = withToiletDisplay({ key: 'a', name: '卫A', floorId: 'f', floorLabel: '1楼', aliases: [] as string[] });
+  expect(p.aliases).toContain('卫A');
+  const idx = ip2([p]);
+  for (const q of ['卫生间', '卫生', '卫A', 'wsj']) expect(sp2(idx, q).length).toBe(1);
+});

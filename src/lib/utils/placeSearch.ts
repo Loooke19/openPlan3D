@@ -80,3 +80,23 @@ export function nearestToilets<T extends { name: string; floorId: string; x?: nu
       || Number(a.p.floorId !== from?.floorId) - Number(b.p.floorId !== from?.floorId)
       || (a.m ?? 1e9) - (b.m ?? 1e9));
 }
+
+/**
+ * Patient-facing toilet name. Drawings print 卫 / 卫A / 男卫 / 女厕 / 残卫…; signs and lists show
+ * 「卫生间」, gendered only when the drawing printed a gender. The printed form stays an alias.
+ * Leaves real department names (卫生健康监督…, 公共卫生科) untouched.
+ */
+export function toiletDisplay(name: string): string | null {
+  const m = (name || '').replace(/\s+/g, '').match(/^(男|女|残|无障碍)?(卫生间|卫生|卫|厕所|厕|洗手间)([A-Za-z0-9一二三四]{0,2})$/);
+  if (!m) return null;
+  const g = m[1];
+  const base = g === '男' ? '男卫生间' : g === '女' ? '女卫生间' : g ? '无障碍卫生间' : '卫生间';
+  return base === name ? null : base;
+}
+
+export function withToiletDisplay<T extends { name?: string | null; aliases?: string[] | null }>(p: T): T {
+  const d = toiletDisplay(p.name || '');
+  if (!d) return p;
+  const aliases = Array.from(new Set([...(p.aliases || []), p.name as string, d === '卫生间' ? '' : '卫生间', '厕所'].filter(Boolean)));
+  return { ...p, originalName: (p as { originalName?: string }).originalName || p.name, name: d, aliases };
+}

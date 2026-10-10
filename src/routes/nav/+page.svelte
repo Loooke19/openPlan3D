@@ -1,6 +1,6 @@
 <script lang="ts">
   import PlacePicker from '$lib/components/nav/PlacePicker.svelte';
-  import { indexPlaces } from '$lib/utils/placeSearch';
+  import { indexPlaces, withToiletDisplay, toiletDisplay } from '$lib/utils/placeSearch';
   import { setNavNorth } from '$lib/utils/navCopy';
   import { onMount, untrack } from 'svelte';
   import { replaceState as kitReplaceState } from '$app/navigation';
@@ -291,6 +291,17 @@
   }
 
   function allPlaces(): Place[] {
+    return placesCache();
+  }
+  // Generic display normalisation (toilets → 「卫生间」) applied once per nav payload.
+  let placesMemo: { src: unknown; out: Place[] } = { src: null, out: [] };
+  function placesCache(): Place[] {
+    const src = view?.places?.length ? view.places : view?.destinations;
+    if (placesMemo.src === src) return placesMemo.out;
+    placesMemo = { src, out: rawPlaces().map((p) => withToiletDisplay(p)) };
+    return placesMemo.out;
+  }
+  function rawPlaces(): Place[] {
     const listed = view?.places || [];
     if (listed.length) return listed;
     return (view?.destinations || []).map((place) => ({
@@ -941,6 +952,7 @@
           <span class="peek-text">{transferNotice || arrivedText || (routeLegs.length || noLiftFallback || routeFailed || routeMessage !== '选择起点和终点' ? routeMessage : status)}</span>
           <span class="peek-toggle">{panelOpen ? '收起' : '展开'}</span>
         </button>
+        {#if !panelOpen && multiFloor() && !hasLift() && view}<p class="nolift-peek peek-nolift" role="note">本楼无电梯，可联系导医台协助</p>{/if}
         {#if routeFailed && !panelOpen}<button type="button" class="nolift nolift-peek" onclick={() => void planRoute()}>重试</button>{/if}
         {#if noLiftFallback && !panelOpen}<button type="button" class="nolift nolift-peek" onclick={() => { accessible = false; void planRoute(); }}>{noLiftFallback}</button>{/if}
         <div class="route-stops">
@@ -968,7 +980,7 @@
             <label class="accessible" class:off={!hasLift()}>
               <input type="checkbox" bind:checked={accessible} disabled={!hasLift()} onchange={() => {
                 // Route already rides the lift: nothing to change, just say so.
-                if (accessible && routeTransfers.length && routeTransfers.every((t) => t.kind !== 'stairs')) { routeMessage = '已是电梯路线'; say(routeMessage); return; }
+                if (accessible && routeTransfers.length && routeTransfers.every((t) => t.kind !== 'stairs')) { routeMessage = '当前路线已全程乘电梯，无需走楼梯'; say(routeMessage); return; }
                 void planRoute();
               }} />
               只乘电梯（无障碍）
@@ -1243,6 +1255,7 @@
   .panel-peek, .back-icon { display: none; }
   .fp-touch-hint, .fp-exit { display: none; }
   .accessible.off { color: #888; }
+  .peek-nolift { display: none; margin: 0; padding: 0 14px 8px; font-size: 13px; color: #8a4b00; }
   .nolift-note { display: block; margin-left: 24px; font-size: 13px; color: #8a4b00; }
   .route-tools { display: flex; gap: 8px; }
   .route-tools button { flex: 1; min-height: 44px; border: 1px solid #ccd; border-radius: 8px; background: #fff; font: inherit; }
@@ -1267,6 +1280,7 @@
       border: 0; border-bottom: 1px solid #eee; background: #fff; font: inherit; text-align: left; cursor: pointer; }
     .peek-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: #16302a; }
     .peek-toggle { color: #1a7af8; font-size: 13px; }
+    .peek-nolift { display: block; }
     /* Header: back icon + floor + one view toggle. */
     .nav-bar h1, .back-text { display: none; }
     .back-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; font-size: 30px; line-height: 1; }
