@@ -18,7 +18,10 @@
   function pick(p: IndexedPlace) { value = p.key; open = false; q = ''; onchange?.(); }
   // Render the sheet on <body>: the side panel is its own stacking context (3D toolbar showed through).
   function portal(node: HTMLElement) { document.body.appendChild(node); return { destroy() { node.remove(); } }; }
-  function show() { open = true; setTimeout(() => input?.focus(), 30); }
+  // On touch, don't pop the keyboard on open: the viewport resize it causes swallowed the first
+  // tap on a list item. Desktop still focuses the search box.
+  function show() { open = true; if (!window.matchMedia?.('(pointer: coarse)').matches) setTimeout(() => input?.focus(), 30); }
+  const keepFocus = (e: PointerEvent) => { if (e.pointerType === 'mouse') e.preventDefault(); };
 </script>
 
 <button type="button" class="pp-field" aria-label={label} aria-haspopup="dialog" onclick={show}>
@@ -35,13 +38,13 @@
       {#if common.length}
         <div class="pp-group">常用</div>
         {#each common as p (p.key + 'c')}
-          <button type="button" class="pp-item" onclick={() => pick(p)}><span>{p.name}</span><small>{p.floorLabel}</small></button>
+          <button type="button" class="pp-item" onpointerdown={keepFocus} onclick={() => pick(p)}><span>{p.name}</span><small>{p.floorLabel}</small></button>
         {/each}
       {/if}
       {#each groups as [floor, list] (floor)}
         <div class="pp-group">{floor}</div>
         {#each list as p (p.key)}
-          <button type="button" class="pp-item" class:sel={p.key === value} onclick={() => pick(p)}>
+          <button type="button" class="pp-item" class:sel={p.key === value} onpointerdown={keepFocus} onclick={() => pick(p)}>
             <span>{p.name}{#if p.originalName}<em>（图上：{p.originalName}）</em>{/if}</span><small>{p.floorLabel}</small>
           </button>
         {/each}

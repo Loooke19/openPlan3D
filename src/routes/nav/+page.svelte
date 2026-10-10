@@ -24,6 +24,7 @@
   let status = $state('正在打开');
   let routeMessage = $state('选择起点和终点');
   let noLiftFallback = $state('');
+  let routeFailed = $state(false);
   let busy = $state(false);
   let simulating = $state(false);
   let walking = $state(false);
@@ -654,6 +655,7 @@
 
   async function planRoute() {
     stopAll();
+    routeFailed = false;
     arrivedText = '';
     routePolyline = [];
     routeDoorIds = [];
@@ -734,8 +736,10 @@
       }
       applyLeg(0);
     } catch {
-      say('找路失败');
-      routeMessage = '找路失败';
+      // Server unreachable: old steps are already cleared; offer a retry instead of stale steps.
+      routeFailed = true;
+      say('找路失败：服务暂时连不上');
+      routeMessage = '找路失败：服务暂时连不上';
     } finally {
       busy = false;
     }
@@ -901,15 +905,21 @@
         {#if transferNotice}
           <div class="transfer-notice" role="status">{transferNotice}</div>
         {/if}
+        {#if walking}
+          <!-- Touch first person: no pointer lock / keyboard here, so say how to move and offer a big exit. -->
+          <div class="fp-touch-hint" aria-hidden="true">拖动看四周 · 点地面前进</div>
+          <button type="button" class="fp-exit" onclick={() => { stopAll(); arrivedText = ''; say('已退出第一人称'); }}>退出</button>
+        {/if}
         {#if arrivedText && walking}
           <div class="transfer-notice arrived" role="status">{arrivedText}<small>按 Esc 或点「结束」退出第一人称</small></div>
         {/if}
       </div>
       <aside class="side" class:open={panelOpen}>
         <button type="button" class="panel-peek" aria-expanded={panelOpen} onclick={() => (panelOpen = !panelOpen)}>
-          <span class="peek-text">{transferNotice || (routeLegs.length || noLiftFallback ? routeMessage : status)}</span>
+          <span class="peek-text">{transferNotice || arrivedText || (routeLegs.length || noLiftFallback || routeFailed || routeMessage !== '选择起点和终点' ? routeMessage : status)}</span>
           <span class="peek-toggle">{panelOpen ? '收起' : '展开'}</span>
         </button>
+        {#if routeFailed && !panelOpen}<button type="button" class="nolift nolift-peek" onclick={() => void planRoute()}>重试</button>{/if}
         {#if noLiftFallback && !panelOpen}<button type="button" class="nolift nolift-peek" onclick={() => { accessible = false; void planRoute(); }}>{noLiftFallback}</button>{/if}
         <div class="route-stops">
           <label class="route-stop"><span class="dot start-dot"></span>从
@@ -1026,6 +1036,13 @@
           </label>
         </div>
         <p class="route-message">{routeMessage}</p>
+        {#if routeFailed}<button type="button" class="nolift retry" onclick={() => void planRoute()}>重试</button>{/if}
+        {#if routeLegs.length && !busy}
+          <div class="route-tools">
+            <button type="button" onclick={async () => { stopAll(); await ensureRouteFloor(); viewer?.frameNavRoute?.(); say('已回到路线'); }}>回到路线</button>
+            <button type="button" onclick={() => void planRoute()}>重新规划</button>
+          </div>
+        {/if}
         {#if noLiftFallback}<button type="button" class="nolift" onclick={() => { accessible = false; void planRoute(); }}>{noLiftFallback}</button>{/if}
         {#if routeLegs.length > 1}
           <ol class="itinerary" aria-label="分段">
@@ -1201,9 +1218,21 @@
   .nolift-peek { display: none; }
   .nolift { min-height: 44px; padding: 0 14px; border-radius: 8px; border: 0; background: #1f7cf2; color: #fff; font-weight: 600; }
   .panel-peek, .back-icon { display: none; }
+  .fp-touch-hint, .fp-exit { display: none; }
+  .route-tools { display: flex; gap: 8px; }
+  .route-tools button { flex: 1; min-height: 44px; border: 1px solid #ccd; border-radius: 8px; background: #fff; font: inherit; }
+  @media (max-width: 720px), (pointer: coarse) {
+    .fp-touch-hint { display: block; position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 6; padding: 6px 14px; border-radius: 18px; background: rgba(20, 30, 40, .72); color: #fff; font-size: 14px; pointer-events: none; animation: fpHint 5s forwards; white-space: nowrap; }
+    .fp-exit { display: block; position: absolute; left: 12px; bottom: 16px; z-index: 7; min-width: 88px; min-height: 52px; border: 0; border-radius: 26px; background: #c62828; color: #fff; font-size: 18px; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+  }
+  @keyframes fpHint { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
   @media (max-width: 720px) {
     .floor-btn, .side select { min-height: 44px; }
     .stage { flex-direction: column; }
+    /* The 3D view never collapses to 0 when the panel opens (grey canvas / zero-size attachments). */
+    .canvas-wrap { flex: 1 1 auto; min-height: 40vh; }
+    .side { flex: 0 1 auto; }
+    .floor { margin-right: 16px; }
     .side { width: 100%; max-height: 52vh; border-left: 0; border-top: 1px solid #e6e6e6; }
     /* Collapsed: only the one-line instruction; 3D gets the screen. */
     .side:not(.open) { max-height: 56px; overflow: hidden; }

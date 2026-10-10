@@ -47,7 +47,9 @@
   }
 
   onMount(() => {
-    if (dev) return;
+    // Frozen QA builds and the patient nav page never nag about updates (the toast covered the
+    // nav's bottom buttons); set VITE_DISABLE_UPDATE_CHECK=1 for frozen deploys.
+    if (dev || import.meta.env.VITE_DISABLE_UPDATE_CHECK === '1' || window.location.pathname.replace(/\/+$/, '').endsWith('/nav')) return;
     let lastCheck = Date.now();
     let checking = false;
     let disposed = false;

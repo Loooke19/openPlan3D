@@ -128,6 +128,7 @@
   let navAutoWalking = $state(false);
   let navSavedView: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
   let walkthroughMouseUnavailable = $state(false);
+  const touchUi = typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 720);
   const walkthroughMotion = new WalkthroughMotion();
   let moveSpeed = $state(800);
   let sprintSpeed = $state(1600);
@@ -959,12 +960,12 @@
     ground.receiveShadow = true;
     scene.add(ground);
 
-    camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 1, 20000);
+    camera = new THREE.PerspectiveCamera(50, Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight), 1, 20000);
     camera.position.set(800, 600, 800);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, logarithmicDepthBuffer: true });
     renderer.localClippingEnabled = true; // nav overview cut-away walls
-    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
     // Glass/Electron often reports DPR=1 on 200% OS scale; floor at measured default 2.
     renderer.setPixelRatio(effectivePixelRatio());
     renderer.shadowMap.enabled = true;
@@ -1178,7 +1179,7 @@
     navPipeline = new NavPipeline(renderer, scene, camera);
     // Post passes scale with pixels: cap high at 1.5x, ultra at 2x.
     renderer.setPixelRatio(Math.min(effectivePixelRatio(), navPipeline.quality === 'ultra' ? 2 : navPipeline.quality === 'high' ? 1.5 : 1.25));
-    navPipeline.setSize(container.clientWidth, container.clientHeight);
+    navPipeline.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
     // Clean studio ground instead of the gridded concrete sheet: reads as a model on a table.
@@ -1520,6 +1521,7 @@
 
 
   function renderView() {
+    if (container && (container.clientWidth < 2 || container.clientHeight < 2)) return; // hidden: skip
     if (navPipeline) navPipeline.render();
     else renderer.render(scene, camera);
   }
@@ -3213,7 +3215,9 @@
 
     // Three's lock() discards the browser's promise. Handle rejection here so
     // embedded/unsupported browsers can still use keyboard movement and look.
-    try {
+    // Touch devices: no pointer lock (and no "click to look / WASD" prompt); drag + tap instead.
+    if (window.matchMedia?.('(pointer: coarse)').matches) walkthroughMouseUnavailable = true;
+    else try {
       Promise.resolve(renderer.domElement.requestPointerLock()).catch(() => {
         if (walkthroughMode) walkthroughMouseUnavailable = true;
       });
@@ -3281,6 +3285,9 @@
     if (!container || !renderer) return;
     const w = container.clientWidth;
     const h = container.clientHeight;
+    // A collapsed container (narrow panel expanded over it) reports 0: keep the last size instead
+    // of creating zero-size render targets ("Attachment has zero size", grey canvas afterwards).
+    if (w < 2 || h < 2) return;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
@@ -3739,8 +3746,8 @@
 
     {#if navAutoWalking}
       <div class="absolute top-4 left-4 z-10 bg-black/70 text-white text-xs rounded-lg p-3">沿路线自动行走</div>
-    {:else}
-    <!-- Controls Panel -->
+    {:else if !(navShell && touchUi)}
+    <!-- Controls Panel (keyboard/mouse; the nav page shows touch hints itself) -->
     <div class="absolute top-4 left-4 z-10 bg-black/70 text-white text-xs rounded-lg backdrop-blur-sm p-3 space-y-2 min-w-[180px]">
       <div class="font-semibold text-white/90 mb-1">{$t('viewerNav.walkControls')}</div>
       {#if walkthroughMouseUnavailable}
