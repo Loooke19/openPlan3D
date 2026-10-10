@@ -901,8 +901,8 @@ export function updateRoom(id: string, updates: Partial<{ name: string; displayN
   const saved = floor.rooms.find(room => room.id === id);
   if (!saved && !get(detectedRoomsStore).some(room => room.id === id)) return;
   if (saved && Object.entries(updates).every(([key, value]) => {
-    if (key === 'labelOffset' && value && typeof value === 'object' && saved.labelOffset) {
-      return value.x === saved.labelOffset.x && value.y === saved.labelOffset.y;
+    if (key === 'labelOffset' && value && typeof value === 'object' && !Array.isArray(value) && saved.labelOffset) {
+      return (value as { x: number }).x === saved.labelOffset.x && (value as { y: number }).y === saved.labelOffset.y;
     }
     return saved[key as keyof typeof updates] === value;
   })) return;
