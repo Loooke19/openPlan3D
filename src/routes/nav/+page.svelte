@@ -134,6 +134,12 @@
     });
   });
 
+  // The 3D viewer mounts lazily; rebuild the floor stack once it exists.
+  $effect(() => {
+    if (mode !== '3d' || !viewer) return;
+    untrack(() => requestAnimationFrame(() => syncFloorStack()));
+  });
+
   function handleRouteProgress(ratio: number, playing: boolean) {
     walkSeek = Math.round(ratio * 1000) / 10;
     playbackPlaying = playing;
@@ -471,7 +477,17 @@
     routeDoorIds = leg.usedDoorIds || [];
     walkSeek = 0;
     viewer?.setNavRoute?.(routePolyline, routeDoorIds);
+    syncFloorStack();
     drawPlan();
+  }
+
+  /** 3D overview: show every floor of a cross-floor route as an exploded stack. */
+  function syncFloorStack() {
+    if (!viewer?.setNavFloorStack) return;
+    const floorsOnRoute = new Set(routeLegs.map((leg) => leg.floorId));
+    if (floorsOnRoute.size < 2 || simulating || walking) { viewer.setNavFloorStack([], []); return; }
+    const end = placeByKey(endId);
+    viewer.setNavFloorStack(routeLegs, routeTransfers, end?.name || '');
   }
 
   async function loadNav(floorId: string, opts: { keepRoute?: boolean } = {}) {

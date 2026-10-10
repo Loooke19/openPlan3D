@@ -44,6 +44,9 @@
   import { bakeNavRoomLabelSprite, lookupRoomLabelFields } from '$lib/utils/roomMapLabel';
   import { effectivePixelRatio } from '$lib/utils/pixelRatio';
   import { getMaterial } from '$lib/utils/materials';
+  import { NavPipeline, type NavLook } from './nav/pipeline';
+  import { NavRouteVisual } from './nav/route';
+  import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
   import {
     createHospitalSurfaceMaterial,
@@ -124,6 +127,15 @@
 
   // Navigation route overlay (cm plan → Three x/z)
   let routeGroup: THREE.Group;
+  // Nav-shell-only render path (see ./nav): post pipeline, dressing, route visual, current look.
+  let navPipeline: NavPipeline | null = null;
+  let navDressing: NavDressing | null = null;
+  let navRouteVisual: NavRouteVisual | null = null;
+  let navLook: NavLook = 'overview';
+  let navBackdrops: Partial<Record<NavLook, THREE.Texture>> = {};
+  let navWalkDistance = 0;
+  // Exploded floor stack for cross-floor routes (overview only).
+  let navStack: { group: THREE.Group; floors: { group: THREE.Group; dir: number }[]; connectors: { base: THREE.Vector3; fromDir: number; toDir: number; column: THREE.Group }[]; rise: number; t: number; target: number; started?: number; dressings: NavDressing[]; routes: NavRouteVisual[]; labels: THREE.Sprite[] } | null = null;
   let routeMarker: THREE.Mesh | null = null;
   let routeArrowGroup: THREE.Group | null = null;
   type NavDoorLeaf = { doorId: string; pivot: THREE.Group; closedYaw: number; openYaw: number };
@@ -724,13 +736,52 @@
     const draw = () => { renderFrameForTest(); };
     draw();
     renderer.getContext().finish();
+    renderer.info.autoReset = false;
+    renderer.info.reset();
+    draw();
+    const stats = { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
+    renderer.info.autoReset = true;
     const t0 = performance.now();
     for (let i = 0; i < frames; i++) draw();
     renderer.getContext().finish();
-    return { msPerFrame: (performance.now() - t0) / frames, ...getRenderStatsForTest() };
+    return { msPerFrame: (performance.now() - t0) / frames, ...getRenderStatsForTest(), ...stats, pixelRatio: renderer.getPixelRatio() };
   }
 
-  function renderFrameForTest() { renderer.render(scene, camera); }
+  /** Dev/nav test hook: what is under a canvas pixel (fractions 0..1). */
+  export function pickForTest(fx: number, fy: number) {
+    const rc = new THREE.Raycaster();
+    rc.setFromCamera(new THREE.Vector2(fx * 2 - 1, -(fy * 2 - 1)), camera);
+    return rc.intersectObjects(scene.children, true).slice(0, 4).map(h => ({
+      type: h.object.type, name: h.object.name, y: Math.round(h.point.y * 10) / 10, ud: Object.keys(h.object.userData),
+      mat: (Array.isArray((h.object as THREE.Mesh).material) ? 'multi' : ((h.object as THREE.Mesh).material as THREE.Material)?.type),
+      color: ((h.object as THREE.Mesh).material as THREE.MeshStandardMaterial)?.color?.getHexString?.(), face: h.face?.normal?.toArray().map(v => Math.round(v * 100) / 100) }));
+  }
+
+  export function debugForTest(what: string) {
+    if (what === 'noshadow') { sunLight.castShadow = false; renderer.shadowMap.needsUpdate = true; }
+    if (what === 'nodressing' && navDressing) navDressing.group.visible = false;
+    if (what === 'nopost') navPipeline = null;
+    if (what === 'redcaps' && navDressing) {
+      const caps = navDressing.group.children[1].children[0] as THREE.InstancedMesh;
+      (caps.material as THREE.MeshStandardMaterial).color.set('#ff0000');
+      const m = new THREE.Matrix4(); const out: number[][] = [];
+      for (let i = 0; i < Math.min(caps.count, 40); i++) { caps.getMatrixAt(i, m); const p = new THREE.Vector3().setFromMatrixPosition(m); if (p.y < 200) out.push(p.toArray().map(Math.round)); }
+      return { count: caps.count, low: out };
+    }
+    if (what === 'walls') {
+      const out: unknown[] = [];
+      wallGroup.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && (m.userData.renderMaterial === 'wall' || m.userData.wallId)) {
+        m.geometry.computeBoundingBox(); const b = m.geometry.boundingBox!;
+        out.push({ rm: m.userData.renderMaterial, wid: m.userData.wallId, type: m.geometry.type, rot: m.rotation.toArray().slice(0, 3).map(v => Math.round(Number(v) * 100) / 100), pos: m.position.toArray().map(Math.round), min: b.min.toArray().map(Math.round), max: b.max.toArray().map(Math.round), parent: m.parent === wallGroup }); } });
+      return out.filter((x: any) => x.max[1] < 200 || x.min[1] < -1 || x.rot.some((r: number) => Math.abs(r) > 0.01 && Math.abs(Math.abs(r) - 3.14) > 0.01 && Math.abs(Math.abs(r) - 1.57) > 0.01) || !x.parent).slice(0, 12);
+    }
+    if (what === 'nocaps' && navDressing) navDressing.group.children[1].visible = false;
+    if (what === 'noao' && navDressing) navDressing.group.children.slice(2).forEach(c => (c.visible = false));
+    markSceneDirty();
+    return { hemi: hemiLight.intensity, amb: ambientLight.intensity, sun: sunLight.intensity, env: scene.environmentIntensity, sunPos: sunLight.position.toArray(), tgt: sunLight.target.position.toArray(), tgtParent: !!sunLight.target.parent };
+  }
+
+  function renderFrameForTest() { renderView(); }
 
   /** Dev/nav test hook: orbit pose for floor-switch camera checks. */
   export function getOrbitSnapshot() {
@@ -1095,7 +1146,245 @@
     scene.add(wallGroup);
     routeGroup = new THREE.Group();
     scene.add(routeGroup);
+    if (navShell) initNavLook();
     if (routePolyline?.length) drawNavRoute(routePolyline);
+  }
+
+  function initNavLook() {
+    navPipeline = new NavPipeline(renderer, scene, camera);
+    // Post passes scale with pixels: cap high at 1.5x, ultra at 2x.
+    renderer.setPixelRatio(Math.min(effectivePixelRatio(), navPipeline.quality === 'ultra' ? 2 : navPipeline.quality === 'high' ? 1.5 : 1.25));
+    navPipeline.setSize(container.clientWidth, container.clientHeight);
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
+    // Clean studio ground instead of the gridded concrete sheet: reads as a model on a table.
+    const ground = sceneGround.material as THREE.MeshStandardMaterial;
+    ground.map = null;
+    ground.color.set('#d9ddda');
+    ground.roughness = 1;
+    ground.needsUpdate = true;
+    sceneGround.position.y = -0.5;
+    navBackdrops = { overview: navBackdrop('overview'), walk: navBackdrop('walk') };
+    applyNavLook('overview', true);
+  }
+
+  function applyNavLook(look: NavLook, force = false) {
+    if (!navPipeline || (!force && look === navLook)) return;
+    navLook = look;
+    navPipeline.setLook(look);
+    navPipeline.setExposure(look === 'walk' ? 1.05 : 1.0);
+    navDressing?.setLook(look);
+    navRouteVisual?.setWalk(look === 'walk');
+    scene.background = navBackdrops[look] ?? scene.background;
+    // Room signs: in the overview lift them above the wall caps and double their size so they
+    // always read first; in first person keep the original wall-height signage.
+    wallGroup?.traverse(o => {
+      const meta = o.userData.navLabel;
+      if (!meta) return;
+      const k = look === 'overview' ? 2.1 : 1;
+      o.scale.set(meta.sx * k, meta.sy * k, 1);
+      o.position.y = look === 'overview' ? 300 : 30;
+    });
+    const bounds = wallGroup?.children.length ? new THREE.Box3().setFromObject(wallGroup) : null;
+    applyNavLightRig({ ambient: ambientLight, hemi: hemiLight, sun: sunLight, fill: fillLight, rim: rimLight }, look, bounds, navPipeline.quality);
+    renderer.shadowMap.needsUpdate = true;
+    markSceneDirty();
+  }
+
+  function rebuildNavDressing() {
+    if (!navShell || !navPipeline) return;
+    navDressing?.dispose();
+    const rooms: { polygon: { x: number; y: number }[] }[] = [];
+    const ceilings: { polygon: { x: number; y: number }[]; height: number }[] = [];
+    wallGroup.traverse(o => {
+      if (o.userData.navRoom) rooms.push({ polygon: o.userData.navRoom });
+      if (o.userData.navCeiling) ceilings.push(o.userData.navCeiling);
+    });
+    navDressing = new NavDressing(wallGroup, { look: navLook, floorY: activeFloorElevation, rooms, ceilings });
+    scene.add(navDressing.group);
+    applyNavLook(navLook, true);
+  }
+
+
+  function navTextSprite(text: string, opts: { bg?: string; fg?: string; size?: number } = {}) {
+    const size = opts.size ?? 44;
+    const c = document.createElement('canvas');
+    const ctx = c.getContext('2d')!;
+    ctx.font = `700 ${size}px "Noto Sans SC", "PingFang SC", sans-serif`;
+    const w = Math.ceil(ctx.measureText(text).width) + size * 1.2, h = Math.round(size * 1.7);
+    c.width = w; c.height = h;
+    const g = c.getContext('2d')!;
+    g.fillStyle = opts.bg ?? '#ffffff';
+    g.beginPath(); g.roundRect(2, 2, w - 4, h - 4, h / 2 - 2); g.fill();
+    g.lineWidth = 3; g.strokeStyle = 'rgba(255,255,255,.9)'; g.stroke();
+    g.font = `700 ${size}px "Noto Sans SC", "PingFang SC", sans-serif`;
+    g.fillStyle = opts.fg ?? '#16302a'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(text, w / 2, h / 2 + 2);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+    const scale = 2.4;
+    sprite.scale.set(w * scale, h * scale, 1);
+    sprite.renderOrder = 20;
+    return sprite;
+  }
+
+  function clearNavStack() {
+    if (!navStack) return;
+    for (const d of navStack.dressings) d.dispose();
+    for (const r of navStack.routes) r.dispose();
+    navStack.group.traverse(o => {
+      const m = o as THREE.Mesh;
+      m.geometry?.dispose();
+      const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(mat)) mat.forEach(x => x.dispose());
+      else { (mat as THREE.SpriteMaterial | undefined)?.map?.dispose(); mat?.dispose(); }
+    });
+    navStack.group.removeFromParent();
+    navStack = null;
+    markSceneDirty();
+  }
+
+  /**
+   * Public nav API: exploded stack for a cross-floor route. The current floor stays as built; every
+   * other floor on the route is rebuilt full size above/below it (slightly translucent), with its own
+   * route leg, joined by a glowing vertical connector at each transfer. Floors ease apart on entry.
+   */
+  export function setNavFloorStack(legs: { floorId: string; floorName?: string; polyline: { x: number; y: number }[] }[],
+    transfers: { afterLeg: number; kindLabel?: string }[] = [], endLabel = '') {
+    clearNavStack();
+    const project = get(currentProject);
+    if (!navPipeline || !project || !currentFloor || legs.length < 2 || walkthroughMode) return;
+    const floors = project.floors;
+    const levelOf = (id: string) => { const f = floors.find(x => x.id === id); return f ? (f.level ?? floors.indexOf(f)) : 0; };
+    const here = levelOf(currentFloor.id);
+    const box = new THREE.Box3().setFromObject(wallGroup);
+    const size = box.getSize(new THREE.Vector3());
+    const rise = Math.max(900, Math.min(size.x, size.z) * 1.1);
+    const group = new THREE.Group();
+    group.userData.navDressing = true;
+    scene.add(group);
+    const stack = navStack = { group, floors: [] as { group: THREE.Group; dir: number }[], connectors: [] as { base: THREE.Vector3; fromDir: number; toDir: number; column: THREE.Group }[], rise, t: 0, target: 1, dressings: [] as NavDressing[], routes: [] as NavRouteVisual[], labels: [] as THREE.Sprite[] };
+    const built = new Map<string, number>();
+    for (const leg of legs) {
+      if (leg.floorId === currentFloor.id || built.has(leg.floorId)) continue;
+      const floor = floors.find(f => f.id === leg.floorId);
+      if (!floor) continue;
+      const dir = levelOf(floor.id) - here;
+      built.set(floor.id, dir);
+      const g = new THREE.Group();
+      buildFloorIntoGroup(floor, g, 0, 0.92);
+      g.traverse(o => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        m.castShadow = false;
+        const mat = m.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
+        for (const x of Array.isArray(mat) ? mat : [mat]) {
+          if (m.userData.renderMaterial === 'floor') { x.color.set('#eef0ec'); x.opacity = 0.9; }
+          x.depthWrite = true;
+        }
+      });
+      const caps = new NavDressing(g, { look: 'overview', floorY: 0, rooms: [], ceilings: [] });
+      // Same room signs as the main floor, lifted above the walls.
+      for (const { room, polygon } of roomFaces(floor)) {
+        if (!room.name || polygon.length < 3) continue;
+        const baked = bakeNavRoomLabelSprite({ name: room.name, style: room.labelStyle, labelColor: room.labelColor ?? '#000000' });
+        if (!baked) continue;
+        const tex = new THREE.CanvasTexture(baked.canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+        const c = roomCentroid(polygon);
+        label.position.set(c.x, 300, c.y);
+        label.scale.set(baked.scaleX * 2.1, baked.scaleY * 2.1, 1);
+        label.renderOrder = 10;
+        g.add(label);
+      }
+      g.add(caps.group);
+      stack.dressings.push(caps);
+      group.add(g);
+      stack.floors.push({ group: g, dir });
+      const tag = navTextSprite(floor.name || floor.id, { bg: '#16302a', fg: '#ffffff', size: 40 });
+      tag.position.set(box.min.x - 160, 120, box.max.z);
+      g.add(tag);
+    }
+    // Current floor tag too, so both layers read as "1F / 2F".
+    const hereTag = navTextSprite(currentFloor.name || currentFloor.id, { bg: '#16302a', fg: '#ffffff', size: 40 });
+    hereTag.position.set(box.min.x - 160, activeFloorElevation + 120, box.max.z);
+    group.add(hereTag);
+    legs.forEach((leg, i) => {
+      const dir = leg.floorId === currentFloor!.id ? 0 : built.get(leg.floorId);
+      if (dir === undefined) return;
+      if (dir !== 0) {
+        const holder = stack.floors.find(f => f.dir === dir)!.group;
+        const isLast = i === legs.length - 1;
+        const r = new NavRouteVisual(leg.polyline, { y: 4.6, start: false, end: isLast });
+        holder.add(r.group);
+        stack.routes.push(r);
+        if (isLast && endLabel) {
+          const end = leg.polyline[leg.polyline.length - 1];
+          const t = navTextSprite(`终 · ${endLabel}`, { bg: '#ff7a2f', fg: '#ffffff', size: 40 });
+          t.position.set(end.x, 330, end.y);
+          holder.add(t);
+        }
+      }
+      const next = legs[i + 1];
+      if (!next) return;
+      const nextDir = next.floorId === currentFloor!.id ? 0 : built.get(next.floorId);
+      if (nextDir === undefined) return;
+      const a = leg.polyline[leg.polyline.length - 1];
+      const column = new THREE.Group();
+      const core = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 1, 24).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff9a45').multiplyScalar(2.4) }));
+      const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(34, 34, 1, 32, 1, true).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({
+        color: new THREE.Color('#ffb36b').multiplyScalar(1.2), transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      column.add(core, sleeve);
+      for (const end of [0, 1]) {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(46, 5, 10, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff9a45').multiplyScalar(2.2) }));
+        ring.rotation.x = Math.PI / 2;
+        ring.userData.ringEnd = end;
+        column.add(ring);
+      }
+      const label = transfers.find(tr => tr.afterLeg === i)?.kindLabel || '电梯';
+      const tag = navTextSprite(`换乘 · ${label}`, { bg: '#ff7a2f', fg: '#ffffff', size: 36 });
+      tag.userData.connectorTag = true;
+      column.add(tag);
+      group.add(column);
+      stack.connectors.push({ base: new THREE.Vector3(a.x, 0, a.y), fromDir: dir, toDir: nextDir, column });
+    });
+    applyNavStackRise();
+    // Oblique framing of the whole stack (final positions).
+    const dirs = [0, ...stack.floors.map(f => f.dir)];
+    const lo = Math.min(...dirs) * rise, hi = Math.max(...dirs) * rise + 300;
+    const center = box.getCenter(new THREE.Vector3()); center.y = activeFloorElevation + (lo + hi) / 2;
+    const span = Math.max(size.x, size.z, hi - lo);
+    const dist = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.15;
+    const dirV = new THREE.Vector3(0.5, 0.36, 0.95).normalize();
+    camera.position.copy(center).addScaledVector(dirV, dist);
+    controls.target.copy(center);
+    controls.update();
+    markSceneDirty();
+  }
+
+  function applyNavStackRise() {
+    if (!navStack) return;
+    const e = 1 - Math.pow(1 - navStack.t, 3);
+    const y = (dir: number) => activeFloorElevation + dir * navStack!.rise * e;
+    for (const f of navStack.floors) f.group.position.y = y(f.dir);
+    for (const c of navStack.connectors) {
+      const y0 = Math.min(y(c.fromDir), y(c.toDir)) + 5, y1 = Math.max(y(c.fromDir), y(c.toDir)) + 5;
+      const h = Math.max(1, y1 - y0);
+      c.column.position.set(c.base.x, y0, c.base.z);
+      for (const child of c.column.children) {
+        if (child.userData.ringEnd !== undefined) child.position.y = child.userData.ringEnd ? h : 0;
+        else if (child.userData.connectorTag) child.position.y = h / 2;
+        else child.scale.y = h;
+      }
+    }
+    markSceneDirty();
+  }
+
+  function renderView() {
+    if (navPipeline) navPipeline.render();
+    else renderer.render(scene, camera);
   }
 
   function createGhostPreview(catalogId: string) {
@@ -1449,6 +1738,17 @@
 
   function paintRouteVisual(traveledRatio = 0, simulating = false) {
     if (!routeGroup) return;
+    if (navPipeline) {
+      // Nav look: one ribbon built per route; progress is a uniform, never a rebuild.
+      if (!navRouteVisual && simRoute.length >= 2) {
+        navRouteVisual = new NavRouteVisual(simRoute, { y: 4.6 });
+        navRouteVisual.setWalk(navLook === 'walk');
+        routeGroup.add(navRouteVisual.group);
+      }
+      navRouteVisual?.setTraveled(simulating && traveledRatio > 0.001 ? traveledRatio * simTotalLen : -1);
+      markSceneDirty();
+      return;
+    }
     const keepMarker = routeMarker;
     if (keepMarker) routeGroup.remove(keepMarker);
     clearGroup(routeGroup);
@@ -1476,6 +1776,8 @@
   function drawNavRoute(points: { x: number; y: number }[]) {
     if (!routeGroup) return;
     routeGroup.position.y = activeFloorElevation;
+    navRouteVisual?.dispose();
+    navRouteVisual = null;
     clearGroup(routeGroup);
     routeMarker = null;
     simRoute = points.slice();
@@ -1536,6 +1838,7 @@
   }
 
   export function clearNavRoute() {
+    clearNavStack();
     stopRouteSimulation();
     drawNavRoute([]);
     setNavDoorStates([]);
@@ -1592,9 +1895,12 @@
       ? ahead.x : pose.x + Math.cos(pose.yaw) * 80;
     const lookY = ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 1
       ? ahead.y : pose.y + Math.sin(pose.yaw) * 80;
+    // Subtle head bob in the nav look (about 1.5 cm at a 70 cm stride).
+    const bob = navPipeline ? Math.sin(distance / 35) * 1.5 : 0;
+    navWalkDistance = distance;
     setFloorCameraPose(camera, activeFloorElevation,
-      { x: pose.x, y: eyeHeight, z: pose.y },
-      { x: lookX, y: eyeHeight, z: lookY });
+      { x: pose.x, y: eyeHeight + bob, z: pose.y },
+      { x: lookX, y: eyeHeight - 8 + bob * 0.5, z: lookY });
     markSceneDirty();
   }
 
@@ -2170,6 +2476,7 @@
       material.polygonOffsetFactor = -2;
       material.polygonOffsetUnits = -2;
       mesh.userData.renderMaterial = 'floor';
+      if (navShell) mesh.userData.navRoom = poly;
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.y = 3;
       mesh.receiveShadow = true;
@@ -2220,6 +2527,7 @@
           sprite.position.set(centroid.x, 30, centroid.y);
           sprite.renderOrder = 10;
           sprite.scale.set(baked.scaleX * labelScale, baked.scaleY * labelScale, 1);
+          sprite.userData.navLabel = { sx: sprite.scale.x, sy: sprite.scale.y };
           wallGroup.add(sprite);
         }
       } else {
@@ -2265,6 +2573,10 @@
         ceilMesh.rotation.x = -Math.PI / 2;
         ceilMesh.position.y = ceilingHeight;
         ceilMesh.receiveShadow = true;
+        if (navShell) {
+          ceilMesh.userData.navCeiling = { polygon: poly, height: ceilingHeight };
+          ceilMat.color.set('#c9cbc5');
+        }
         wallGroup.add(ceilMesh);
       }
     }
@@ -2276,6 +2588,7 @@
     buildColumns(floor);
 
     applyWallTransparency();
+    if (navShell) rebuildNavDressing();
   }
 
   /** Build all floors stacked vertically in 3D */
@@ -2430,6 +2743,8 @@
       buildWalls(currentFloor);
     }
     if (routeGroup) routeGroup.position.y = activeFloorElevation;
+    // Nav look: ground just under the slab top hides slab sides and catches contact shadows.
+    if (navPipeline) sceneGround.position.y = activeFloorElevation - 0.5;
     wallHighlight.apply(wallMeshMap, selectedWallId3D);
     if (walkingPosition && walkingRotation) {
       camera.position.copy(walkingPosition);
@@ -2558,6 +2873,25 @@
   let lastOrbitFrame: number | undefined;
   function animate(timestamp: number) {
     animId = undefined;
+    if (navPipeline) {
+      applyNavLook(walkthroughMode ? 'walk' : 'overview');
+      if (navStack) {
+        navStack.group.visible = !walkthroughMode;
+        if (navStack.t < navStack.target) {
+          // Time based (0.9 s), so slow devices still finish the separation promptly.
+          navStack.started ??= timestamp;
+          navStack.t = Math.min(navStack.target, (timestamp - navStack.started) / 900);
+          applyNavStackRise();
+          requestRender();
+        }
+        for (const r of navStack.routes) r.tick(timestamp / 1000);
+      }
+      if (navRouteVisual && typeof document !== 'undefined' && !document.hidden) {
+        navRouteVisual.tick(timestamp / 1000);
+        sceneDirty = true;
+        requestRender();
+      }
+    }
 
     if (walkthroughMode) {
       lastOrbitFrame = undefined;
@@ -2565,7 +2899,7 @@
       if (!navAutoWalking) walkthroughMotion.advance(timestamp, camera, { moveSpeed, sprintSpeed, eyeHeight, floorElevation: activeFloorElevation });
       if (sceneDirty || moving) {
         sceneDirty = false;
-        renderer.render(scene, camera);
+        renderView();
         renderer.domElement.dataset.rendered = 'true';
       }
       if (moving) requestRender();
@@ -2577,7 +2911,7 @@
       lastOrbitFrame = animId === undefined ? undefined : timestamp;
       if (sceneDirty) {
         sceneDirty = false;
-        renderer.render(scene, camera);
+        renderView();
         renderer.domElement.dataset.rendered = 'true';
       }
     }
@@ -2590,12 +2924,13 @@
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
+    navPipeline?.setSize(w, h);
     markSceneDirty();
   }
 
   function takeScreenshot() {
     if (!renderer || !scene || !camera) return;
-    renderer.render(scene, camera);
+    renderView();
     renderer.domElement.dataset.rendered = 'true';
     const dataUrl = renderer.domElement.toDataURL('image/png');
     const link = document.createElement('a');
@@ -2684,6 +3019,10 @@
       wallHighlight.clear();
       removeGhostPreview();
       skyTexture.dispose();
+      navRouteVisual?.dispose();
+      navDressing?.dispose();
+      navPipeline?.dispose();
+      for (const t of Object.values(navBackdrops)) t?.dispose();
       sunLight.shadow.dispose();
       clearGroup(scene);
       wallMeshMap.clear();
