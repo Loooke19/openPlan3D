@@ -53,9 +53,15 @@ export function disambiguate(places: NamedPlace[], boxes: Record<string, Box | u
     const box = boxes[group[0].floorId];
     const sides = group.map(p => (box ? sideOf(p, box) : '中'));
     const unique = box && new Set(sides).size === group.length && !sides.includes('中');
-    if (unique) { group.forEach((p, i) => out.set(p.id, `${sides[i]}侧${p.name}`)); continue; }
-    const sorted = group.slice().sort((a, b) => a.x - b.x || a.y - b.y);
-    sorted.forEach((p, i) => out.set(p.id, `${p.name} ${String.fromCharCode(65 + i)}`));
+    // One form everywhere (dropdown, 3D map, pins, steps): 「楼梯（东）」, or 「楼梯（东A）」 when a
+    // side holds two of them (lettered west→east, north→south — same rule as mapLabels).
+    if (unique) { group.forEach((p, i) => out.set(p.id, `${p.name}（${sides[i]}）`)); continue; }
+    const bySide = new Map<string, NamedPlace[]>();
+    group.forEach((p, i) => bySide.set(sides[i], [...(bySide.get(sides[i]) || []), p]));
+    for (const [side, list] of bySide) {
+      if (list.length === 1) { out.set(list[0].id, `${list[0].name}（${side}）`); continue; }
+      list.slice().sort((a, b) => a.x - b.x || a.y - b.y).forEach((p, i) => out.set(p.id, `${p.name}（${side}${String.fromCharCode(65 + i)}）`));
+    }
   }
   return out;
 }
@@ -63,17 +69,24 @@ export function disambiguate(places: NamedPlace[], boxes: Record<string, Box | u
 export type TransferLike = {
   kind?: string; kindLabel?: string; name?: string; direction?: 'up' | 'down' | string;
   from?: Pt; fromFloorName?: string; toFloorName?: string;
+  /** Display name of the stair/lift (「楼梯（东）」), so steps match the map and dropdowns. */
+  display?: string;
 };
 
-/** 「走东侧楼梯上到 2楼」 / 「乘西侧电梯下到 1楼」. */
+/** 「楼梯（东）」 for a transfer: its display name, else kind + side. */
+export function transferPlace(t: TransferLike, box?: Box | null): string {
+  if (t.display) return t.display;
+  const stairs = t.kind === 'stairs' || /楼梯/.test(t.kindLabel || t.name || '');
+  const side = box && t.from ? sideOf(t.from, box) : null;
+  return `${stairs ? '楼梯' : '电梯'}${side ? `（${side}）` : ''}`;
+}
+
+/** 「走楼梯（东）上到 2楼」 / 「乘电梯（西）下到 1楼」. */
 export function transferText(t: TransferLike, box?: Box | null): string {
   const stairs = t.kind === 'stairs' || /楼梯/.test(t.kindLabel || t.name || '');
-  const what = stairs ? '楼梯' : '电梯';
-  const side = box && t.from ? sideOf(t.from, box) : null;
-  const where = side ? (side === '中' ? '中部' : `${side}侧`) : '';
   const to = floorSpoken(t.toFloorName) || '下一层';
   const way = t.direction === 'up' ? '上到' : t.direction === 'down' ? '下到' : '到';
-  return stairs ? `走${where}${what}${way} ${to}` : `乘${where}${what}${way} ${to}`;
+  return `${stairs ? '走' : '乘'}${transferPlace(t, box)}${way} ${to}`;
 }
 
 export const pinText = {

@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
+  import { replaceState as kitReplaceState } from '$app/navigation';
+  import { page } from '$app/state';
   import { get } from 'svelte/store';
   import { currentProject, loadProject, viewMode, setActiveFloor } from '$lib/stores/project';
   import { readProject } from '$lib/utils/projectValidation';
@@ -7,7 +9,7 @@
   import { drawMapRoomLabel, resolveRoomLabelStyle, type RoomLabelStyle } from '$lib/utils/roomMapLabel';
   import { effectivePixelRatio } from '$lib/utils/pixelRatio';
   import { projectHomeUrl, resolveProjectLibraryUrl } from '$lib/utils/projectLibraryUrl';
-  import { disambiguate, floorOption, floorSpoken, pinText, transferText } from '$lib/utils/navCopy';
+  import { disambiguate, floorOption, floorSpoken, pinText, transferPlace, transferText } from '$lib/utils/navCopy';
   import { importOrigin, originOf, projectImportOrigin } from '$lib/utils/importOrigin';
   import type { Room } from '$lib/models/types';
 
@@ -39,14 +41,41 @@
   let tapStart: { x: number; y: number; t: number } | null = null;
 
   function onViewerPointerDown(e: PointerEvent) { tapStart = { x: e.clientX, y: e.clientY, t: performance.now() }; }
-  /** Tap-to-walk: in first person while paused, a tap steps ~2.5 m along the route. */
-  function onViewerPointerUp(e: PointerEvent) {
+  let tapHint = $state('');
+  let tapHintTimer: ReturnType<typeof setTimeout> | null = null;
+  function hint(text: string) {
+    tapHint = text;
+    if (tapHintTimer) clearTimeout(tapHintTimer);
+    tapHintTimer = setTimeout(() => (tapHint = ''), 1600);
+  }
+  /**
+   * Tap-to-walk in first person (QA acceptance): a tap (≤ 8 px, ≤ 250 ms — drag-to-look is never
+   * a tap) on the floor walks there along the walkable mesh; on a wall it doesn't move and hints;
+   * tapping again while walking (or while the route plays) stops.
+   */
+  async function onViewerPointerUp(e: PointerEvent) {
     const s0 = tapStart; tapStart = null;
-    if (!s0 || !walking || playbackPlaying || !lengthCm) return;
-    if (Math.hypot(e.clientX - s0.x, e.clientY - s0.y) > 10 || performance.now() - s0.t > 350) return;
-    const step = (250 / Math.max(1, routeLegs[activeLegIndex]?.lengthCm || lengthCm)) * 100;
-    walkSeek = Math.min(100, (Number(walkSeek) || 0) + step);
-    viewer?.setSimulationProgress?.(walkSeek / 100);
+    if (!s0 || !walking || (e.target as HTMLElement)?.closest?.('button, a, select, input, label')) return;
+    if (Math.hypot(e.clientX - s0.x, e.clientY - s0.y) > 8 || performance.now() - s0.t > 250) return;
+    if (viewer?.isTapWalking?.()) { viewer.stopTapWalk(); say('已停下'); return; }
+    if (playbackPlaying) { viewer?.pauseRouteSimulation?.(); playbackPlaying = false; say('已暂停'); return; }
+    const target = viewer?.pickWalkTarget?.(e.clientX, e.clientY);
+    if (!target || 'wall' in target) { hint('点地面可走过去'); return; }
+    const from = viewer?.getWalkPosition?.();
+    if (!from || !view) return;
+    try {
+      const response = await fetch(`${apiOrigin}/api/projects/${projectId}/route`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ floor: view.floorId, from: { ...from, floor: view.floorId }, to: { ...target.floor, floor: view.floorId }, via: [] }),
+      });
+      const result = await response.json();
+      const pts = result?.ok ? (result.legs?.[0]?.polyline || result.polyline) : null;
+      if (!pts || pts.length < 2) { hint('那里走不过去'); return; }
+      say('正在走过去 · 再点一下停下');
+      viewer?.walkPath?.(pts, Number(walkSpeed) || 1, () => say('已到达'));
+    } catch {
+      hint('那里走不过去');
+    }
   }
   let pendingModeAction = $state<'simulate' | 'walk' | null>(null);
   let pendingLegAdvance = $state(false);
@@ -166,7 +195,7 @@
     const transfer = routeTransfers.find((item) => item.afterLeg === activeLegIndex);
     const next = routeLegs[activeLegIndex + 1];
     const tip = transfer
-      ? transferText({ ...transfer, toFloorName: transfer.toFloorName || next?.floorName }, view?.bounds)
+      ? transferText(withDisplay({ ...transfer, toFloorName: transfer.toFloorName || next?.floorName }), view?.bounds)
       : `换到 ${floorSpoken(next?.floorName) || '下一层'}`;
     say(tip);
     transferNotice = tip;
@@ -192,11 +221,25 @@
     return `${place.floorId || view?.floorId || ''}::${place.id}`;
   }
 
-  // Duplicate names on a floor read 「东侧卫生间」/「卫生间 A」 (floors share plan axes).
+  // Duplicate names on a floor read 「卫生间（东）」/「楼梯（东A）」 (floors share plan axes).
   const displayNames = $derived(disambiguate(
     allPlaces().map((p) => ({ id: placeKey(p), name: p.name || p.id, floorId: p.floorId || '', x: p.x, y: p.y })),
     Object.fromEntries((view?.floors || []).map((f) => [f.id, view?.bounds])),
   ));
+
+  /** The stair/lift a transfer uses, under the same display name as the dropdown (「楼梯（东）」). */
+  function withDisplay<T extends { from?: { x: number; y: number }; fromFloorId?: string; kind?: string; kindLabel?: string }>(t: T): T & { display?: string } {
+    if (!t.from) return t;
+    const stairs = t.kind === 'stairs' || /楼梯/.test(t.kindLabel || '');
+    let best: Place | null = null, bestD = 450;
+    for (const p of allPlaces()) {
+      if ((t.fromFloorId && p.floorId !== t.fromFloorId) || !/楼梯|电梯/.test(p.name || '')) continue;
+      if (stairs !== /楼梯/.test(p.name || '') && /电梯楼梯/.test(p.name || '') === false) continue;
+      const d = Math.hypot(p.x - t.from.x, p.y - t.from.y);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    return { ...t, display: best ? displayNames.get(placeKey(best)) : undefined };
+  }
 
   function placeLabel(place: Place) {
     const floor = floorSpoken(place.floorName || place.floorId || '');
@@ -441,7 +484,7 @@
     for (const transfer of routeTransfers) {
       const ends = [
         transfer.fromFloorId === view.floorId && transfer.from
-          ? { at: transfer.from, text: pinText.transfer(transferText(transfer, view.bounds)) }
+          ? { at: transfer.from, text: pinText.transfer(transferPlace(withDisplay(transfer), view.bounds)) }
           : null,
         transfer.toFloorId === view.floorId && transfer.to
           ? { at: transfer.to, text: `从${floorSpoken(transfer.fromFloorName)}到达` }
@@ -507,7 +550,7 @@
     const floorsOnRoute = new Set(routeLegs.map((leg) => leg.floorId));
     if (floorsOnRoute.size < 2 || simulating || walking) { viewer.setNavFloorStack([], []); return; }
     const end = placeByKey(endId);
-    viewer.setNavFloorStack(routeLegs, routeTransfers, end?.name || '');
+    viewer.setNavFloorStack(routeLegs, routeTransfers.map((t) => ({ ...t, kindLabel: transferPlace(withDisplay(t), view?.bounds) })), end ? (displayNames.get(placeKey(end)) || end.name || '') : '');
   }
 
   async function loadNav(floorId: string, opts: { keepRoute?: boolean } = {}) {
@@ -537,7 +580,11 @@
       }
       const next = new URL(window.location.href);
       next.searchParams.set('floor', view.floorId);
-      history.replaceState(null, '', next);
+      // SvelteKit owns history: a raw history.replaceState here confused its router on floor
+      // switches (arrival on the next floor bounced back to 「正在打开…」 and reset the route).
+      if (next.href !== window.location.href) {
+        try { kitReplaceState(next, page.state); } catch { /* router not ready yet: skip */ }
+      }
     }
     if (!opts.keepRoute) {
       say(view?.empty ? '这一层没有户型' : '选择起点和终点');
@@ -733,12 +780,19 @@
           const match = projectUrl.match(/\/projects\/([0-9a-f]{32})/i);
           if (match) projectId = match[1];
         }
+        // First open on phones was ~13 s to 3D: fetch the project while the 3D viewer code
+        // downloads/parses in parallel (it used to start only after the nav data), and say which
+        // step is running.
+        say('正在下载项目（1/3）');
+        const viewerCode = import('$lib/components/viewer3d/ThreeViewer.svelte');
         const response = await fetch(fetchUrl);
         if (!response.ok) throw new Error(`project ${response.status}`);
         const project = readProject(await response.json());
         loadProject(project);
         markClean();
         if (!projectId) projectId = project.id;
+        say('正在加载 3D 引擎（2/3）');
+        ThreeViewer ??= (await viewerCode).default;
         const floor = url.searchParams.get('floor') || project.activeFloorId || '';
         await loadNav(floor);
         ready = true;
@@ -791,11 +845,14 @@
           class:hidden={mode !== '2d'}
           onclick={onPlanClick}
         ></canvas>
-        <div class="viewer" class:hidden={mode !== '3d'} onpointerdown={onViewerPointerDown} onpointerup={onViewerPointerUp}>
+        <div class="viewer" class:hidden={mode !== '3d'} onpointerdowncapture={onViewerPointerDown} onpointerupcapture={onViewerPointerUp}>
           {#if ThreeViewer}
             <ThreeViewer bind:this={viewer} navShell={true} routePolyline={routePolyline} routeDoorIds={routeDoorIds} onRouteProgress={handleRouteProgress} onNavWalkExit={handleNavWalkExit} />
           {/if}
         </div>
+        {#if tapHint}
+          <div class="tap-hint" role="status">{tapHint}</div>
+        {/if}
         {#if transferNotice}
           <div class="transfer-notice" role="status">{transferNotice}</div>
         {/if}
@@ -951,7 +1008,7 @@
               </li>
               {#if transferAfter(index)}
                 {@const ride = transferAfter(index)!}
-                <li class="ride">{transferText(ride, view?.bounds)}</li>
+                <li class="ride">{transferText(withDisplay(ride), view?.bounds)}</li>
               {/if}
             {/each}
           </ol>
@@ -1101,6 +1158,7 @@
   .link-form button:disabled { opacity: 0.45; cursor: default; }
   .hint { margin: 4px 0 0; color: #777; font-size: 12px; }
   .nav-error { padding: 24px; font-family: system-ui, sans-serif; }
+  .tap-hint { position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%); z-index: 5; padding: 8px 14px; border-radius: 20px; background: rgba(22, 48, 42, .88); color: #fff; font-size: 14px; pointer-events: none; }
   .panel-peek, .back-icon { display: none; }
   @media (max-width: 720px) {
     .stage { flex-direction: column; }

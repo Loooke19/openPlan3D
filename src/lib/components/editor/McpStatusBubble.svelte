@@ -191,8 +191,11 @@
     readOrigin();
     shown = fallbackConfig();
     configText = JSON.stringify(shown.mcpJson, null, 2);
-    void tick();
-    const timer = setInterval(() => { void tick(); }, 800);
+    // The MCP bridge is optional: don't probe (and fill the console with connection-refused
+    // errors) until the user has opened this bubble once; remembered per browser.
+    probing = localStorage.getItem(PROBE_KEY) === '1';
+    if (probing) void tick();
+    const timer = setInterval(() => { if (probing) void tick(); }, 800);
     window.addEventListener('click', onWindowClick);
     return () => {
       clearInterval(timer);
@@ -200,8 +203,12 @@
     };
   });
 
+  const PROBE_KEY = 'openplan-editor-mcp-probe';
+  let probing = false;
+
   function toggle() {
     open = !open;
+    if (open && !probing) { probing = true; localStorage.setItem(PROBE_KEY, '1'); void tick(true); }
     if (open) void refreshConfig();
   }
 

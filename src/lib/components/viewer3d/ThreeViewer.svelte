@@ -1948,7 +1948,9 @@
     if (!simPlaying) return;
     if (!simLastTs) simLastTs = ts;
     // Time-based: slow frames must not slow the walk (cap only long stalls, e.g. tab switches).
-    const dt = Math.min(0.25, (ts - simLastTs) / 1000);
+    // Wall-clock time: on a busy machine frames can take >1 s; the walk still covers real
+    // distance (route-following, so no collision substeps needed). Cap only tab-switch stalls.
+    const dt = Math.min(2, (ts - simLastTs) / 1000);
     simLastTs = ts;
     // ~120 cm/s at 1×
     simProgress = Math.min(1, simProgress + (dt * simSpeed * 120) / Math.max(1, simTotalLen));
@@ -2002,6 +2004,7 @@
   export function setSimulationProgress(ratio: number) {
     if (simRoute.length < 2) return;
     simProgress = Math.max(0, Math.min(1, ratio));
+    stopTapWalk();
     navWalkYaw = null; // a jump: derive heading fresh from the route
     const pose = pointOnRoute(simProgress * simTotalLen);
     if (navAutoWalking) placeNavWalkCamera(simProgress * simTotalLen);
@@ -2020,6 +2023,7 @@
 
   export function resumeRouteSimulation() {
     if (simRoute.length < 2 || simProgress >= 1) return;
+    stopTapWalk();
     simPlaying = true;
     simLastTs = 0;
     simRaf = requestAnimationFrame(tickSimulation);
@@ -2056,8 +2060,64 @@
     navWalkDistance = distance;
     setFloorCameraPose(camera, activeFloorElevation,
       { x: pose.x, y: eyeHeight + bob, z: pose.y },
-      { x: lookX, y: eyeHeight - 8 + bob * 0.5, z: lookY });
+      // Near-level gaze: blade signs above doors stay in frame; the floor route still fills the lower half.
+      { x: lookX, y: eyeHeight - 3 + bob * 0.5, z: lookY });
     markSceneDirty();
+  }
+
+  // ── Tap-to-walk (first person) ──────────────────────────────────────────────
+  let tapWalk: { pts: { x: number; y: number }[]; lens: number[]; total: number; d: number; last: number; raf: number } | null = null;
+
+  /** What a tap at client (x, y) hits: a floor point (plan coords) or a wall/other surface. */
+  export function pickWalkTarget(clientX: number, clientY: number): { floor: { x: number; y: number } } | { wall: true } | null {
+    if (!renderer || !camera) return null;
+    const r = renderer.domElement.getBoundingClientRect();
+    const rc = new THREE.Raycaster();
+    rc.setFromCamera(new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1), camera);
+    const roots = [wallGroup, sceneGround].filter(Boolean) as THREE.Object3D[];
+    const hit = rc.intersectObjects(roots, true).find(h => (h.object as THREE.Mesh).isMesh && h.object.visible && !(h.object as THREE.Sprite).isSprite);
+    if (!hit) return null;
+    const flat = (hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y : 0) > 0.7;
+    if (flat && Math.abs(hit.point.y - activeFloorElevation) < 30) return { floor: { x: hit.point.x, y: hit.point.z } };
+    return { wall: true };
+  }
+
+  /** Current first-person position in plan coords. */
+  export function getWalkPosition() { return camera ? { x: camera.position.x, y: camera.position.z } : null; }
+
+  export function isTapWalking() { return !!tapWalk; }
+
+  export function stopTapWalk() {
+    if (tapWalk?.raf) cancelAnimationFrame(tapWalk.raf);
+    tapWalk = null;
+  }
+
+  /** Walk the first-person camera along `points` at ~1.2 m/s × speed (time based). */
+  export function walkPath(points: { x: number; y: number }[], speed = 1, onDone?: () => void) {
+    stopTapWalk();
+    if (points.length < 2) return;
+    const lens = points.slice(1).map((p, i) => Math.hypot(p.x - points[i].x, p.y - points[i].y));
+    tapWalk = { pts: points, lens, total: lens.reduce((a, b) => a + b, 0), d: 0, last: 0, raf: 0 };
+    const at = (d: number) => {
+      const w = tapWalk!; let rem = d;
+      for (let i = 0; i < w.lens.length; i++) {
+        if (rem <= w.lens[i] || i === w.lens.length - 1) { const t = w.lens[i] ? Math.min(1, rem / w.lens[i]) : 0; const a = w.pts[i], b = w.pts[i + 1]; return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; }
+        rem -= w.lens[i];
+      }
+      return w.pts[w.pts.length - 1];
+    };
+    const step = (ts: number) => {
+      const w = tapWalk; if (!w) return;
+      const dt = w.last ? Math.min(2, (ts - w.last) / 1000) : 0; w.last = ts;
+      w.d = Math.min(w.total, w.d + dt * 120 * speed);
+      const p = at(w.d), q = at(Math.min(w.total, w.d + 60)), b = at(Math.max(0, w.d - 30));
+      const yaw = Math.hypot(q.x - b.x, q.y - b.y) > 5 ? Math.atan2(q.y - b.y, q.x - b.x) : Math.atan2(camera.getWorldDirection(new THREE.Vector3()).z, camera.getWorldDirection(new THREE.Vector3()).x);
+      setFloorCameraPose(camera, activeFloorElevation, { x: p.x, y: eyeHeight, z: p.y }, { x: p.x + Math.cos(yaw) * 80, y: eyeHeight - 3, z: p.y + Math.sin(yaw) * 80 });
+      markSceneDirty();
+      if (w.d >= w.total) { tapWalk = null; onDone?.(); return; }
+      w.raf = requestAnimationFrame(step);
+    };
+    tapWalk.raf = requestAnimationFrame(step);
   }
 
   export function enterWalkAlongRoute(speed = 1) {
@@ -2123,8 +2183,9 @@
 
   /** Overview label scale: larger on narrow screens, capped so the text fits its room. */
   function navLabelScale(sx: number, fit = Infinity, base = 3.2) {
-    const narrow = (container?.clientWidth ?? 1024) < 600 ? 1.35 : 1;
-    return Math.max(1.1, Math.min(base * narrow, (0.92 * fit) / Math.max(1, sx)));
+    const narrow = (container?.clientWidth ?? 1024) < 600 ? 1.8 : 1;
+    // Small rooms (a 1.5 m stair box) get a smaller label rather than one spilling over 电梯.
+    return Math.max(0.6, Math.min(base * narrow, (0.92 * fit) / Math.max(1, sx)));
   }
 
   function navVeneerTexture() {
@@ -3253,7 +3314,8 @@
     </div>
   {/if}
   <!-- 3D Toolbar Row -->
-  <div class="absolute top-4 right-4 z-50 flex gap-1.5">
+  <!-- First person: keep the top band clear for ceiling signs; the tools sit bottom-right. -->
+  <div class="absolute right-4 z-50 flex gap-1.5 {navShell && (walkthroughMode || navAutoWalking) ? 'bottom-4' : 'top-4'}">
     {#if !navShell}
     <!-- Multi-Floor Stacking Toggle -->
     <button
