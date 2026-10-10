@@ -25,14 +25,35 @@ export function floorOption(name: string | null | undefined): string {
   return spoken && spoken !== s ? `${s}（${spoken}）` : s;
 }
 
-/** Side of the floor a point sits on: 东/西/南/北, or 中 near the middle. */
-export function sideOf(p: Pt, box: Box): '东' | '西' | '南' | '北' | '中' {
+/**
+ * Drawing orientation: compass bearing of north on the plan (0 = plan up / −y, 90 = plan right,
+ * 270 = plan left), from the north arrow detected at import or set in the editor/MCP.
+ * `null` = unknown: then no 东西南北 is ever emitted and duplicates are lettered (楼梯 A/B).
+ */
+let northBearing: number | null = null;
+export function setNavNorth(deg: number | null | undefined) {
+  northBearing = typeof deg === 'number' && Number.isFinite(deg) ? ((deg % 360) + 360) % 360 : null;
+}
+export function navNorth() { return northBearing; }
+
+/** Side of the floor a point sits on: 东/西/南/北, 中 near the middle, '' when north is unknown. */
+export function sideOf(p: Pt, box: Box): '东' | '西' | '南' | '北' | '中' | '' {
+  if (northBearing === null) return '';
   const w = Math.max(1, box.maxX - box.minX), h = Math.max(1, box.maxY - box.minY);
   const u = (p.x - box.minX) / w - 0.5, v = (p.y - box.minY) / h - 0.5;
   if (Math.abs(u) < 1 / 6 && Math.abs(v) < 1 / 6) return '中';
-  // Compare in metric terms so a long, narrow floor reads east/west.
-  if (Math.abs(u) * w >= Math.abs(v) * h) return u > 0 ? '东' : '西';
-  return v > 0 ? '南' : '北';
+  // Metric offsets from the middle, projected on the drawing's north/east axes.
+  const dx = u * w, dy = v * h, t = (northBearing * Math.PI) / 180;
+  const north = dx * Math.sin(t) - dy * Math.cos(t);
+  const east = dx * Math.cos(t) + dy * Math.sin(t);
+  if (Math.abs(east) >= Math.abs(north)) return east > 0 ? '东' : '西';
+  return north > 0 ? '北' : '南';
+}
+
+/** 「楼梯（东）」, 「楼梯（东A）」, or without a known north 「楼梯 A」. */
+function tagged(name: string, side: string, letter = '') {
+  if (!side) return letter ? `${name} ${letter}` : name;
+  return `${name}（${side}${letter}）`;
 }
 
 export type NamedPlace = { id: string; name: string; floorId: string; x: number; y: number };
@@ -52,15 +73,15 @@ export function disambiguate(places: NamedPlace[], boxes: Record<string, Box | u
     if (group.length === 1) { out.set(group[0].id, group[0].name); continue; }
     const box = boxes[group[0].floorId];
     const sides = group.map(p => (box ? sideOf(p, box) : '中'));
-    const unique = box && new Set(sides).size === group.length && !sides.includes('中');
+    const unique = box && new Set(sides).size === group.length && !sides.includes('中') && !sides.includes('');
     // One form everywhere (dropdown, 3D map, pins, steps): 「楼梯（东）」, or 「楼梯（东A）」 when a
     // side holds two of them (lettered west→east, north→south — same rule as mapLabels).
     if (unique) { group.forEach((p, i) => out.set(p.id, `${p.name}（${sides[i]}）`)); continue; }
     const bySide = new Map<string, NamedPlace[]>();
     group.forEach((p, i) => bySide.set(sides[i], [...(bySide.get(sides[i]) || []), p]));
     for (const [side, list] of bySide) {
-      if (list.length === 1) { out.set(list[0].id, `${list[0].name}（${side}）`); continue; }
-      list.slice().sort((a, b) => a.x - b.x || a.y - b.y).forEach((p, i) => out.set(p.id, `${p.name}（${side}${String.fromCharCode(65 + i)}）`));
+      if (list.length === 1 && side) { out.set(list[0].id, tagged(list[0].name, side)); continue; }
+      list.slice().sort((a, b) => a.x - b.x || a.y - b.y).forEach((p, i) => out.set(p.id, tagged(p.name, side, String.fromCharCode(65 + i))));
     }
   }
   return out;
@@ -114,13 +135,14 @@ export function mapLabels(rooms: { name?: string | null; polygon: Pt[] }[]): str
   const bySide = new Map<string, number[]>();
   names.forEach((n, i) => {
     if (!n || (count.get(n) ?? 0) < 2 || rooms[i].polygon.length < 3) return;
-    const key = `${n}（${sideOf(centre(rooms[i].polygon), box)}`;
+    const key = `${n}\u0000${sideOf(centre(rooms[i].polygon), box)}`;
     bySide.set(key, [...(bySide.get(key) ?? []), i]);
   });
   for (const [key, idx] of bySide) {
-    if (idx.length === 1) { out[idx[0]] = `${key}）`; continue; }
+    const [n, side] = key.split('\u0000');
+    if (idx.length === 1 && side) { out[idx[0]] = tagged(n, side); continue; }
     idx.sort((a, b) => { const p = centre(rooms[a].polygon), q = centre(rooms[b].polygon); return p.x - q.x || p.y - q.y; });
-    idx.forEach((i, k) => { out[i] = `${key}${String.fromCharCode(65 + k)}）`; });
+    idx.forEach((i, k) => { out[i] = tagged(n, side, String.fromCharCode(65 + k)); });
   }
   return out;
 }

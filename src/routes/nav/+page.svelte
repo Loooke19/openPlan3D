@@ -1,6 +1,7 @@
 <script lang="ts">
   import PlacePicker from '$lib/components/nav/PlacePicker.svelte';
   import { indexPlaces } from '$lib/utils/placeSearch';
+  import { setNavNorth } from '$lib/utils/navCopy';
   import { onMount, untrack } from 'svelte';
   import { replaceState as kitReplaceState } from '$app/navigation';
   import { page } from '$app/state';
@@ -809,7 +810,10 @@
         const viewerCode = import('$lib/components/viewer3d/ThreeViewer.svelte');
         const response = await fetch(fetchUrl);
         if (!response.ok) throw new Error(`project ${response.status}`);
-        const project = readProject(await response.json());
+        const raw = await response.json();
+        // Cardinal words only when the drawing's north arrow is known (import/editor/MCP).
+        setNavNorth(raw?.northBearing ?? null);
+        const project = readProject(raw);
         loadProject(project);
         markClean();
         if (!projectId) projectId = project.id;

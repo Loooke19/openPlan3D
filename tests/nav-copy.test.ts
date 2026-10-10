@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { disambiguate, floorOption, floorSpoken, pinText, sideOf, transferText } from '../src/lib/utils/navCopy';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { disambiguate, floorOption, floorSpoken, pinText, setNavNorth, sideOf, transferText } from '../src/lib/utils/navCopy';
+beforeEach(() => setNavNorth(0));
 
 const box = { minX: 0, minY: 0, maxX: 3000, maxY: 1000 };
 
@@ -67,5 +68,25 @@ describe('3D map labels', () => {
     const route = [{ x: 0, y: 0 }, { x: 1000, y: 0 }];
     expect(nearRoute(sq(400, 200), route)).toBe(true);
     expect(nearRoute(sq(400, 2000), route)).toBe(false);
+  });
+});
+
+describe('orientation from the north arrow', () => {
+  const box = { minX: 0, maxX: 3000, minY: 0, maxY: 1000 };
+  it('north pointing plan-left (P1) turns plan-top into 东', () => {
+    setNavNorth(270);
+    expect(sideOf({ x: 1500, y: 30 }, box)).toBe('东');
+    expect(sideOf({ x: 100, y: 500 }, box)).toBe('北');
+  });
+  it('unknown north: no cardinal words, duplicates lettered 楼梯 A/B', () => {
+    setNavNorth(null);
+    expect(sideOf({ x: 2800, y: 500 }, box)).toBe('');
+    const out = disambiguate([
+      { id: 'a', name: '楼梯', floorId: 'f', x: 100, y: 500 },
+      { id: 'b', name: '楼梯', floorId: 'f', x: 2800, y: 500 },
+    ], { f: box });
+    expect([out.get('a'), out.get('b')]).toEqual(['楼梯 A', '楼梯 B']);
+    expect(mapLabels([{ name: '楼梯', polygon: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] }, { name: '楼梯', polygon: [{ x: 2900, y: 0 }, { x: 3000, y: 0 }, { x: 3000, y: 10 }] }])).toEqual(['楼梯 A', '楼梯 B']);
+    expect(transferText({ kind: 'stairs', from: { x: 2800, y: 500 }, direction: 'up', toFloorName: '2F' }, box)).toBe('走楼梯上到 2楼');
   });
 });
