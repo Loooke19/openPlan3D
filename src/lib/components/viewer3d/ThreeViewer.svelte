@@ -47,6 +47,9 @@
   import { NavPipeline, type NavLook } from './nav/pipeline';
   import { NavRouteVisual } from './nav/route';
   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
+  import { NavSigns, type SignDoor } from './nav/signs';
+  import { enableHospitalPbr } from '$lib/utils/hospitalMaterials';
+  import { base as appBase } from '$app/paths';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
   import {
     createHospitalSurfaceMaterial,
@@ -130,6 +133,8 @@
   // Nav-shell-only render path (see ./nav): post pipeline, dressing, route visual, current look.
   let navPipeline: NavPipeline | null = null;
   let navDressing: NavDressing | null = null;
+  let navSigns: NavSigns | null = null;
+  let navVeneer: THREE.Texture | null = null;
   let navRouteVisual: NavRouteVisual | null = null;
   let navLook: NavLook = 'overview';
   let navBackdrops: Partial<Record<NavLook, THREE.Texture>> = {};
@@ -715,79 +720,6 @@
     exitWalkthroughMode();
   }
 
-  /** Dev/nav test hook: put the orbit camera at an exact pose (same-camera before/after shots). */
-  export function setOrbitPoseForTest(position: [number, number, number], target: [number, number, number]) {
-    if (!camera || !controls) return;
-    camera.position.set(...position);
-    controls.target.set(...target);
-    controls.update();
-    markSceneDirty();
-  }
-
-  /** Dev/nav test hook: renderer counters for perf notes. */
-  export function getRenderStatsForTest() {
-    if (!renderer) return null;
-    return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures };
-  }
-
-  /** Dev/nav test hook: render N frames back to back and report ms per frame. */
-  export function benchmarkForTest(frames = 60) {
-    if (!renderer) return null;
-    const draw = () => { renderFrameForTest(); };
-    draw();
-    renderer.getContext().finish();
-    renderer.info.autoReset = false;
-    renderer.info.reset();
-    draw();
-    const stats = { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
-    renderer.info.autoReset = true;
-    const t0 = performance.now();
-    for (let i = 0; i < frames; i++) draw();
-    renderer.getContext().finish();
-    return { msPerFrame: (performance.now() - t0) / frames, ...getRenderStatsForTest(), ...stats, pixelRatio: renderer.getPixelRatio() };
-  }
-
-  /** Dev/nav test hook: what is under a canvas pixel (fractions 0..1). */
-  export function pickForTest(fx: number, fy: number) {
-    const rc = new THREE.Raycaster();
-    rc.setFromCamera(new THREE.Vector2(fx * 2 - 1, -(fy * 2 - 1)), camera);
-    return rc.intersectObjects(scene.children, true).slice(0, 4).map(h => ({
-      type: h.object.type, name: h.object.name, y: Math.round(h.point.y * 10) / 10, ud: Object.keys(h.object.userData),
-      mat: (Array.isArray((h.object as THREE.Mesh).material) ? 'multi' : ((h.object as THREE.Mesh).material as THREE.Material)?.type),
-      color: ((h.object as THREE.Mesh).material as THREE.MeshStandardMaterial)?.color?.getHexString?.(), face: h.face?.normal?.toArray().map(v => Math.round(v * 100) / 100) }));
-  }
-
-  export function debugForTest(what: string) {
-    if (what === 'noshadow') { sunLight.castShadow = false; renderer.shadowMap.needsUpdate = true; }
-    if (what === 'nodressing' && navDressing) navDressing.group.visible = false;
-    if (what === 'nopost') navPipeline = null;
-    if (what === 'routes') {
-      const out: unknown[] = [];
-      scene.traverse(o => { if (o.userData.navRoute) { let vis = true; o.traverseAncestors(a => { if (!a.visible) vis = false; }); const b = new THREE.Box3().setFromObject(o); out.push({ vis: vis && o.visible, kids: o.children.map(c => c.visible), min: b.min.toArray().map(Math.round), max: b.max.toArray().map(Math.round) }); } });
-      return { out, simRoute: simRoute.length };
-    }
-    if (what === 'redcaps' && navDressing) {
-      const caps = navDressing.group.children[1].children[0] as THREE.InstancedMesh;
-      (caps.material as THREE.MeshStandardMaterial).color.set('#ff0000');
-      const m = new THREE.Matrix4(); const out: number[][] = [];
-      for (let i = 0; i < Math.min(caps.count, 40); i++) { caps.getMatrixAt(i, m); const p = new THREE.Vector3().setFromMatrixPosition(m); if (p.y < 200) out.push(p.toArray().map(Math.round)); }
-      return { count: caps.count, low: out };
-    }
-    if (what === 'walls') {
-      const out: unknown[] = [];
-      wallGroup.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && (m.userData.renderMaterial === 'wall' || m.userData.wallId)) {
-        m.geometry.computeBoundingBox(); const b = m.geometry.boundingBox!;
-        out.push({ rm: m.userData.renderMaterial, wid: m.userData.wallId, type: m.geometry.type, rot: m.rotation.toArray().slice(0, 3).map(v => Math.round(Number(v) * 100) / 100), pos: m.position.toArray().map(Math.round), min: b.min.toArray().map(Math.round), max: b.max.toArray().map(Math.round), parent: m.parent === wallGroup }); } });
-      return out.filter((x: any) => x.max[1] < 200 || x.min[1] < -1 || x.rot.some((r: number) => Math.abs(r) > 0.01 && Math.abs(Math.abs(r) - 3.14) > 0.01 && Math.abs(Math.abs(r) - 1.57) > 0.01) || !x.parent).slice(0, 12);
-    }
-    if (what === 'nocaps' && navDressing) navDressing.group.children[1].visible = false;
-    if (what === 'noao' && navDressing) navDressing.group.children.slice(2).forEach(c => (c.visible = false));
-    markSceneDirty();
-    return { hemi: hemiLight.intensity, amb: ambientLight.intensity, sun: sunLight.intensity, env: scene.environmentIntensity, sunPos: sunLight.position.toArray(), tgt: sunLight.target.position.toArray(), tgtParent: !!sunLight.target.parent };
-  }
-
-  function renderFrameForTest() { renderView(); }
-
   /** Dev/nav test hook: orbit pose for floor-switch camera checks. */
   export function getOrbitSnapshot() {
     if (!camera || !controls) return null;
@@ -1156,6 +1088,7 @@
   }
 
   function initNavLook() {
+    enableHospitalPbr(`${appBase}/nav-textures`);
     navPipeline = new NavPipeline(renderer, scene, camera);
     // Post passes scale with pixels: cap high at 1.5x, ultra at 2x.
     renderer.setPixelRatio(Math.min(effectivePixelRatio(), navPipeline.quality === 'ultra' ? 2 : navPipeline.quality === 'high' ? 1.5 : 1.25));
@@ -1179,6 +1112,10 @@
     navPipeline.setLook(look);
     navPipeline.setExposure(look === 'walk' ? 1.05 : 1.0);
     navDressing?.setLook(look);
+    if (navSigns) navSigns.group.visible = look === 'walk';
+    // Walking past jambs and open leaves: a 6 cm near plane stops the camera seeing inside them.
+    camera.near = look === 'walk' ? 6 : 1;
+    camera.updateProjectionMatrix();
     navRouteVisual?.setWalk(look === 'walk');
     scene.background = navBackdrops[look] ?? scene.background;
     // Room signs: in the overview lift them above the wall caps and double their size so they
@@ -1186,9 +1123,10 @@
     wallGroup?.traverse(o => {
       const meta = o.userData.navLabel;
       if (!meta) return;
-      const k = look === 'overview' ? 2.1 : 1;
-      o.scale.set(meta.sx * k, meta.sy * k, 1);
-      o.position.y = look === 'overview' ? 300 : 30;
+      // First person reads the wall-mounted signs instead of floating text.
+      o.visible = look === 'overview';
+      o.scale.set(meta.sx * 3.2, meta.sy * 3.2, 1);
+      o.position.y = 300;
     });
     const bounds = wallGroup?.children.length ? new THREE.Box3().setFromObject(wallGroup) : null;
     applyNavLightRig({ ambient: ambientLight, hemi: hemiLight, sun: sunLight, fill: fillLight, rim: rimLight }, look, bounds, navPipeline.quality);
@@ -1207,6 +1145,21 @@
     });
     navDressing = new NavDressing(wallGroup, { look: navLook, floorY: activeFloorElevation, rooms, ceilings });
     scene.add(navDressing.group);
+    navSigns?.dispose();
+    navSigns = null;
+    if (currentFloor) {
+      const doors: SignDoor[] = [];
+      for (const door of currentFloor.doors) {
+        const wall = currentFloor.walls.find(w => w.id === door.wallId);
+        if (!wall) continue;
+        const dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y, len = Math.hypot(dx, dy) || 1;
+        doors.push({ center: { x: wall.start.x + dx * door.position, y: wall.start.y + dy * door.position }, along: { x: dx / len, y: dy / len },
+          normal: { x: -dy / len, y: dx / len }, width: door.width, wallThickness: wall.thickness || 15, height: door.height || 210 });
+      }
+      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2).map(r => ({ name: r.room.name!, polygon: r.polygon }));
+      navSigns = new NavSigns(doors, named, activeFloorElevation);
+      scene.add(navSigns.group);
+    }
     applyNavLook(navLook, true);
   }
 
@@ -1256,7 +1209,7 @@
    * route leg, joined by a glowing vertical connector at each transfer. Floors ease apart on entry.
    */
   export function setNavFloorStack(legs: { floorId: string; floorName?: string; polyline: { x: number; y: number }[] }[],
-    transfers: { afterLeg: number; kindLabel?: string }[] = [], endLabel = '') {
+    transfers: { afterLeg: number; kindLabel?: string; from?: { x: number; y: number } }[] = [], endLabel = '') {
     clearNavStack();
     const project = get(currentProject);
     if (!navPipeline || !project || !currentFloor || legs.length < 2 || walkthroughMode) return;
@@ -1300,7 +1253,7 @@
         const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
         const c = roomCentroid(polygon);
         label.position.set(c.x, 300, c.y);
-        label.scale.set(baked.scaleX * 2.1, baked.scaleY * 2.1, 1);
+        label.scale.set(baked.scaleX * 3.2, baked.scaleY * 3.2, 1);
         label.renderOrder = 10;
         g.add(label);
       }
@@ -1336,7 +1289,9 @@
       if (!next) return;
       const nextDir = next.floorId === currentFloor!.id ? 0 : built.get(next.floorId);
       if (nextDir === undefined) return;
-      const a = leg.polyline[leg.polyline.length - 1];
+      // Connector stands on the vertical link itself (elevator shaft / stair), not the leg's last point.
+      const tr = transfers.find(t => t.afterLeg === i);
+      const a = tr?.from ?? leg.polyline[leg.polyline.length - 1];
       const column = new THREE.Group();
       const core = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 1, 24).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff9a45').multiplyScalar(2.4) }));
       const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(34, 34, 1, 32, 1, true).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({
@@ -1968,11 +1923,34 @@
     doorAnimationRaf = requestAnimationFrame(tick);
   }
 
+  function navVeneerTexture() {
+    if (navVeneer) return navVeneer;
+    const c = document.createElement('canvas'); c.width = 256; c.height = 512;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#b88a5c'; g.fillRect(0, 0, 256, 512);
+    // Quarter-cut grain: long soft streaks with a few darker figure lines.
+    for (let i = 0; i < 140; i++) {
+      const x = Math.random() * 256, w = 1 + Math.random() * 3, l = 0.04 + Math.random() * 0.1;
+      g.fillStyle = Math.random() < 0.5 ? `rgba(90,55,25,${l})` : `rgba(235,200,150,${l})`;
+      g.fillRect(x, 0, w, 512);
+    }
+    for (let i = 0; i < 10; i++) {
+      g.strokeStyle = 'rgba(80,48,20,.12)'; g.lineWidth = 1.5; g.beginPath();
+      const x0 = Math.random() * 256; g.moveTo(x0, 0);
+      for (let y = 0; y <= 512; y += 32) g.lineTo(x0 + Math.sin(y / 70 + i) * 6, y);
+      g.stroke();
+    }
+    navVeneer = new THREE.CanvasTexture(c);
+    navVeneer.colorSpace = THREE.SRGBColorSpace;
+    navVeneer.anisotropy = 4;
+    return navVeneer;
+  }
+
   function addNavDoorLeaf(doorId: string, hinge: Point, width: number, height: number, angle: number, hingeSide: number, face: number, wallThickness: number) {
     const pivot = new THREE.Group();
     // Park the slab just outside the swing-side wall face so thickness faces
     // never share volume with full-depth jambs (coplanar z-fight → vertical stripes).
-    const panelDepth = 6;
+    const panelDepth = 4.5;
     const faceClear = wallThickness / 2 + panelDepth / 2 + 1;
     pivot.position.set(hinge.x - Math.sin(angle) * face * faceClear, 0, hinge.y + Math.cos(angle) * face * faceClear);
     const closedYaw = -(angle + (hingeSide === 1 ? Math.PI : 0));
@@ -1984,30 +1962,29 @@
     const panelWidth = Math.max(2, width - edgeClear * 2);
     const panelGeo = new THREE.BoxGeometry(panelWidth, height - 4, panelDepth);
     panelGeo.translate(edgeClear + panelWidth / 2, 0, 0);
-    const panel = new THREE.Mesh(
-      panelGeo,
-      new THREE.MeshStandardMaterial({
-        color: 0x8B6914,
-        roughness: 0.55,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-        polygonOffsetUnits: -2,
-      }),
-    );
+    // Wood-veneer leaf with a brushed-steel kick plate and a lever handle on both faces.
+    const veneer = navVeneerTexture();
+    const leafMat = new THREE.MeshStandardMaterial({ map: veneer, color: 0xffffff, roughness: 0.48,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const edgeMat = new THREE.MeshStandardMaterial({ color: 0x8f6a45, roughness: 0.6 });
+    const panel = new THREE.Mesh(panelGeo, [edgeMat, edgeMat, edgeMat, edgeMat, leafMat, leafMat]);
     panel.position.y = height / 2 - 2;
     // Shadows on thin door edges read as fine vertical stripes in first-person.
     panel.castShadow = false;
     panel.receiveShadow = false;
     panel.renderOrder = 2;
     pivot.add(panel);
-
-    const handle = new THREE.Mesh(
-      new THREE.SphereGeometry(3, 8, 8),
-      new THREE.MeshStandardMaterial({ color: 0xc0c0c0, metalness: 0.8, roughness: 0.2 }),
-    );
-    handle.position.set(Math.max(8, width - 12), Math.min(100, height * 0.5), panelDepth / 2 + 1);
-    handle.castShadow = false;
-    pivot.add(handle);
+    const steel = new THREE.MeshStandardMaterial({ color: 0xc9cdcc, metalness: 0.85, roughness: 0.32 });
+    const kick = new THREE.Mesh(new THREE.BoxGeometry(panelWidth - 4, 26, panelDepth + 1.2), steel);
+    kick.position.set(edgeClear + panelWidth / 2, 15, 0);
+    pivot.add(kick);
+    for (const side of [1, -1]) {
+      const rose = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 1.5, 20).rotateX(Math.PI / 2), steel);
+      rose.position.set(edgeClear + panelWidth - 8, Math.min(105, height * 0.5), side * (panelDepth / 2 + 0.8));
+      const lever = new THREE.Mesh(new THREE.BoxGeometry(14, 2.2, 2.2), steel);
+      lever.position.set(edgeClear + panelWidth - 14, rose.position.y, side * (panelDepth / 2 + 3));
+      pivot.add(rose, lever);
+    }
     wallGroup.add(pivot);
     navDoorLeaves.push({ doorId, pivot, closedYaw, openYaw });
   }
@@ -2237,8 +2214,10 @@
       const wt = Math.max(wall.thickness, WALL_THICKNESS);
 
       const frameMat = new THREE.MeshStandardMaterial({
-        color: 0x6b4423,
-        roughness: 0.6,
+        // Nav: powder-coated steel hospital frames; editor keeps its timber frame.
+        color: navShell ? 0xd2d6d3 : 0x6b4423,
+        roughness: navShell ? 0.4 : 0.6,
+        metalness: navShell ? 0.25 : 0,
         // Push frame depth bias so near-coplanar wall faces lose the fight.
         polygonOffset: true,
         polygonOffsetFactor: -4,
@@ -2898,6 +2877,12 @@
       }
       if (navRouteVisual && typeof document !== 'undefined' && !document.hidden) {
         navRouteVisual.tick(timestamp / 1000);
+        // Walking through an opened route door: tuck its leaf away (auto door) so it never fills the view.
+        const walking = navLook === 'walk';
+        for (const leaf of navDoorLeaves) {
+          leaf.pivot.visible = !(walking && activeRouteDoorIds.has(leaf.doorId)
+            && Math.hypot(camera.position.x - leaf.pivot.position.x, camera.position.z - leaf.pivot.position.z) < 170);
+        }
         sceneDirty = true;
         requestRender();
       }
@@ -3031,6 +3016,8 @@
       skyTexture.dispose();
       navRouteVisual?.dispose();
       navDressing?.dispose();
+      navSigns?.dispose();
+      navVeneer?.dispose();
       navPipeline?.dispose();
       for (const t of Object.values(navBackdrops)) t?.dispose();
       sunLight.shadow.dispose();

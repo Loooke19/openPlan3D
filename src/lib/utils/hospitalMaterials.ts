@@ -23,6 +23,28 @@ export function isHospitalFloorTexture(id: string | undefined | null): boolean {
   return id === HOSPITAL_FLOOR_ID;
 }
 
+/**
+ * Optional CC0 PBR detail (static/nav-textures, ambientCG Terrazzo009 / PaintedPlaster017 /
+ * Plastic010). The nav preview turns it on; the editor never does. Maps are luminance detail
+ * centred on mid-grey plus roughness, sampled in world space (cm) so long walls never stretch.
+ */
+type PbrSet = { detail: THREE.Texture; rough: THREE.Texture };
+let pbr: { wall: PbrSet; wainscot: PbrSet; floor: PbrSet } | null = null;
+
+export function enableHospitalPbr(base = '/nav-textures') {
+  if (pbr || typeof document === 'undefined') return;
+  const loader = new THREE.TextureLoader();
+  const load = (name: string) => {
+    const t = loader.load(`${base}/${name}.jpg`);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.NoColorSpace;
+    t.anisotropy = 4;
+    return t;
+  };
+  const set = (k: string) => ({ detail: load(`${k}-detail`), rough: load(`${k}-rough`) });
+  pbr = { wall: set('wall'), wainscot: set('wainscot'), floor: set('floor') };
+}
+
 export function createHospitalSurfaceMaterial(
   kind: 'wall' | 'floor',
   color: string,
@@ -39,7 +61,9 @@ export function createHospitalSurfaceMaterial(
     hospitalSkirt: { value: SKIRT_CM },
     hospitalBaseboard: { value: BASEBOARD_CM },
   };
-  material.customProgramCacheKey = () => `openplan-hospital-${kind}-v1`;
+  const usePbr = !!pbr;
+  material.customProgramCacheKey = () => `openplan-hospital-${kind}-v1${usePbr ? '-pbr' : ''}`;
+  if (usePbr && kind === 'floor') { material.roughness = 0.42; material.envMapIntensity = 1.1; }
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = 'varying vec3 hospitalPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
@@ -75,10 +99,36 @@ export function createHospitalSurfaceMaterial(
         float grain = sin(hospitalPosition.x * 0.31) * sin(hospitalPosition.z * 0.39);
         diffuseColor.rgb *= 1.0 - grout * 0.18 + grain * 0.012 * hospitalGrain;
       `;
+    let pbrCode = '', roughCode = '';
+    if (usePbr && pbr) {
+      Object.assign(shader.uniforms, {
+        pbrDetailA: { value: kind === 'wall' ? pbr.wall.detail : pbr.floor.detail },
+        pbrRoughA: { value: kind === 'wall' ? pbr.wall.rough : pbr.floor.rough },
+        pbrDetailB: { value: pbr.wainscot.detail },
+        pbrRoughB: { value: pbr.wainscot.rough },
+      });
+      shader.fragmentShader = 'uniform sampler2D pbrDetailA, pbrRoughA, pbrDetailB, pbrRoughB;\n' + shader.fragmentShader;
+      pbrCode = kind === 'wall'
+        ? `
+        vec3 pbrN = normalize(cross(dFdx(hospitalPosition), dFdy(hospitalPosition)));
+        vec2 pbrUv = (abs(pbrN.x) > abs(pbrN.z) ? hospitalPosition.zy : hospitalPosition.xy);
+        bool pbrLow = hospitalPosition.y < hospitalSkirt;
+        float pbrD = pbrLow ? texture2D(pbrDetailB, pbrUv / 90.0).r : texture2D(pbrDetailA, pbrUv / 140.0).r;
+        float pbrR = pbrLow ? texture2D(pbrRoughB, pbrUv / 90.0).r : texture2D(pbrRoughA, pbrUv / 140.0).r;
+        diffuseColor.rgb *= 0.8 + pbrD * 0.4;
+      `
+        : `
+        float pbrD = texture2D(pbrDetailA, hospitalPosition.xz / 160.0).r;
+        float pbrR = texture2D(pbrRoughA, hospitalPosition.xz / 160.0).r;
+        diffuseColor.rgb *= 0.84 + pbrD * 0.32;
+      `;
+      roughCode = 'roughnessFactor = clamp(roughnessFactor * (0.65 + pbrR * 0.7), 0.08, 1.0);';
+    }
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <color_fragment>',
-      '#include <color_fragment>\n' + surface,
+      '#include <color_fragment>\n' + surface + pbrCode,
     );
+    if (roughCode) shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n' + roughCode);
   };
   return own ? own(material) : material;
 }
