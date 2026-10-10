@@ -671,6 +671,13 @@
   }
 
   onMount(() => {
+    // Test hook for scripted same-camera screenshots (harmless in production).
+    (window as any).__navTest = {
+      get viewer() { return viewer; },
+      places: () => allPlaces().map((p) => ({ key: placeKey(p), label: placeLabel(p) })),
+      route: async (from: string, to: string) => { startId = from; endId = to; await planRoute(); return routeMessage; },
+      setMode: (m: '2d' | '3d') => { mode = m; },
+    };
     void (async () => {
       try {
         const url = new URL(window.location.href);

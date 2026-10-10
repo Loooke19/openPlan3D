@@ -703,6 +703,35 @@
     exitWalkthroughMode();
   }
 
+  /** Dev/nav test hook: put the orbit camera at an exact pose (same-camera before/after shots). */
+  export function setOrbitPoseForTest(position: [number, number, number], target: [number, number, number]) {
+    if (!camera || !controls) return;
+    camera.position.set(...position);
+    controls.target.set(...target);
+    controls.update();
+    markSceneDirty();
+  }
+
+  /** Dev/nav test hook: renderer counters for perf notes. */
+  export function getRenderStatsForTest() {
+    if (!renderer) return null;
+    return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures };
+  }
+
+  /** Dev/nav test hook: render N frames back to back and report ms per frame. */
+  export function benchmarkForTest(frames = 60) {
+    if (!renderer) return null;
+    const draw = () => { renderFrameForTest(); };
+    draw();
+    renderer.getContext().finish();
+    const t0 = performance.now();
+    for (let i = 0; i < frames; i++) draw();
+    renderer.getContext().finish();
+    return { msPerFrame: (performance.now() - t0) / frames, ...getRenderStatsForTest() };
+  }
+
+  function renderFrameForTest() { renderer.render(scene, camera); }
+
   /** Dev/nav test hook: orbit pose for floor-switch camera checks. */
   export function getOrbitSnapshot() {
     if (!camera || !controls) return null;
