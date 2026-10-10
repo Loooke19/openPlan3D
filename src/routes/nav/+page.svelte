@@ -87,6 +87,15 @@
   let planCanvas: HTMLCanvasElement | undefined = $state();
   let transferTimer: ReturnType<typeof setTimeout> | null = null;
   let transferNotice = $state('');
+  let arrivedText = $state('');
+  function endLabel() { const e = placeByKey(endId); return e ? (displayNames.get(placeKey(e)) || e.name || '') : ''; }
+  /** Final arrival in first person: frame the destination door and keep FP until the user exits. */
+  function arrive(firstPerson: boolean) {
+    if (!firstPerson) { say('模拟导航已完成'); return; }
+    arrivedText = `已到达：${endLabel()}`;
+    say(arrivedText);
+    viewer?.faceNavArrival?.();
+  }
   let legAdvanceToken = 0;
   let accessible = $state(false);
 
@@ -195,7 +204,7 @@
     playbackPlaying = playing;
     if (!(ratio >= 1 && !playing) || pendingLegAdvance) return;
     if (!(simulating || walking) || activeLegIndex + 1 >= routeLegs.length) {
-      say(walking ? '已到达终点' : '模拟导航已完成');
+      arrive(walking);
       return;
     }
     const transfer = routeTransfers.find((item) => item.afterLeg === activeLegIndex);
@@ -240,7 +249,10 @@
   })));
 
   /** The stair/lift a transfer uses, under the same display name as the dropdown (「楼梯（东）」). */
-  function withDisplay<T extends { from?: { x: number; y: number }; fromFloorId?: string; kind?: string; kindLabel?: string }>(t: T): T & { display?: string } {
+  function withDisplay<T extends { from?: { x: number; y: number }; fromFloorId?: string; toFloorId?: string; kind?: string; kindLabel?: string }>(t: T): T & { display?: string; floors?: number } {
+    const ids = (view?.floors || []).map((f) => f.id);
+    const span = t.fromFloorId && t.toFloorId ? Math.abs(ids.indexOf(t.toFloorId) - ids.indexOf(t.fromFloorId)) : 0;
+    if (span >= 2) t = { ...t, floors: span };
     if (!t.from) return t;
     const stairs = t.kind === 'stairs' || /楼梯/.test(t.kindLabel || '');
     let best: Place | null = null, bestD = 450;
@@ -605,13 +617,23 @@
     drawPlan();
   }
 
+  /** Viewing a floor the route doesn't touch: jump back to the route's first leg before playing. */
+  async function ensureRouteFloor() {
+    if (routePolyline.length) return true;
+    const leg = routeLegs[0];
+    if (!leg) return false;
+    if (view?.floorId !== leg.floorId) await loadNav(leg.floorId, { keepRoute: true });
+    applyLeg(0);
+    return routePolyline.length > 0;
+  }
+
   async function advanceToLeg(index: number) {
     const leg = routeLegs[index];
     // Switching floors exits first-person in the viewer, which clears `walking`.
     const firstPerson = walking;
     if (!leg) {
       pendingLegAdvance = false;
-      say(firstPerson ? '已到达终点' : '模拟导航已完成');
+      arrive(firstPerson);
       return;
     }
     const token = legAdvanceToken;
@@ -632,6 +654,7 @@
 
   async function planRoute() {
     stopAll();
+    arrivedText = '';
     routePolyline = [];
     routeDoorIds = [];
     routeLegs = [];
@@ -647,7 +670,8 @@
       return;
     }
     if (placeKey(start) === placeKey(end) && !vias.length) {
-      routeMessage = '起终点相同';
+      routeMessage = '起点和终点不能是同一个地方，请重新选终点';
+      say(routeMessage);
       return;
     }
     busy = true;
@@ -843,21 +867,16 @@
     <header class="nav-bar">
       <a class="back" href={libraryUrl} data-testid="back-to-projects" aria-label="返回项目列表"><span class="back-icon" aria-hidden="true">‹</span><span class="back-text">返回项目列表</span></a>
       <h1>导航</h1>
-      <label class="floor">
+      <div class="floor" role="group" aria-label="楼层">
         {#if (view?.floors?.length || 0) > 1}
-          <select
-            aria-label="楼层"
-            value={view?.floorId || ''}
-            onchange={(e) => showFloor((e.currentTarget as HTMLSelectElement).value)}
-          >
-            {#each view?.floors || [] as floor}
-              <option value={floor.id}>{floorOption(floor.name)}</option>
-            {/each}
-          </select>
+          {#each view?.floors || [] as floor}
+            <button type="button" class="floor-btn" class:on={floor.id === view?.floorId} aria-pressed={floor.id === view?.floorId}
+              title={floorOption(floor.name)} onclick={() => showFloor(floor.id)}>{floor.name}</button>
+          {/each}
         {:else}
           <span>{view?.floors?.[0]?.name || ''}</span>
         {/if}
-      </label>
+      </div>
       <div class="mode-switch" role="group" aria-label="视图">
         <button type="button" class:is-active={mode === '2d'} aria-pressed={mode === '2d'} onclick={() => { stopAll(); mode = '2d'; }}>平面 2D</button>
         <button type="button" class:is-active={mode === '3d'} aria-pressed={mode === '3d'} onclick={() => { mode = '3d'; }}>立体 3D</button>
@@ -881,6 +900,9 @@
         {/if}
         {#if transferNotice}
           <div class="transfer-notice" role="status">{transferNotice}</div>
+        {/if}
+        {#if arrivedText && walking}
+          <div class="transfer-notice arrived" role="status">{arrivedText}<small>按 Esc 或点「结束」退出第一人称</small></div>
         {/if}
       </div>
       <aside class="side" class:open={panelOpen}>
@@ -912,7 +934,11 @@
           </label>
           {#if multiFloor()}
             <label class="accessible">
-              <input type="checkbox" bind:checked={accessible} onchange={() => planRoute()} />
+              <input type="checkbox" bind:checked={accessible} onchange={() => {
+                // Route already rides the lift: nothing to change, just say so.
+                if (accessible && routeTransfers.length && routeTransfers.every((t) => t.kind !== 'stairs')) { routeMessage = '已是电梯路线'; say(routeMessage); return; }
+                void planRoute();
+              }} />
               只乘电梯（无障碍）
             </label>
           {/if}
@@ -921,9 +947,9 @@
           <button
             type="button"
             class="primary"
-            disabled={!routePolyline.length || busy}
-            onclick={() => {
-              if (!routePolyline.length) return;
+            disabled={!routeLegs.length || busy}
+            onclick={async () => {
+              if (!(await ensureRouteFloor())) return;
               mode = '3d';
               walking = false;
               simulating = true;
@@ -934,9 +960,9 @@
           >模拟导航</button>
           <button
             type="button"
-            disabled={!routePolyline.length || busy}
-            onclick={() => {
-              if (!routePolyline.length) return;
+            disabled={!routeLegs.length || busy}
+            onclick={async () => {
+              if (!(await ensureRouteFloor())) return;
               mode = '3d';
               simulating = false;
               walking = true;
@@ -1090,7 +1116,9 @@
   }
   .nav-bar h1 { margin: 0; font-size: 16px; font-weight: 600; }
   .back { color: #1a7af8; text-decoration: none; }
-  .floor { margin-left: auto; color: #333; }
+  .floor { margin-left: auto; margin-right: 12px; color: #333; display: flex; gap: 4px; overflow-x: auto; max-width: 60vw; scrollbar-width: none; }
+  .floor-btn { min-width: 44px; min-height: 36px; border: 1px solid #d0d5dd; background: #fff; border-radius: 6px; font: inherit; font-weight: 600; cursor: pointer; flex: none; }
+  .floor-btn.on { background: #1f2937; color: #fff; border-color: #1f2937; }
   .floor select { height: 32px; border: 1px solid #d9d9d9; background: #fff; padding: 0 8px; }
   .mode-switch { display: flex; border: 1px solid #d9d9d9; background: #f7f7f8; }
   .mode-switch button {
@@ -1137,6 +1165,8 @@
     background: #fff; border-top: 1px solid #e6e6e6;
   }
   .remove { border: 0; background: transparent; cursor: pointer; font-size: 16px; color: #888; }
+  .transfer-notice.arrived { background: #1f7a4d; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .transfer-notice.arrived small { font-size: 12px; opacity: .85; font-weight: 400; }
   .transfer-notice {
     position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 4;
     padding: 8px 16px; background: rgba(15, 61, 122, 0.92); color: #fff;
@@ -1172,7 +1202,7 @@
   .nolift { min-height: 44px; padding: 0 14px; border-radius: 8px; border: 0; background: #1f7cf2; color: #fff; font-weight: 600; }
   .panel-peek, .back-icon { display: none; }
   @media (max-width: 720px) {
-    .floor select, .side select { min-height: 44px; }
+    .floor-btn, .side select { min-height: 44px; }
     .stage { flex-direction: column; }
     .side { width: 100%; max-height: 52vh; border-left: 0; border-top: 1px solid #e6e6e6; }
     /* Collapsed: only the one-line instruction; 3D gets the screen. */

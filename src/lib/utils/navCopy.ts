@@ -111,7 +111,8 @@ export function transferText(t: TransferLike, box?: Box | null): string {
   const stairs = t.kind === 'stairs' || /楼梯/.test(t.kindLabel || t.name || '');
   const to = floorSpoken(t.toFloorName) || '下一层';
   const way = t.direction === 'up' ? '上到' : t.direction === 'down' ? '下到' : '到';
-  return `${stairs ? '走' : '乘'}${transferPlace(t, box)}${way} ${to}`;
+  const span = (t as { floors?: number }).floors;
+  return `${stairs ? '走' : '乘'}${transferPlace(t, box)}${way} ${to}${span && span >= 2 ? `（共 ${span} 层）` : ''}`;
 }
 
 export const pinText = {

@@ -17,3 +17,17 @@ describe('place search', () => {
   });
   it('common places first when empty', () => { expect(['c', 'd']).toContain(searchPlaces(L, '')[0].key); });
 });
+
+import { searchExample, commonRank } from '../src/lib/utils/placeSearch';
+it('normalises spaces/letters, hides unnamed rooms, building-specific hint', () => {
+  const list = indexPlaces([
+    { key: 'a', name: '病房 A', floorId: '3', floorLabel: '3F' },
+    { key: 'u', name: '未命名房间', floorId: '3', floorLabel: '3F' },
+    { key: 'e', name: '出入口', floorId: '1', floorLabel: '1F' },
+  ]);
+  expect(list.map(p => p.key)).toEqual(['a', 'e']);
+  expect(searchPlaces(list, '病房A').map(p => p.key)).toEqual(['a']);
+  expect(searchPlaces(list, 'bfa').map(p => p.key)).toEqual(['a']);
+  expect(searchExample(list)).toContain('病房 A');
+  expect(commonRank(list[1])).toBe(0);
+});

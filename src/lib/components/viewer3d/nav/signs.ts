@@ -109,16 +109,17 @@ export class NavSigns {
       const blade = new THREE.Mesh(this.box(64, 20, 2.5), faceMats(room.displayName || room.name));
       blade.position.copy(base).addScaledVector(along, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 38);
       // Low enough to stay in frame from eye height a few metres back, still above the door head.
-      blade.position.y = floorY + Math.max(d.height + 14, 222);
+      blade.position.y = floorY + Math.max(d.height + 10, 218);
       blade.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(n, new THREE.Vector3(0, 1, 0), along));
       const arm = new THREE.Mesh(this.box(42, 2, 2), bracketMat);
       arm.position.copy(base).addScaledVector(along, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 20);
       arm.position.y = blade.position.y + 11;
       arm.quaternion.copy(blade.quaternion);
       // Flat plate on the wall next to the door, at eye height.
-      const plate = new THREE.Mesh(this.box(58, 18, 1.6), faceMats(room.displayName || room.name));
-      plate.position.copy(base).addScaledVector(along, -(d.width / 2 + 42)).addScaledVector(n, d.wallThickness / 2 + 1.2);
-      plate.position.y = floorY + 168;
+      // Eye-height plate, large enough to read from the corridor centreline (~80 × 25 cm).
+      const plate = new THREE.Mesh(this.box(80, 25, 1.6), faceMats(room.displayName || room.name));
+      plate.position.copy(base).addScaledVector(along, -(d.width / 2 + 52)).addScaledVector(n, d.wallThickness / 2 + 1.2);
+      plate.position.y = floorY + 160;
       const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), n);
       plate.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(side, new THREE.Vector3(0, 1, 0), n));
       for (const m of [blade, arm, plate]) { m.userData.navDressing = true; this.group.add(m); }

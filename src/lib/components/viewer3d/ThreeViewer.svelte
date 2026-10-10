@@ -49,7 +49,7 @@
   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
   import { NavSigns, type SignDoor } from './nav/signs';
   import { NAV_FONT, navFontLoaded, navFontReady } from '$lib/utils/navFonts';
-  import { deptAccent } from '$lib/utils/deptAccent';
+  import { deptCategory, deptAccent } from '$lib/utils/deptAccent';
   import { hospitalFloorY } from '$lib/utils/hospitalMaterials';
   import { centerRoute, enclosedRooms, inside as layoutInside } from './nav/layout';
   import { pinText, mapLabels, nearRoute } from '$lib/utils/navCopy';
@@ -2069,6 +2069,34 @@
     markSceneDirty();
   }
 
+  /** Arrival framing: stand ~1.2 m before the destination door (on the route) looking through it
+   * at the destination, instead of staring at the room's back wall. Stays in first person. */
+  export function faceNavArrival() {
+    if (!navShell || !camera || !simRoute.length || simTotalLen <= 0) return;
+    const end = simRoute[simRoute.length - 1];
+    const door = navDoorLeaves.find(l => l.doorId === navDestDoorId);
+    let at = simTotalLen;
+    if (door) {
+      let best = Infinity;
+      for (let d = 0; d <= simTotalLen; d += 10) {
+        const p = pointOnRoute(d);
+        if (!p) continue;
+        const k = Math.hypot(p.x - door.center.x, p.y - door.center.y);
+        if (k < best) { best = k; at = d; }
+      }
+      at = Math.max(0, at - 120);
+    }
+    const pose = pointOnRoute(at);
+    if (!pose) return;
+    const target = door ? door.center : end;
+    const yaw = Math.hypot(target.x - pose.x, target.y - pose.y) > 10 ? Math.atan2(target.y - pose.y, target.x - pose.x) : (navWalkYaw ?? pose.yaw);
+    navWalkYaw = yaw;
+    setFloorCameraPose(camera, activeFloorElevation,
+      { x: pose.x, y: eyeHeight, z: pose.y },
+      { x: pose.x + Math.cos(yaw) * 80, y: eyeHeight - 3, z: pose.y + Math.sin(yaw) * 80 });
+    markSceneDirty();
+  }
+
   // ── Tap-to-walk (first person) ──────────────────────────────────────────────
   let tapWalk: { pts: { x: number; y: number }[]; lens: number[]; total: number; d: number; last: number; raf: number } | null = null;
 
@@ -2175,6 +2203,8 @@
     for (const k of [1, -1]) {
       const q = { x: x + n.x * 60 * k, y: y + n.y * 60 * k };
       const r = rooms.find(rr => layoutInside(q, rr.polygon));
+      // Lifts/stairs/toilets: neutral brushed-metal frame (accent colours are for departments).
+      if (r?.room.name && deptCategory(r.room.name) === 'circulation') return null;
       if (r?.room.name) return deptAccent(r.room.name);
     }
     return null;

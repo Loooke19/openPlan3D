@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { searchPlaces, isCommon, type IndexedPlace } from '$lib/utils/placeSearch';
+  import { searchPlaces, isCommon, commonRank, searchExample, type IndexedPlace } from '$lib/utils/placeSearch';
   let { value = $bindable(''), places, label, placeholder = '选择', onchange }: {
     value: string; places: IndexedPlace[]; label: string; placeholder?: string; onchange?: () => void;
   } = $props();
@@ -8,7 +8,8 @@
   let input: HTMLInputElement | undefined = $state();
   const current = $derived(places.find(p => p.key === value));
   const results = $derived(searchPlaces(places, q));
-  const common = $derived(q ? [] : results.filter(isCommon).slice(0, 8));
+  const common = $derived(q ? [] : [...results.filter(isCommon)].sort((a, b) => commonRank(a) - commonRank(b)).slice(0, 8));
+  const hint = $derived(searchExample(places));
   const groups = $derived.by(() => {
     const m = new Map<string, IndexedPlace[]>();
     for (const p of results) { if (!m.has(p.floorLabel)) m.set(p.floorLabel, []); m.get(p.floorLabel)!.push(p); }
@@ -27,7 +28,7 @@
   <div class="pp-backdrop" use:portal role="presentation" onclick={() => (open = false)}></div>
   <div class="pp-sheet" use:portal role="dialog" aria-label={label}>
     <div class="pp-head">
-      <input bind:this={input} bind:value={q} type="search" placeholder="搜索科室 / 拼音 / 首字母，如 kqb" aria-label="搜索地点" />
+      <input bind:this={input} bind:value={q} type="search" placeholder={hint} aria-label="搜索地点" />
       <button type="button" class="pp-close" onclick={() => (open = false)}>取消</button>
     </div>
     <div class="pp-list">
