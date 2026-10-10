@@ -22,7 +22,28 @@
   import { createProjectFromRoomPlan, extractRoomJsonFromZip, isRoomPlanJson } from '$lib/utils/roomplanImport';
   import SettingsDialog from './SettingsDialog.svelte';
   import AreaSummaryPanel from '$lib/components/sidebar/AreaSummaryPanel.svelte';
-  import { saveState, saveError, lastSavedAt, manualSave, autoSave, initAutoSave } from '$lib/stores/saveStatus';
+  import { saveState, saveError, lastSavedAt, manualSave, autoSave, initAutoSave, markClean } from '$lib/stores/saveStatus';
+  import { syncState, syncConflict, pushNow, bindServerSync, unbindServerSync, boundOrigin, timeOf } from '$lib/services/serverSync';
+  import { readProject } from '$lib/utils/projectValidation';
+  import { loadProject as loadIntoEditor } from '$lib/stores/project';
+
+  const syncLabels: Record<string, string> = {
+    pending: '等待写回工程文件…', syncing: '正在写回工程文件…', synced: '已写回工程文件', offline: '工程服务器连不上，稍后自动重试',
+  };
+
+  /** Conflict: replace the editor contents with the server copy (the user's own choice). */
+  async function useServerVersion() {
+    const conflict = get(syncConflict);
+    const origin = boundOrigin();
+    if (!conflict || !origin) return;
+    const server = readProject(structuredClone(conflict.server));
+    unbindServerSync();
+    loadIntoEditor(server);
+    markClean();
+    try { await autoSave(); } catch { /* stays in memory */ }
+    bindServerSync(server.id, origin, conflict.revision, () => get(currentProject), timeOf(get(currentProject)));
+  }
+
   import { initVersionHistory, stopVersionHistory, snapshotOnAction } from '$lib/stores/versionHistory';
   import VersionHistoryPanel from './VersionHistoryPanel.svelte';
 
@@ -630,10 +651,24 @@
     {/if}
     </span>
   </span>
+  {#if $syncState !== 'off' && $syncState !== 'conflict'}
+    <span class="text-xs text-white/60 max-xl:hidden" data-testid="sync-status">{syncLabels[$syncState]}</span>
+  {/if}
   <button onclick={save} class="px-3 py-1.5 max-xl:px-2.5 text-sm bg-white text-slate-800 font-semibold rounded-lg hover:bg-blue-50 transition-colors shadow-sm">
     {$t('saveControls.save')}
   </button>
 </div>
+
+{#if $syncState === 'conflict' && $syncConflict}
+  <div role="alert" data-testid="sync-conflict" class="flex flex-wrap items-center gap-3 bg-amber-50 border-b border-amber-200 px-4 py-3 text-sm text-amber-900">
+    <span class="flex-1 min-w-48">工程文件在别处被修改过（服务器版本 r{$syncConflict.revision}）。你的修改已保存在本机，还没有写回。请选择保留哪一份：</span>
+    <button class="font-semibold underline" onclick={() => pushNow(true)}>保留我的版本（覆盖服务器，旧版会备份）</button>
+    <button class="font-semibold underline" onclick={useServerVersion}>改用服务器版本</button>
+    <button class="font-semibold underline" onclick={onExportJSON}>下载我的版本</button>
+  </div>
+{:else if $syncState === 'offline'}
+  <div role="status" data-testid="sync-offline" class="bg-slate-50 border-b border-slate-200 px-4 py-2 text-xs text-slate-600">{syncLabels.offline}（修改已保存在本机）</div>
+{/if}
 
 {#if $saveError}
   <div role="alert" class="flex flex-wrap items-center gap-3 bg-red-50 border-b border-red-200 px-4 py-3 text-sm text-red-900">

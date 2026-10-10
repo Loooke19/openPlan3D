@@ -3,6 +3,7 @@ import { currentProject, loadProject } from './project';
 import { localStore, storageErrorMessage, ProjectConflictError, PROJECTS_STORAGE_KEY, LIBRARY_CHANGE_KEY } from '$lib/services/datastore';
 import { saveSnapshot } from '$lib/stores/versionHistory';
 import type { Project } from '$lib/models/types';
+import { scheduleServerSync, boundProjectId } from '$lib/services/serverSync';
 
 export type SaveState = 'saved' | 'unsaved' | 'saving';
 
@@ -143,6 +144,8 @@ async function persist(manual: boolean): Promise<boolean> {
       saveConflict.set(false);
       lastSavedAt.set(new Date());
     }
+    // Local copy is safe; now write it back to the import server (debounced, conflict-checked).
+    if (boundProjectId() === p.id) scheduleServerSync(manual ? 0 : undefined);
     return true;
   } catch (e) {
     if (attempt === saveAttempt && get(currentProject) === p) {

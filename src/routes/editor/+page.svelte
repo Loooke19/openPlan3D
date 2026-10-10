@@ -15,6 +15,8 @@
   import { createProjectFromRoomPlan, isRoomPlanJson } from '$lib/utils/roomplanImport';
   import { readProject } from '$lib/utils/projectValidation';
   import { rememberImportOrigin, projectImportOrigin } from '$lib/utils/importOrigin';
+  import { reconcile, readRecord as readServerRecord, bindServerSync, scheduleServerSync, syncConflict, syncState, revisionOf, timeOf, unbindServerSync, boundProjectId } from '$lib/services/serverSync';
+  import type { Project } from '$lib/models/types';
   import TopBar from '$lib/components/toolbar/TopBar.svelte';
   import BuildPanel from '$lib/components/sidebar/BuildPanel.svelte';
   import PropertiesPanel from '$lib/components/sidebar/PropertiesPanel.svelte';
@@ -158,21 +160,12 @@
         const response = await fetch(projectUrl);
         if (!response.ok) throw new Error(`project ${response.status}`);
         const remote = readProject(await response.json());
-        // Re-opening the same file card used to load the server copy without telling the local
-        // store which revision this tab holds, so the first save hit ProjectConflictError
-        // ("另存为副本 / 下载 JSON 备份"). Read the stored copy first (registers its revision),
-        // then keep whichever is newer: local edits are never written back to the import API.
-        const local = await localStore.load(remote.id).catch(() => null);
-        const time = (p: { updatedAt?: unknown } | null) => (p?.updatedAt ? new Date(p.updatedAt as any).getTime() || 0 : 0);
-        const project = local && time(local) >= time(remote) ? local : remote;
-        loadProject(project);
-        markClean();
-        if (project === remote) {
-          try { await autoSave(); } catch { /* quota or storage; project stays in memory */ }
-        }
-        rememberImportOrigin(projectUrl, project.id);
         const origin = new URL(projectUrl, window.location.href).origin;
-        // Keep the owning import service in the URL so reloads / 导入图纸 never fall back to another stack.
+        // Read the stored copy first (registers its revision, so the first save is not a false
+        // conflict), then reconcile with the server by revision / last sync.
+        const local = await localStore.load(remote.id).catch(() => null);
+        const project = await openWithServer(local, remote, origin);
+        rememberImportOrigin(projectUrl, project.id);
         replaceState(`${base}/editor?id=${encodeURIComponent(project.id)}&apiOrigin=${encodeURIComponent(origin)}`, page.state);
         ready = true;
         return;
@@ -184,9 +177,16 @@
         const pending = get(currentProject);
         if (pending?.id === id && get(saveState) !== 'saved') { ready = true; return; }
         const project = await localStore.load(id);
-        if (project) {
+        const owner = url.searchParams.get('apiOrigin') || projectImportOrigin(id);
+        const remote = owner ? await fetch(`${owner.replace(/\/$/, '')}/api/projects/${encodeURIComponent(id)}.json`)
+          .then(r => (r.ok ? r.json() : null)).then(j => (j ? readProject(j) : null)).catch(() => null) : null;
+        if (remote && owner) {
+          await openWithServer(project, remote, new URL(owner).origin);
+        } else if (project) {
           loadProject(project);
           markClean();
+          // Server unreachable: keep editing locally; bind so saves retry write-back later.
+          if (owner) { const r = readServerRecord(id); if (r) bindServerSync(id, r.origin, r.revision, () => get(currentProject)); }
         } else {
           const p = createDefaultProject();
           loadProject(p);
@@ -205,12 +205,37 @@
     }
   }
 
+
+  /** Load the newer of local/server, bind write-back, and surface a conflict instead of overwriting. */
+  async function openWithServer(local: Project | null, remote: Project, origin: string): Promise<Project> {
+    const decision = reconcile(local, remote, readServerRecord(remote.id));
+    const project = decision.use === 'local' && local ? local : remote;
+    loadProject(project);
+    markClean();
+    unbindServerSync();
+    if (decision.use === 'remote') {
+      // Store the server copy locally before binding, so this save does not echo back to the server.
+      try { await autoSave(); } catch { /* quota or storage; project stays in memory */ }
+    }
+    bindServerSync(project.id, origin, decision.base, () => get(currentProject),
+      decision.use === 'remote' ? timeOf(get(currentProject)) : undefined);
+    if (decision.conflict) {
+      syncConflict.set({ projectId: project.id, revision: revisionOf(remote), server: remote });
+      syncState.set('conflict');
+    } else if (decision.push) {
+      scheduleServerSync(0);
+    }
+    return project;
+  }
+
+
   onMount(() => {
     void initializeEditor();
     // Imports can replace the active project from either sidebar or toolbar.
     // Keep reloads pointed at that project once initial route loading is complete.
     const stopSyncProjectUrl = currentProject.subscribe((project) => {
       if (!ready || !project) return;
+      if (boundProjectId() && boundProjectId() !== project.id) unbindServerSync();
       const url = new URL(window.location.href);
       if (url.searchParams.get('id') === project.id) return;
       url.searchParams.delete('import');
