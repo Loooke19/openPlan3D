@@ -15,6 +15,8 @@
     return [...m.entries()];
   });
   function pick(p: IndexedPlace) { value = p.key; open = false; q = ''; onchange?.(); }
+  // Render the sheet on <body>: the side panel is its own stacking context (3D toolbar showed through).
+  function portal(node: HTMLElement) { document.body.appendChild(node); return { destroy() { node.remove(); } }; }
   function show() { open = true; setTimeout(() => input?.focus(), 30); }
 </script>
 
@@ -22,8 +24,8 @@
   {current ? `${current.floorLabel} · ${current.name}` : placeholder}
 </button>
 {#if open}
-  <div class="pp-backdrop" role="presentation" onclick={() => (open = false)}></div>
-  <div class="pp-sheet" role="dialog" aria-label={label}>
+  <div class="pp-backdrop" use:portal role="presentation" onclick={() => (open = false)}></div>
+  <div class="pp-sheet" use:portal role="dialog" aria-label={label}>
     <div class="pp-head">
       <input bind:this={input} bind:value={q} type="search" placeholder="搜索科室 / 拼音 / 首字母，如 kqb" aria-label="搜索地点" />
       <button type="button" class="pp-close" onclick={() => (open = false)}>取消</button>
@@ -50,8 +52,8 @@
 
 <style>
   .pp-field { flex: 1; min-width: 0; min-height: 44px; text-align: left; padding: 6px 10px; border: 1px solid #ccd; border-radius: 6px; background: #fff; font: inherit; white-space: normal; word-break: break-all; line-height: 1.3; }
-  .pp-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 90; }
-  .pp-sheet { position: fixed; z-index: 91; left: 50%; top: 10vh; transform: translateX(-50%); width: min(460px, 92vw); max-height: 76vh; display: flex; flex-direction: column; background: #fff; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+  .pp-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 9990; }
+  .pp-sheet { position: fixed; z-index: 9991; left: 50%; top: 10vh; transform: translateX(-50%); width: min(460px, 92vw); max-height: 76vh; display: flex; flex-direction: column; background: #fff; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
   .pp-head { display: flex; gap: 8px; padding: 10px; border-bottom: 1px solid #eee; }
   .pp-head input { flex: 1; min-height: 44px; font-size: 16px; padding: 0 10px; border: 1px solid #ccd; border-radius: 8px; }
   .pp-close { min-height: 44px; padding: 0 12px; border: 0; background: none; color: #1f7cf2; font-size: 15px; }

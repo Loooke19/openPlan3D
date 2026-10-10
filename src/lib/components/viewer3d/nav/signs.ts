@@ -50,10 +50,20 @@ function signTexture(name: string) {
   g.fillStyle = '#0e5f58'; g.beginPath(); g.roundRect(0, 0, 768, 240, 26); g.fill();
   g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 6; g.beginPath(); g.roundRect(10, 10, 748, 220, 20); g.stroke();
   drawIcon(g, name, 36, 40, 160);
-  let size = 118;
   g.fillStyle = '#ffffff'; g.textBaseline = 'middle'; g.textAlign = 'left';
-  do { g.font = `800 ${size}px ${NAV_FONT}`; size -= 6; } while (g.measureText(name).width > 520 && size > 50);
-  g.fillText(name, 222, 126);
+  const fit = (text: string, max: number, from: number) => {
+    let size = from;
+    do { g.font = `800 ${size}px ${NAV_FONT}`; size -= 4; } while (g.measureText(text).width > 520 && size > max);
+    return g.measureText(text).width <= 520;
+  };
+  // Long department names (狂犬病暴露预防处置门诊) wrap onto two lines rather than shrinking to dust.
+  if (fit(name, 78, 118)) g.fillText(name, 222, 126);
+  else {
+    const cut = Math.ceil(name.length / 2);
+    const [l1, l2] = [name.slice(0, cut), name.slice(cut)];
+    fit(l1.length >= l2.length ? l1 : l2, 40, 84);
+    g.fillText(l1, 222, 80); g.fillText(l2, 222, 168);
+  }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
