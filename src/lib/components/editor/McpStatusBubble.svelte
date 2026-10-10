@@ -145,7 +145,7 @@
     } catch {
       status = 'offline';
       linked = false;
-      backoff = Math.min(30_000, backoff ? backoff * 2 : 2000);
+      backoff = Math.min(60_000, backoff ? backoff * 2 : 2000);
       retryAt = performance.now() + backoff;
     } finally {
       busy = false;
@@ -193,7 +193,9 @@
     configText = JSON.stringify(shown.mcpJson, null, 2);
     // The MCP bridge is optional: don't probe (and fill the console with connection-refused
     // errors) until the user has opened this bubble once; remembered per browser.
-    probing = localStorage.getItem(PROBE_KEY) === '1';
+    // Auto-probe again (the MCP needs the page to announce itself), but with back-off
+    // 2 s → 60 s while the bridge is down, so an absent bridge costs ~1 request a minute.
+    probing = localStorage.getItem(PROBE_KEY) !== '0';
     if (probing) void tick();
     const timer = setInterval(() => { if (probing) void tick(); }, 800);
     window.addEventListener('click', onWindowClick);

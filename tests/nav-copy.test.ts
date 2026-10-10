@@ -88,5 +88,8 @@ describe('orientation from the north arrow', () => {
     expect([out.get('a'), out.get('b')]).toEqual(['楼梯 A', '楼梯 B']);
     expect(mapLabels([{ name: '楼梯', polygon: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] }, { name: '楼梯', polygon: [{ x: 2900, y: 0 }, { x: 3000, y: 0 }, { x: 3000, y: 10 }] }])).toEqual(['楼梯 A', '楼梯 B']);
     expect(transferText({ kind: 'stairs', from: { x: 2800, y: 500 }, direction: 'up', toFloorName: '2F' }, box)).toBe('走楼梯上到 2楼');
+    const one = disambiguate([{ id: 'e', name: '电梯', floorId: 'f', x: 5, y: 5 }], { f: box });
+    expect(one.get('e')).toBe('电梯 A');
+    expect(mapLabels([{ name: '电梯', polygon: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] }])).toEqual(['电梯 A']);
   });
 });

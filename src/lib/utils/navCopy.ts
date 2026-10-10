@@ -56,6 +56,8 @@ function tagged(name: string, side: string, letter = '') {
   return `${name}（${side}${letter}）`;
 }
 
+const VERTICAL = /^(楼梯|电梯|扶梯)$/;
+
 export type NamedPlace = { id: string; name: string; floorId: string; x: number; y: number };
 
 /**
@@ -70,7 +72,9 @@ export function disambiguate(places: NamedPlace[], boxes: Record<string, Box | u
     groups.set(k, [...(groups.get(k) || []), p]);
   }
   for (const group of groups.values()) {
-    if (group.length === 1) { out.set(group[0].id, group[0].name); continue; }
+    // Without a north arrow, stairs/lifts are always lettered (「电梯 A」 even when alone) so the
+    // map, picker and steps name them the same way on every floor.
+    if (group.length === 1) { out.set(group[0].id, northBearing === null && VERTICAL.test(group[0].name) ? `${group[0].name} A` : group[0].name); continue; }
     const box = boxes[group[0].floorId];
     const sides = group.map(p => (box ? sideOf(p, box) : '中'));
     const unique = box && new Set(sides).size === group.length && !sides.includes('中') && !sides.includes('');
@@ -134,7 +138,8 @@ export function mapLabels(rooms: { name?: string | null; polygon: Pt[] }[]): str
   for (const n of names) if (n) count.set(n, (count.get(n) ?? 0) + 1);
   const bySide = new Map<string, number[]>();
   names.forEach((n, i) => {
-    if (!n || (count.get(n) ?? 0) < 2 || rooms[i].polygon.length < 3) return;
+    if (!n || rooms[i].polygon.length < 3) return;
+    if ((count.get(n) ?? 0) < 2) { if (northBearing === null && VERTICAL.test(n)) out[i] = `${n} A`; return; }
     const key = `${n}\u0000${sideOf(centre(rooms[i].polygon), box)}`;
     bySide.set(key, [...(bySide.get(key) ?? []), i]);
   });
