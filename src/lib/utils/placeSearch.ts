@@ -1,6 +1,6 @@
 import { pinyin } from 'pinyin-pro';
 
-export type SearchPlace = { key: string; name: string; originalName?: string; aliases?: string[]; floorId: string; floorLabel: string; category?: string };
+export type SearchPlace = { key: string; name: string; originalName?: string; aliases?: string[]; floorId: string; floorLabel: string; category?: string; x?: number; y?: number };
 export type IndexedPlace = SearchPlace & { haystack: string[] };
 
 // 常用, in this order: entrance, 导医台, 药房/收费, 卫生间, 电梯.
@@ -41,4 +41,42 @@ export function searchExample(list: IndexedPlace[]): string {
   const p = list.find(x => !isCommon(x) && x.name.replace(/\s/g, '').length >= 3) || list[0];
   if (!p) return '搜索科室 / 拼音 / 首字母';
   return `搜索科室 / 拼音 / 首字母，如 ${pinyinKeys(p.name)[1]}（${p.name}）`;
+}
+
+// ── Toilets: gendered labels, nearest-first ─────────────────────────────────
+export type ToiletKind = 'female' | 'male' | 'accessible' | 'any';
+export function toiletKind(name: string): ToiletKind | null {
+  if (/残卫|无障碍/.test(name)) return 'accessible';
+  if (/女卫|女厕|女卫生间/.test(name)) return 'female';
+  if (/男卫|男厕|男卫生间/.test(name)) return 'male';
+  if (/卫生间|厕所|^卫$|洗手间/.test(name)) return 'any';
+  return null;
+}
+export function toiletLabel(kind: ToiletKind) {
+  return kind === 'accessible' ? '无障碍卫生间' : kind === 'female' ? '卫生间（女）' : kind === 'male' ? '卫生间（男）' : '卫生间';
+}
+/** 「1楼」/「1F（1楼）」 → 「1F」: the short form that keeps a toilet row on one line at 390 px. */
+export function floorShort(label: string) {
+  const m = label.match(/(B?\d+)\s*F/i) || label.match(/(地下)?(\d+)楼/);
+  if (!m) return label;
+  return m[0].includes('楼') ? `${m[1] ? 'B' : ''}${m[2]}F` : m[0].toUpperCase().replace(/\s/g, '');
+}
+export type Origin = { x: number; y: number; floorId: string } | null;
+/** Rough walking metres: straight line ×1.3 on a floor, plus ~25 m per floor change. */
+export function roughMetres(p: { x?: number; y?: number; floorId: string }, from: Origin, floorIndex: (id: string) => number) {
+  if (!from || p.x === undefined || p.y === undefined) return null;
+  const flat = Math.hypot(p.x - from.x, p.y - from.y) * 1.3 / 100;
+  const floors = Math.abs(floorIndex(p.floorId) - floorIndex(from.floorId));
+  return Math.round(flat + floors * 25);
+}
+/** Toilets sorted by distance (same floor first); accessible ones first when 只乘电梯. */
+export function nearestToilets<T extends { name: string; floorId: string; x?: number; y?: number }>(
+  list: T[], from: Origin, floorIndex: (id: string) => number, accessible = false,
+) {
+  return list
+    .map(p => ({ p, kind: toiletKind(p.name), m: roughMetres(p, from, floorIndex) }))
+    .filter((t): t is { p: T; kind: ToiletKind; m: number | null } => !!t.kind)
+    .sort((a, b) => (accessible ? Number(b.kind === 'accessible') - Number(a.kind === 'accessible') : 0)
+      || Number(a.p.floorId !== from?.floorId) - Number(b.p.floorId !== from?.floorId)
+      || (a.m ?? 1e9) - (b.m ?? 1e9));
 }

@@ -243,18 +243,36 @@
     Object.fromEntries((view?.floors || []).map((f) => [f.id, view?.bounds])),
   ));
 
-  const pickerPlaces = $derived(indexPlaces(allPlaces().map(p => {
+  const pickerPlaces = $derived(indexPlaces(allPlaces().filter(p => !(p as { ensuite?: boolean }).ensuite).map(p => {
     const k = placeKey(p); const full = placeLabel(p); const i = full.indexOf(' · ');
     return { key: k, name: i >= 0 ? full.slice(i + 3) : full, originalName: p.originalName, aliases: p.aliases,
-      floorId: p.floorId || '', floorLabel: i >= 0 ? full.slice(0, i) : '' };
+      floorId: p.floorId || '', floorLabel: i >= 0 ? full.slice(0, i) : '', x: p.x, y: p.y };
   })));
+  // Where 「最近的卫生间」 measures from: the chosen start, else the first-person position.
+  const pickerOrigin = $derived.by(() => {
+    const s0 = placeByKey(startId);
+    if (s0) return { x: s0.x, y: s0.y, floorId: s0.floorId || view?.floorId || '' };
+    const w = walking ? viewer?.getWalkPosition?.() : null;
+    return w && view ? { ...w, floorId: view.floorId } : null;
+  });
+  /** Data-driven: any elevator among this building's places. */
+  const hasLift = () => allPlaces().some((p) => /电梯/.test(p.name || ''));
+  const floorIndex = (id: string) => (view?.floors || []).findIndex((f) => f.id === id);
 
   /** The stair/lift a transfer uses, under the same display name as the dropdown (「楼梯（东）」). */
-  function withDisplay<T extends { from?: { x: number; y: number }; fromFloorId?: string; toFloorId?: string; kind?: string; kindLabel?: string }>(t: T): T & { display?: string; floors?: number } {
+  function withDisplay<T extends { from?: { x: number; y: number }; fromFloorId?: string; toFloorId?: string; kind?: string; kindLabel?: string }>(t: T): T & { display?: string; floors?: number; landmark?: string } {
     const ids = (view?.floors || []).map((f) => f.id);
     const span = t.fromFloorId && t.toFloorId ? Math.abs(ids.indexOf(t.toFloorId) - ids.indexOf(t.fromFloorId)) : 0;
     if (span >= 2) t = { ...t, floors: span };
     if (!t.from) return t;
+    // Landmark: the nearest named, non-circulation place within 8 m (「护士站旁」).
+    let mark = '', markD = 800;
+    for (const p of allPlaces()) {
+      if ((t.fromFloorId && p.floorId !== t.fromFloorId) || !p.name || /楼梯|电梯|未命名|^房间\s*\d+$|过道|走廊|空调|管道/.test(p.name)) continue;
+      const d = Math.hypot(p.x - t.from.x, p.y - t.from.y);
+      if (d < markD) { markD = d; mark = displayNames.get(placeKey(p)) || p.name; }
+    }
+    if (mark) t = { ...t, landmark: mark };
     const stairs = t.kind === 'stairs' || /楼梯/.test(t.kindLabel || '');
     let best: Place | null = null, bestD = 450;
     for (const p of allPlaces()) {
@@ -466,45 +484,49 @@
         }
       }
     }
-    for (const place of filteredPlaces()) {
-      if ((place.floorId || view.floorId) !== view.floorId) continue;
+    // Labels scale with the plan (a room is often < 40 px wide on a phone) and are decluttered:
+    // start/end and 常用 first, then the rest, skipping any label that would overlap one placed.
+    const fontPx = Math.max(11, Math.min(18, scale * 120));
+    const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    const hits = (b: { x0: number; y0: number; x1: number; y1: number }) => placed.some(o => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0);
+    const ends = new Set([startId, endId]);
+    const cands = filteredPlaces()
+      .filter(place => (place.floorId || view.floorId) === view.floorId)
+      .filter(place => place.name && !/^(未命名|房间\s*\d+$)/.test(place.name))
+      .map(place => ({ place, pri: ends.has(placeKey(place)) ? 0 : /入口|门厅|导医|药房|收费|卫生间|电梯|楼梯/.test(place.name || '') ? 1 : 2 }))
+      .sort((a, b) => a.pri - b.pri);
+    ctx.font = `600 ${fontPx}px "Nav Sans SC", "Noto Sans SC", system-ui, sans-serif`;
+    for (const { place, pri } of cands) {
       const [x, y] = toScreen(place.x, place.y);
       const meta = roomLabelMeta(place);
       if (meta.style === 'hidden') continue;
-      const placeName = place.name || place.id;
-      if (meta.style === 'mapPoi' || meta.style === 'mapPoiSoft') {
-        drawMapRoomLabel(ctx, {
-          name: placeName,
-          style: meta.style,
-          icon: meta.icon,
-          iconColor: meta.iconColor || place.color,
-          textColor: meta.textColor || '#000000',
-          fontSize: 28,
-          strokeWidth: 1.5,
-          iconRadius: 10,
-          align: 'left',
-          x: x - 4,
-          y,
-        });
-      } else {
-        ctx.fillStyle = place.color || '#dce8df';
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(x, y, 5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-        drawMapRoomLabel(ctx, {
-          name: placeName,
-          style: 'stroke',
-          textColor: '#000000',
-          fontSize: 28,
-          strokeWidth: 1.5,
-          align: 'left',
-          x: x + 8,
-          y,
-        });
+      const placeName = displayNames.get(placeKey(place)) || place.name || place.id;
+      const w = ctx.measureText(placeName).width;
+      const box = { x0: x - 6, y0: y - fontPx * 0.7, x1: x + 10 + w, y1: y + fontPx * 0.7 };
+      if (pri > 0 && hits(box)) {
+        // No room for the text: keep a small dot so the place is still visible.
+        ctx.fillStyle = place.color || '#9aa4a0';
+        ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+        continue;
       }
+      placed.push(box);
+      ctx.fillStyle = place.color || '#dce8df';
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      drawMapRoomLabel(ctx, {
+        name: placeName,
+        style: 'stroke',
+        textColor: '#000000',
+        fontSize: fontPx,
+        strokeWidth: 1.5,
+        align: 'left',
+        x: x + 7,
+        y,
+      });
     }
     for (const transfer of routeTransfers) {
       const ends = [
@@ -940,16 +962,17 @@
             onclick={() => { if (waypoints.length < MAX_VIA) waypoints = [...waypoints, '']; }}
           >＋ 途经点</button>
           <label class="route-stop"><span class="dot end-dot"></span>到
-            <PlacePicker bind:value={endId} places={pickerPlaces} label="终点" onchange={() => planRoute()} />
+            <PlacePicker bind:value={endId} places={pickerPlaces} label="终点" origin={pickerOrigin} {floorIndex} {accessible} hasLift={hasLift()} onchange={() => planRoute()} />
           </label>
           {#if multiFloor()}
-            <label class="accessible">
-              <input type="checkbox" bind:checked={accessible} onchange={() => {
+            <label class="accessible" class:off={!hasLift()}>
+              <input type="checkbox" bind:checked={accessible} disabled={!hasLift()} onchange={() => {
                 // Route already rides the lift: nothing to change, just say so.
                 if (accessible && routeTransfers.length && routeTransfers.every((t) => t.kind !== 'stairs')) { routeMessage = '已是电梯路线'; say(routeMessage); return; }
                 void planRoute();
               }} />
               只乘电梯（无障碍）
+            {#if !hasLift()}<span class="nolift-note">本楼无电梯，可联系导医台协助</span>{/if}
             </label>
           {/if}
         </div>
@@ -1219,6 +1242,8 @@
   .nolift { min-height: 44px; padding: 0 14px; border-radius: 8px; border: 0; background: #1f7cf2; color: #fff; font-weight: 600; }
   .panel-peek, .back-icon { display: none; }
   .fp-touch-hint, .fp-exit { display: none; }
+  .accessible.off { color: #888; }
+  .nolift-note { display: block; margin-left: 24px; font-size: 13px; color: #8a4b00; }
   .route-tools { display: flex; gap: 8px; }
   .route-tools button { flex: 1; min-height: 44px; border: 1px solid #ccd; border-radius: 8px; background: #fff; font: inherit; }
   @media (max-width: 720px), (pointer: coarse) {

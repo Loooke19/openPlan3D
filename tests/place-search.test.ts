@@ -31,3 +31,23 @@ it('normalises spaces/letters, hides unnamed rooms, building-specific hint', () 
   expect(searchExample(list)).toContain('病房 A');
   expect(commonRank(list[1])).toBe(0);
 });
+
+import { nearestToilets, toiletKind, toiletLabel, floorShort } from '../src/lib/utils/placeSearch';
+describe('toilets', () => {
+  it('labels gender, sorts nearest (same floor first), prefers accessible when asked', () => {
+    expect(toiletLabel(toiletKind('女卫')!)).toBe('卫生间（女）');
+    expect(toiletLabel(toiletKind('残卫')!)).toBe('无障碍卫生间');
+    expect(floorShort('1楼')).toBe('1F');
+    const L = [
+      { name: '男卫', floorId: 'f1', x: 3000, y: 0 },
+      { name: '女卫', floorId: 'f1', x: 1000, y: 0 },
+      { name: '残卫', floorId: 'f1', x: 2000, y: 0 },
+      { name: '女卫', floorId: 'f2', x: 0, y: 0 },
+      { name: '诊室', floorId: 'f1', x: 0, y: 0 },
+    ];
+    const idx = (id: string) => (id === 'f1' ? 0 : 1);
+    const from = { x: 0, y: 0, floorId: 'f1' };
+    expect(nearestToilets(L, from, idx).map(t => t.p.name)).toEqual(['女卫', '残卫', '男卫', '女卫']);
+    expect(nearestToilets(L, from, idx, true)[0].p.name).toBe('残卫');
+  });
+});

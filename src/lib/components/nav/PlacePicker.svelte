@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { searchPlaces, isCommon, commonRank, searchExample, type IndexedPlace } from '$lib/utils/placeSearch';
-  let { value = $bindable(''), places, label, placeholder = '选择', onchange }: {
+  import { searchPlaces, isCommon, commonRank, searchExample, nearestToilets, toiletLabel, floorShort, type IndexedPlace, type Origin } from '$lib/utils/placeSearch';
+  let { value = $bindable(''), places, label, placeholder = '选择', onchange, origin = null, floorIndex = () => 0, accessible = false, hasLift = true }: {
     value: string; places: IndexedPlace[]; label: string; placeholder?: string; onchange?: () => void;
+    origin?: Origin; floorIndex?: (id: string) => number; accessible?: boolean; hasLift?: boolean;
   } = $props();
   let open = $state(false);
   let q = $state('');
@@ -10,6 +11,15 @@
   const results = $derived(searchPlaces(places, q));
   const common = $derived(q ? [] : [...results.filter(isCommon)].sort((a, b) => commonRank(a) - commonRank(b)).slice(0, 8));
   const hint = $derived(searchExample(places));
+  // Toilets: nearest first, one-line label 「卫生间（女）· 1F · 约 20 米」 (en-suites never listed).
+  // 只乘电梯 without a lift: toilets on other floors are unreachable — never recommend them.
+  const toilets = $derived(nearestToilets(results, origin, floorIndex, accessible)
+    .filter(t => !(accessible && !hasLift && origin && t.p.floorId !== origin.floorId)));
+  const accessibleFloors = $derived([...new Set(nearestToilets(places, null, floorIndex).filter(t => t.kind === 'accessible').map(t => floorShort(t.p.floorLabel)))]);
+  const accessibleNote = $derived(accessible && origin && !toilets.some(t => t.kind === 'accessible')
+    ? (accessibleFloors.length ? `本楼仅 ${accessibleFloors.join('、').replace(/(\d+)F/g, '$1 楼')} 设有无障碍卫生间` : '本楼没有无障碍卫生间') : '');
+  const toiletRow = (t: (typeof toilets)[number]) => `${toiletLabel(t.kind)} · ${floorShort(t.p.floorLabel)}${t.m !== null ? ` · 约 ${t.m} 米` : ''}`;
+  const showToilets = $derived(!q || /卫|厕|洗手|wc|wsj|cs/i.test(q));
   const groups = $derived.by(() => {
     const m = new Map<string, IndexedPlace[]>();
     for (const p of results) { if (!m.has(p.floorLabel)) m.set(p.floorLabel, []); m.get(p.floorLabel)!.push(p); }
@@ -35,6 +45,18 @@
       <button type="button" class="pp-close" onclick={() => (open = false)}>取消</button>
     </div>
     <div class="pp-list">
+      {#if accessibleNote && !q}<p class="pp-note">{accessibleNote}</p>{/if}
+      {#if toilets.length && !q}
+        <button type="button" class="pp-nearest" onpointerdown={keepFocus} onclick={() => pick(toilets[0].p)}>
+          最近的{accessible && toilets[0].kind === 'accessible' ? '无障碍' : ''}卫生间<small>{toiletRow(toilets[0])}</small>
+        </button>
+      {/if}
+      {#if toilets.length && showToilets && q}
+        <div class="pp-group">卫生间（由近到远）</div>
+        {#each toilets.slice(0, 8) as t (t.p.key + 't')}
+          <button type="button" class="pp-item pp-toilet" onpointerdown={keepFocus} onclick={() => pick(t.p)}><span>{toiletRow(t)}</span></button>
+        {/each}
+      {/if}
       {#if common.length}
         <div class="pp-group">常用</div>
         {#each common as p (p.key + 'c')}
@@ -56,6 +78,10 @@
 
 <style>
   .pp-field { flex: 1; min-width: 0; min-height: 44px; text-align: left; padding: 6px 10px; border: 1px solid #ccd; border-radius: 6px; background: #fff; font: inherit; white-space: normal; word-break: break-all; line-height: 1.3; }
+  .pp-nearest { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 8px 12px; padding: 12px 14px; min-height: 56px; border: 0; border-radius: 10px; background: #1f7a4d; color: #fff; font: inherit; font-size: 17px; font-weight: 700; text-align: left; }
+  .pp-nearest small { font-size: 13px; font-weight: 400; opacity: .9; }
+  .pp-toilet span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pp-note { margin: 8px 12px 0; padding: 8px 10px; border-radius: 8px; background: #fff4e5; color: #8a4b00; font-size: 14px; }
   .pp-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 9990; }
   .pp-sheet { position: fixed; z-index: 9991; left: 50%; top: 10vh; transform: translateX(-50%); width: min(460px, 92vw); max-height: 76vh; display: flex; flex-direction: column; background: #fff; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
   .pp-head { display: flex; gap: 8px; padding: 10px; border-bottom: 1px solid #eee; }

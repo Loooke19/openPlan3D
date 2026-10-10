@@ -1360,6 +1360,7 @@
     navStack.group.removeFromParent();
     navStack = null;
     navStackFrame = null;
+    if (controls) controls.maxPolarAngle = Math.PI / 2.05;
     markSceneDirty();
   }
 
@@ -1493,6 +1494,9 @@
       markSceneDirty();
     };
     navStackFrame();
+    // Exploded floors sit up-and-behind each other: below ~50° elevation the upper slab covers
+    // the lower floor, so keep the orbit high while the stack is shown.
+    controls.maxPolarAngle = THREE.MathUtils.degToRad(52);
   }
 
   /** Re-frames the stacked view when the canvas changes shape (e.g. the phone panel collapses). */
@@ -2068,6 +2072,22 @@
       { x: pose.x, y: eyeHeight + bob, z: pose.y },
       // Near-level gaze: blade signs above doors stay in frame; the floor route still fills the lower half.
       { x: lookX, y: eyeHeight - 3 + bob * 0.5, z: lookY });
+    markSceneDirty();
+  }
+
+  /** 「回到路线」: overview camera framing the current route leg (oblique, whole route in view). */
+  export function frameNavRoute() {
+    if (!camera || !controls || simRoute.length < 2) return;
+    if (walkthroughMode) exitWalkthroughMode();
+    if (navStackFrame) { navStackFrame(); return; }
+    const xs = simRoute.map(p => p.x), ys = simRoute.map(p => p.y);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cz = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const span = Math.max(600, Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    const dist = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.35 / Math.min(1, camera.aspect);
+    const target = new THREE.Vector3(cx, activeFloorElevation, cz);
+    camera.position.copy(target).addScaledVector(new THREE.Vector3(0.35, 0.8, 0.5).normalize(), dist);
+    controls.target.copy(target);
+    controls.update();
     markSceneDirty();
   }
 

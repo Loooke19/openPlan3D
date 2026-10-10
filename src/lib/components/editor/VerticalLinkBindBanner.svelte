@@ -8,13 +8,13 @@
     setActiveFloor,
     detectedRoomsStore,
   } from '$lib/stores/project';
-  import { verticalBindSession, verticalBindMessage } from '$lib/stores/verticalLinkBind';
+  import { verticalBindSession, verticalBindMessage, type VerticalBindSession } from '$lib/stores/verticalLinkBind';
   import { bindAdjacentVerticalLink, editorProjectApi } from '$lib/utils/verticalLinksApi';
   import { verticalKindLabel } from '$lib/utils/verticalFacility';
   import { resolveRooms, getRoomPolygon, roomCentroid } from '$lib/utils/roomDetection';
   import type { Floor } from '$lib/models/types';
 
-  let session = $state<ReturnType<typeof get<typeof verticalBindSession>>>(null);
+  let session = $state<VerticalBindSession | null>(null);
   let message = $state('');
   let busy = $state(false);
   let floor = $state<Floor | null>(null);

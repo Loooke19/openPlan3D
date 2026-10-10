@@ -93,3 +93,11 @@ describe('orientation from the north arrow', () => {
     expect(mapLabels([{ name: '电梯', polygon: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] }])).toEqual(['电梯 A']);
   });
 });
+
+describe('transfer landmarks and span', () => {
+  it('names a nearby landmark and the floor count', () => {
+    const t = transferText({ kind: 'elevator', direction: 'up', toFloorName: '3F', landmark: '护士站', floors: 2 } as never);
+    expect(t).toContain('护士站旁');
+    expect(t).toContain('（共 2 层）');
+  });
+});
