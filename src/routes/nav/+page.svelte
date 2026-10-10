@@ -269,7 +269,7 @@
     let mark = '', markD = 800;
     for (const p of allPlaces()) {
       if ((t.fromFloorId && p.floorId !== t.fromFloorId) || !p.name || /楼梯|电梯|未命名|^房间\s*\d+$|过道|走廊|空调|管道/.test(p.name)) continue;
-      const d = Math.hypot(p.x - t.from.x, p.y - t.from.y);
+      const d = Math.hypot(p.x - t.from!.x, p.y - t.from!.y);
       if (d < markD) { markD = d; mark = displayNames.get(placeKey(p)) || p.name; }
     }
     if (mark) t = { ...t, landmark: mark };
@@ -278,7 +278,7 @@
     for (const p of allPlaces()) {
       if ((t.fromFloorId && p.floorId !== t.fromFloorId) || !/楼梯|电梯/.test(p.name || '')) continue;
       if (stairs !== /楼梯/.test(p.name || '') && /电梯楼梯/.test(p.name || '') === false) continue;
-      const d = Math.hypot(p.x - t.from.x, p.y - t.from.y);
+      const d = Math.hypot(p.x - t.from!.x, p.y - t.from!.y);
       if (d < bestD) { bestD = d; best = p; }
     }
     return { ...t, display: best ? displayNames.get(placeKey(best)) : undefined };
@@ -491,7 +491,7 @@
     const hits = (b: { x0: number; y0: number; x1: number; y1: number }) => placed.some(o => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0);
     const ends = new Set([startId, endId]);
     const cands = filteredPlaces()
-      .filter(place => (place.floorId || view.floorId) === view.floorId)
+      .filter(place => (place.floorId || view!.floorId) === view!.floorId)
       .filter(place => place.name && !/^(未命名|房间\s*\d+$)/.test(place.name))
       .map(place => ({ place, pri: ends.has(placeKey(place)) ? 0 : /入口|门厅|导医|药房|收费|卫生间|电梯|楼梯/.test(place.name || '') ? 1 : 2 }))
       .sort((a, b) => a.pri - b.pri);
