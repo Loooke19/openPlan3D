@@ -12,7 +12,7 @@ export const HOSPITAL_FLOOR_COLOR = '#fbfcfa';
 
 /** World-space cm (openPlan). Matches Maker skirt ratio ≈ 7/19 of wall height. */
 const BASEBOARD_CM = 12;
-const SKIRT_CM = 100;
+const SKIRT_CM = 120; // 1.2 m wainscot (CN outpatient practice: 木纹抗菌板 lower, 鸽白 upper)
 const TILE_CM = 60;
 
 export function isHospitalWallTexture(id: string | undefined | null): boolean {
@@ -29,6 +29,9 @@ export function isHospitalFloorTexture(id: string | undefined | null): boolean {
  * centred on mid-grey plus roughness, sampled in world space (cm) so long walls never stretch.
  */
 type PbrSet = { detail: THREE.Texture; rough: THREE.Texture };
+/** World Y of the floor being shown; materials measure wainscot height from it. */
+export const hospitalFloorY = { value: 0 };
+
 let pbr: { wall: PbrSet; wainscot: PbrSet; floor: PbrSet } | null = null;
 
 export function enableHospitalPbr(base = '/nav-textures') {
@@ -50,20 +53,27 @@ export function createHospitalSurfaceMaterial(
   color: string,
   own?: (mat: THREE.MeshStandardMaterial) => THREE.MeshStandardMaterial,
 ): THREE.MeshStandardMaterial {
+  const usePbr = !!pbr;
+  const usePbrLook = usePbr;
+  // Nav look (PBR on): imported walls carry the old cool-grey default; read it as 鸽白 warm white.
+  if (usePbr && (!color || color.toLowerCase() === HOSPITAL_WALL_COLOR) && kind === 'wall') color = '#f1eee7';
+  if (usePbr && (!color || color.toLowerCase() === HOSPITAL_FLOOR_COLOR) && kind === 'floor') color = '#e3dfd6';
   const material = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color || (kind === 'wall' ? HOSPITAL_WALL_COLOR : HOSPITAL_FLOOR_COLOR)),
     roughness: kind === 'wall' ? 0.88 : 0.65,
     metalness: 0,
   });
   const uniforms = {
+    hospitalFloorY: hospitalFloorY,
+    hospitalModern: { value: usePbrLook ? 1 : 0 },
     hospitalGrain: { value: 1 },
     hospitalTileSize: { value: TILE_CM },
     hospitalSkirt: { value: SKIRT_CM },
     hospitalBaseboard: { value: BASEBOARD_CM },
   };
-  const usePbr = !!pbr;
-  material.customProgramCacheKey = () => `openplan-hospital-${kind}-v1${usePbr ? '-pbr' : ''}`;
-  if (usePbr && kind === 'floor') { material.roughness = 0.42; material.envMapIntensity = 1.1; }
+  material.customProgramCacheKey = () => `openplan-hospital-${kind}-v2${usePbr ? '-pbr' : ''}`;
+  if (usePbr && kind === 'floor') { material.roughness = 0.6; material.envMapIntensity = 0.7; } // low-gloss PVC
+  if (usePbr && kind === 'wall') material.roughness = 0.92;
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = 'varying vec3 hospitalPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
@@ -79,23 +89,33 @@ export function createHospitalSurfaceMaterial(
     );
     Object.assign(shader.uniforms ||= {}, uniforms);
     shader.fragmentShader =
-      'varying vec3 hospitalPosition;\nuniform float hospitalGrain;\nuniform float hospitalTileSize;\nuniform float hospitalSkirt;\nuniform float hospitalBaseboard;\n' +
+      'varying vec3 hospitalPosition;\nuniform float hospitalFloorY;\nuniform float hospitalModern;\nuniform float hospitalGrain;\nuniform float hospitalTileSize;\nuniform float hospitalSkirt;\nuniform float hospitalBaseboard;\n' +
       shader.fragmentShader;
     const surface =
       kind === 'wall'
         ? `
+        float hy = hospitalPosition.y - hospitalFloorY; // height above this floor (any storey)
         float grain = sin(hospitalPosition.x * 0.42 + hospitalPosition.z * 0.37) * sin(hospitalPosition.y * 0.51);
         diffuseColor.rgb *= 0.97 + grain * 0.025 * hospitalGrain;
-        if (hospitalPosition.y < hospitalBaseboard) diffuseColor.rgb *= vec3(0.39, 0.47, 0.45);
-        else if (hospitalPosition.y < hospitalSkirt) diffuseColor.rgb *= vec3(0.80, 0.88, 0.85);
-        if (hospitalPosition.y > hospitalSkirt - 4.0 && hospitalPosition.y < hospitalSkirt + 3.0) diffuseColor.rgb *= vec3(0.54, 0.66, 0.59);
+        if (hospitalModern > 0.5) {
+          // Coved warm-grey skirting, light poplar wood-grain antibacterial panel to 1.2 m,
+          // a slim bumper-rail band at the joint, 鸽白 matte above.
+          if (hy < hospitalBaseboard) diffuseColor.rgb *= vec3(0.66, 0.64, 0.61);
+          else if (hy < hospitalSkirt) diffuseColor.rgb *= vec3(0.93, 0.80, 0.64);
+          if (hy > hospitalSkirt - 3.0 && hy < hospitalSkirt + 6.0) diffuseColor.rgb *= vec3(0.78, 0.72, 0.64);
+        } else {
+          if (hy < hospitalBaseboard) diffuseColor.rgb *= vec3(0.39, 0.47, 0.45);
+          else if (hy < hospitalSkirt) diffuseColor.rgb *= vec3(0.80, 0.88, 0.85);
+          if (hy > hospitalSkirt - 4.0 && hy < hospitalSkirt + 3.0) diffuseColor.rgb *= vec3(0.54, 0.66, 0.59);
+        }
       `
         : `
         vec2 tile = hospitalPosition.xz / hospitalTileSize;
         vec2 edge = abs(fract(tile - 0.5) - 0.5);
         vec2 aa = max(fwidth(tile), vec2(0.001));
         vec2 seam = 1.0 - smoothstep(vec2(0.018), vec2(0.018) + aa, edge);
-        float grout = max(seam.x, seam.y);
+        // Homogeneous PVC sheet (heat-welded): seams barely visible in the nav look.
+        float grout = max(seam.x, seam.y) * (hospitalModern > 0.5 ? 0.25 : 1.0);
         float grain = sin(hospitalPosition.x * 0.31) * sin(hospitalPosition.z * 0.39);
         diffuseColor.rgb *= 1.0 - grout * 0.18 + grain * 0.012 * hospitalGrain;
       `;
@@ -112,7 +132,7 @@ export function createHospitalSurfaceMaterial(
         ? `
         vec3 pbrN = normalize(cross(dFdx(hospitalPosition), dFdy(hospitalPosition)));
         vec2 pbrUv = (abs(pbrN.x) > abs(pbrN.z) ? hospitalPosition.zy : hospitalPosition.xy);
-        bool pbrLow = hospitalPosition.y < hospitalSkirt;
+        bool pbrLow = hospitalPosition.y - hospitalFloorY < hospitalSkirt;
         float pbrD = pbrLow ? texture2D(pbrDetailB, pbrUv / 90.0).r : texture2D(pbrDetailA, pbrUv / 140.0).r;
         float pbrR = pbrLow ? texture2D(pbrRoughB, pbrUv / 90.0).r : texture2D(pbrRoughA, pbrUv / 140.0).r;
         diffuseColor.rgb *= 0.8 + pbrD * 0.4;

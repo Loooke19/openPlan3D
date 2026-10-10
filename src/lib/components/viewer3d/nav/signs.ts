@@ -1,3 +1,4 @@
+import { NAV_FONT } from '$lib/utils/navFonts';
 /**
  * First-person wayfinding signage for the nav preview: for every door between a named room and a
  * corridor, a projecting double-sided blade sign above the door (read from down the corridor) and a
@@ -35,7 +36,7 @@ function drawIcon(g: CanvasRenderingContext2D, name: string, x: number, y: numbe
     for (let i = 0; i < 3; i++) { g.lineTo(x + s * (0.18 + i * 0.22), y + s * (0.58 - i * 0.2)); g.lineTo(x + s * (0.4 + i * 0.22), y + s * (0.58 - i * 0.2)); }
     g.stroke();
   } else if (/卫生间|洗手间|厕/.test(name)) {
-    g.font = `800 ${s * 0.46}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('WC', cx, cy + s * 0.03);
+    g.font = `800 ${s * 0.46}px ${NAV_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('WC', cx, cy + s * 0.03);
   } else {
     const a = s * 0.14, b = s * 0.34;
     g.fillStyle = '#d6453d';
@@ -51,7 +52,7 @@ function signTexture(name: string) {
   drawIcon(g, name, 36, 40, 160);
   let size = 118;
   g.fillStyle = '#ffffff'; g.textBaseline = 'middle'; g.textAlign = 'left';
-  do { g.font = `800 ${size}px "Noto Sans SC", "PingFang SC", sans-serif`; size -= 6; } while (g.measureText(name).width > 520 && size > 50);
+  do { g.font = `800 ${size}px ${NAV_FONT}`; size -= 6; } while (g.measureText(name).width > 520 && size > 50);
   g.fillText(name, 222, 126);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;

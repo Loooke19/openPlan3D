@@ -20,6 +20,7 @@
   let mode = $state<'2d' | '3d'>('3d');
   let status = $state('正在打开');
   let routeMessage = $state('选择起点和终点');
+  let noLiftFallback = $state('');
   let busy = $state(false);
   let simulating = $state(false);
   let walking = $state(false);
@@ -223,7 +224,7 @@
 
   // Duplicate names on a floor read 「卫生间（东）」/「楼梯（东A）」 (floors share plan axes).
   const displayNames = $derived(disambiguate(
-    allPlaces().map((p) => ({ id: placeKey(p), name: p.name || p.id, floorId: p.floorId || '', x: p.x, y: p.y })),
+    allPlaces().map((p) => ({ id: placeKey(p), name: !p.name || /^房间\s*\d+$/.test(p.name) ? '未命名房间' : p.name, floorId: p.floorId || '', x: p.x, y: p.y })),
     Object.fromEntries((view?.floors || []).map((f) => [f.id, view?.bounds])),
   ));
 
@@ -639,6 +640,7 @@
       return;
     }
     busy = true;
+    noLiftFallback = '';
     say('正在找路');
     try {
       const response = await fetch(`${apiOrigin}/api/projects/${projectId}/route`, {
@@ -660,8 +662,18 @@
           blocked: '走不过去',
           empty: '这一层没有户型',
         };
-        say(reasons[result.reason] || '走不过去');
-        routeMessage = reasons[result.reason] || '走不过去';
+        // 只乘电梯 on a building without lifts: say so plainly instead of a bare failure.
+        const noLift = accessible && result.reason === 'no-link' && !allPlaces().some(p => /电梯/.test(p.name || ''));
+        let msg = reasons[result.reason] || '走不过去';
+        if (noLift) {
+          const fl = (view?.floors || []).map(f => f.id);
+          const n = Math.abs(fl.indexOf(end.floorId || '') - fl.indexOf(start.floorId || ''));
+          const dir = fl.indexOf(end.floorId || '') > fl.indexOf(start.floorId || '') ? '下' : '上';
+          noLiftFallback = n ? `改走楼梯（需走楼梯${dir} ${n} 层）` : '改走楼梯';
+          msg = '本楼暂无电梯，可改走楼梯或联系导诊台协助';
+        }
+        say(msg);
+        routeMessage = msg;
         return;
       }
       routeLegs = (result.legs || []).filter((leg: RouteLeg) => (leg.polyline || []).length > 1);
@@ -859,9 +871,10 @@
       </div>
       <aside class="side" class:open={panelOpen}>
         <button type="button" class="panel-peek" aria-expanded={panelOpen} onclick={() => (panelOpen = !panelOpen)}>
-          <span class="peek-text">{transferNotice || (routeLegs.length ? routeMessage : status)}</span>
+          <span class="peek-text">{transferNotice || (routeLegs.length || noLiftFallback ? routeMessage : status)}</span>
           <span class="peek-toggle">{panelOpen ? '收起' : '展开'}</span>
         </button>
+        {#if noLiftFallback && !panelOpen}<button type="button" class="nolift nolift-peek" onclick={() => { accessible = false; void planRoute(); }}>{noLiftFallback}</button>{/if}
         <div class="route-stops">
           <label class="route-stop"><span class="dot start-dot"></span>从
             <select bind:value={startId} aria-label="起点" onchange={() => planRoute()}>
@@ -992,6 +1005,7 @@
           </label>
         </div>
         <p class="route-message">{routeMessage}</p>
+        {#if noLiftFallback}<button type="button" class="nolift" onclick={() => { accessible = false; void planRoute(); }}>{noLiftFallback}</button>{/if}
         {#if routeLegs.length > 1}
           <ol class="itinerary" aria-label="分段">
             {#each routeLegs as leg, index}
@@ -1159,13 +1173,17 @@
   .hint { margin: 4px 0 0; color: #777; font-size: 12px; }
   .nav-error { padding: 24px; font-family: system-ui, sans-serif; }
   .tap-hint { position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%); z-index: 5; padding: 8px 14px; border-radius: 20px; background: rgba(22, 48, 42, .88); color: #fff; font-size: 14px; pointer-events: none; }
+  .nolift-peek { display: none; }
+  .nolift { min-height: 44px; padding: 0 14px; border-radius: 8px; border: 0; background: #1f7cf2; color: #fff; font-weight: 600; }
   .panel-peek, .back-icon { display: none; }
   @media (max-width: 720px) {
+    .floor select, .side select { min-height: 44px; }
     .stage { flex-direction: column; }
     .side { width: 100%; max-height: 52vh; border-left: 0; border-top: 1px solid #e6e6e6; }
     /* Collapsed: only the one-line instruction; 3D gets the screen. */
     .side:not(.open) { max-height: 56px; overflow: hidden; }
-    .side:not(.open) > :not(.panel-peek) { display: none; }
+    .side:not(.open) > :not(.panel-peek):not(.nolift-peek) { display: none; }
+    .nolift-peek { display: block; margin: 0 12px 10px; }
     .panel-peek { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; padding: 0 12px;
       border: 0; border-bottom: 1px solid #eee; background: #fff; font: inherit; text-align: left; cursor: pointer; }
     .peek-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: #16302a; }

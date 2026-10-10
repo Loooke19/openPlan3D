@@ -131,7 +131,7 @@ function pointInPoly(point: { x: number; y: number }, poly: { x: number; y: numb
 
 // Prefer YaHei Bold face when present; Noto SC VF often ignores canvas `bold`.
 const CJK_FONT =
-  '"Microsoft YaHei", "Microsoft YaHei UI", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif';
+  '"Nav Sans SC", "Noto Sans SC", "Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, sans-serif';
 
 function drawGlyph(
   ctx: CanvasRenderingContext2D,

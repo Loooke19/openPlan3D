@@ -48,7 +48,10 @@
   import { NavRouteVisual } from './nav/route';
   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
   import { NavSigns, type SignDoor } from './nav/signs';
-  import { centerRoute } from './nav/layout';
+  import { NAV_FONT, navFontLoaded, navFontReady } from '$lib/utils/navFonts';
+  import { deptAccent } from '$lib/utils/deptAccent';
+  import { hospitalFloorY } from '$lib/utils/hospitalMaterials';
+  import { centerRoute, enclosedRooms, inside as layoutInside } from './nav/layout';
   import { pinText, mapLabels, nearRoute } from '$lib/utils/navCopy';
   import { enableHospitalPbr } from '$lib/utils/hospitalMaterials';
   import { base as appBase } from '$app/paths';
@@ -145,7 +148,7 @@
   let navStack: { group: THREE.Group; floors: { group: THREE.Group; dir: number }[]; connectors: { base: THREE.Vector3; fromDir: number; toDir: number; column: THREE.Group }[]; rise: number; shift: number; t: number; target: number; started?: number; dressings: NavDressing[]; routes: NavRouteVisual[]; labels: THREE.Sprite[] } | null = null;
   let routeMarker: THREE.Mesh | null = null;
   let routeArrowGroup: THREE.Group | null = null;
-  type NavDoorLeaf = { doorId: string; pivot: THREE.Group; closedYaw: number; openYaw: number };
+  type NavDoorLeaf = { doorId: string; pivot: THREE.Group; closedYaw: number; openYaw: number; closedPos: THREE.Vector3; openPos: THREE.Vector3; t: number; center: { x: number; y: number } };
   let navDoorLeaves: NavDoorLeaf[] = [];
   let activeRouteDoorIds = new Set<string>();
   let doorAnimationRaf = 0;
@@ -1171,6 +1174,7 @@
 
   function initNavLook() {
     enableHospitalPbr(`${appBase}/nav-textures`);
+    void navFontReady(appBase); // start early; textures wait for it
     navPipeline = new NavPipeline(renderer, scene, camera);
     // Post passes scale with pixels: cap high at 1.5x, ultra at 2x.
     renderer.setPixelRatio(Math.min(effectivePixelRatio(), navPipeline.quality === 'ultra' ? 2 : navPipeline.quality === 'high' ? 1.5 : 1.25));
@@ -1322,14 +1326,14 @@
     const size = opts.size ?? 44;
     const c = document.createElement('canvas');
     const ctx = c.getContext('2d')!;
-    ctx.font = `700 ${size}px "Noto Sans SC", "PingFang SC", sans-serif`;
+    ctx.font = `700 ${size}px ${NAV_FONT}`;
     const w = Math.ceil(ctx.measureText(text).width) + size * 1.2, h = Math.round(size * 1.7);
     c.width = w; c.height = h;
     const g = c.getContext('2d')!;
     g.fillStyle = opts.bg ?? '#ffffff';
     g.beginPath(); g.roundRect(2, 2, w - 4, h - 4, h / 2 - 2); g.fill();
     g.lineWidth = 3; g.strokeStyle = 'rgba(255,255,255,.9)'; g.stroke();
-    g.font = `700 ${size}px "Noto Sans SC", "PingFang SC", sans-serif`;
+    g.font = `700 ${size}px ${NAV_FONT}`;
     g.fillStyle = opts.fg ?? '#16302a'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(text, w / 2, h / 2 + 2);
     const tex = new THREE.CanvasTexture(c);
@@ -2153,11 +2157,61 @@
     setNavDoorStates(routeDoorIds ?? []);
   });
 
+  /** +1/-1: which side of a door (along `n`) is a named, enclosed room; null if neither/both. */
+  function navDoorRoomSide(c: { x: number; y: number }, n: { x: number; y: number }): number | null {
+    if (!currentFloor) return null;
+    const rooms = enclosedRooms(roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2));
+    const inRoom = (k: number) => rooms.some(r => layoutInside({ x: c.x + n.x * 60 * k, y: c.y + n.y * 60 * k }, r.polygon));
+    const a = inRoom(1), b = inRoom(-1);
+    return a === b ? null : a ? 1 : -1;
+  }
+
+  let navDestDoorId = '';
+  /** Accent for a door frame: the named room on either side of the door (rule-based palette). */
+  function navDoorDeptColor(x: number, y: number, angle: number): string | null {
+    if (!currentFloor) return null;
+    const n = { x: -Math.sin(angle), y: Math.cos(angle) };
+    const rooms = enclosedRooms(roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2));
+    for (const k of [1, -1]) {
+      const q = { x: x + n.x * 60 * k, y: y + n.y * 60 * k };
+      const r = rooms.find(rr => layoutInside(q, rr.polygon));
+      if (r?.room.name) return deptAccent(r.room.name);
+    }
+    return null;
+  }
+  /** 0..1 open amount per leaf, eased toward its target each frame. */
+  function updateNavDoors(dtMs: number) {
+    if (!navShell || !navDoorLeaves.length) return false;
+    const walking = navLook === 'walk';
+    let moving = false;
+    for (const leaf of navDoorLeaves) {
+      // Destination door stands open; doors the route passes through open on approach (≤2.5 m)
+      // and close again behind; every other door stays shut.
+      const near = walking && activeRouteDoorIds.has(leaf.doorId)
+        && Math.hypot(camera.position.x - leaf.center.x, camera.position.z - leaf.center.y) < 250;
+      const target = leaf.doorId === navDestDoorId || near ? 1 : 0;
+      if (leaf.t === target) continue;
+      leaf.t = target > leaf.t ? Math.min(1, leaf.t + dtMs / 450) : Math.max(0, leaf.t - dtMs / 600);
+      const e = leaf.t * leaf.t * (3 - 2 * leaf.t);
+      leaf.pivot.rotation.y = leaf.closedYaw + (leaf.openYaw - leaf.closedYaw) * e;
+      leaf.pivot.position.lerpVectors(leaf.closedPos, leaf.openPos, Math.min(1, e * 4));
+      moving = true;
+    }
+    if (moving) markSceneDirty();
+    return moving;
+  }
+
   function setNavDoorStates(doorIds: string[]) {
+    navDestDoorId = doorIds.length ? doorIds[doorIds.length - 1] : '';
     activeRouteDoorIds = new Set(doorIds);
     if (doorAnimationRaf) cancelAnimationFrame(doorAnimationRaf);
     doorAnimationRaf = 0;
     if (!navShell || !navDoorLeaves.length) return;
+    if (navShell) {
+      if (!doorIds.length) for (const leaf of navDoorLeaves) { leaf.t = 0; leaf.pivot.rotation.y = leaf.closedYaw; leaf.pivot.position.copy(leaf.closedPos); }
+      requestRender();
+      return; // eased per frame in updateNavDoors
+    }
     const startAngles = navDoorLeaves.map((leaf) => leaf.pivot.rotation.y);
     const targetAngles = navDoorLeaves.map((leaf) => activeRouteDoorIds.has(leaf.doorId) ? leaf.openYaw : leaf.closedYaw);
     if (targetAngles.every((target, index) => Math.abs(target - startAngles[index]) < 0.001)) return;
@@ -2215,12 +2269,19 @@
     const pivot = new THREE.Group();
     // Park the slab just outside the swing-side wall face so thickness faces
     // never share volume with full-depth jambs (coplanar z-fight → vertical stripes).
+    // Closed: the leaf sits flush, centred in the wall opening (inside the wall thickness).
+    // Open: it swings 90° INTO the room (never into the corridor) from the room-side face.
     const panelDepth = 4.5;
-    const faceClear = wallThickness / 2 + panelDepth / 2 + 1;
-    pivot.position.set(hinge.x - Math.sin(angle) * face * faceClear, 0, hinge.y + Math.cos(angle) * face * faceClear);
+    const nx = -Math.sin(angle), ny = Math.cos(angle);
+    const mid = { x: hinge.x + Math.cos(angle) * hingeSide * -width / 2, y: hinge.y + Math.sin(angle) * hingeSide * -width / 2 };
+    const roomSide = navDoorRoomSide(mid, { x: nx, y: ny }) ?? face;
+    const faceClear = wallThickness / 2 + panelDepth / 2 + 0.5;
+    const closedPos = new THREE.Vector3(hinge.x, 0, hinge.y);
+    const openPos = new THREE.Vector3(hinge.x + nx * roomSide * faceClear, 0, hinge.y + ny * roomSide * faceClear);
     const closedYaw = -(angle + (hingeSide === 1 ? Math.PI : 0));
-    const openYaw = closedYaw + hingeSide * face * Math.PI / 2;
-    pivot.rotation.y = activeRouteDoorIds.has(doorId) ? openYaw : closedYaw;
+    const openYaw = closedYaw + hingeSide * roomSide * Math.PI / 2;
+    pivot.position.copy(closedPos);
+    pivot.rotation.y = closedYaw;
 
     // Inset past in-opening jambs so leaf side faces are not coplanar with jambs.
     const edgeClear = 7;
@@ -2251,7 +2312,7 @@
       pivot.add(rose, lever);
     }
     wallGroup.add(pivot);
-    navDoorLeaves.push({ doorId, pivot, closedYaw, openYaw });
+    navDoorLeaves.push({ doorId, pivot, closedYaw, openYaw, closedPos, openPos, t: 0, center: mid });
   }
 
   function addOpeningFrame(wall: Wall, position: number, width: number, bottom: number, height: number, depth: number, material: THREE.Material, excludeFromRender = false) {
@@ -2277,6 +2338,7 @@
   }
 
   function buildWalls(floor: Floor) {
+    hospitalFloorY.value = activeFloorElevation;
     wallHighlight.clear();
     if (doorAnimationRaf) cancelAnimationFrame(doorAnimationRaf);
     doorAnimationRaf = 0;
@@ -2479,8 +2541,8 @@
       const wt = Math.max(wall.thickness, WALL_THICKNESS);
 
       const frameMat = new THREE.MeshStandardMaterial({
-        // Nav: powder-coated steel hospital frames; editor keeps its timber frame.
-        color: navShell ? 0xd2d6d3 : 0x6b4423,
+        // Nav: frame in the department's accent colour (rule-based, never blue); editor keeps timber.
+        color: navShell ? (navDoorDeptColor(px, py, angle) ?? 0xd2d6d3) : 0x6b4423,
         roughness: navShell ? 0.4 : 0.6,
         metalness: navShell ? 0.25 : 0,
         // Push frame depth bias so near-coplanar wall faces lose the fight.
@@ -2497,7 +2559,7 @@
       // Nav: make the frame slightly thicker than the wall so front/back faces sit
       // proud of the wall slab (coplanar wt-depth frames still shimmered at FPS).
       // Editor preview keeps flush depth.
-      const frameDepth = navShell ? wt + 4 : wt;
+      const frameDepth = navShell ? wt + 5 : wt; // trim proud of the wall by 2.5 cm per side
 
       // Clip jambs and header too when an opening reaches the wall profile.
       addOpeningFrame(wall, (opening.left + jamb / 2 + jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
@@ -2845,6 +2907,13 @@
 
     applyWallTransparency();
     if (navShell) rebuildNavDressing();
+    // Sign/label textures are baked with the bundled SC font: if it isn't ready yet, hide them
+    // and rebuild once it is (never show a system-font JP 门 first).
+    if (navShell && !navFontLoaded()) {
+      wallGroup.traverse(o => { if (o.userData.navLabel) o.visible = false; });
+      if (navSigns) navSigns.group.visible = false;
+      void navFontReady(appBase).then(() => rebuildScene(true));
+    }
   }
 
   /** Build all floors stacked vertically in 3D */
@@ -3127,6 +3196,7 @@
 
 
   let lastOrbitFrame: number | undefined;
+  let lastDoorTs = 0;
   function animate(timestamp: number) {
     animId = undefined;
     if (navPipeline) {
@@ -3145,12 +3215,9 @@
       }
       if (navRouteVisual && typeof document !== 'undefined' && !document.hidden) {
         navRouteVisual.tick(timestamp / 1000);
-        // Walking through an opened route door: tuck its leaf away (auto door) so it never fills the view.
-        const walking = navLook === 'walk';
-        for (const leaf of navDoorLeaves) {
-          leaf.pivot.visible = !(walking && activeRouteDoorIds.has(leaf.doorId)
-            && Math.hypot(camera.position.x - leaf.pivot.position.x, camera.position.z - leaf.pivot.position.z) < 170);
-        }
+        // Route doors open on approach and close behind (swinging into the room).
+        updateNavDoors(lastDoorTs ? timestamp - lastDoorTs : 16);
+        lastDoorTs = timestamp;
         sceneDirty = true;
         requestRender();
       }
