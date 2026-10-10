@@ -1,4 +1,5 @@
 /** Resolve import API origin + project id from the editor URL / remembered origin. */
+import { projectImportOrigin } from './importOrigin';
 
 export type BindStop = {
   floorId: string;
@@ -29,6 +30,7 @@ export function editorProjectApi(): { apiOrigin: string; projectId: string } | n
   const apiOrigin =
     originOf(projectUrl) ||
     originOf(params.get('apiOrigin')) ||
+    (projectImportOrigin(params.get('id')) ?? '') ||
     originOf(window.localStorage.getItem('openplan.importOrigin'));
   let projectId = params.get('id') || '';
   if (!projectId && projectUrl) {

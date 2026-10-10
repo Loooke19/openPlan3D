@@ -7,6 +7,7 @@
   import { drawMapRoomLabel, resolveRoomLabelStyle, type RoomLabelStyle } from '$lib/utils/roomMapLabel';
   import { effectivePixelRatio } from '$lib/utils/pixelRatio';
   import { resolveProjectLibraryUrl } from '$lib/utils/projectLibraryUrl';
+  import { importOrigin, originOf, projectImportOrigin } from '$lib/utils/importOrigin';
   import type { Room } from '$lib/models/types';
 
   let ThreeViewer: any = $state(null);
@@ -673,7 +674,9 @@
     void (async () => {
       try {
         const url = new URL(window.location.href);
-        apiOrigin = (url.searchParams.get('apiOrigin') || 'http://127.0.0.1:8881').replace(/\/$/, '');
+        // No ?apiOrigin: use the project's own import service, not a stale hard-coded port (8881).
+        const projectHint = url.searchParams.get('id') || url.searchParams.get('projectUrl')?.match(/\/projects\/([0-9a-f]{32})/i)?.[1];
+        apiOrigin = (url.searchParams.get('apiOrigin') || originOf(url.searchParams.get('projectUrl')) || projectImportOrigin(projectHint) || importOrigin()).replace(/\/$/, '');
         libraryUrl = resolveProjectLibraryUrl(url.searchParams, url.origin);
         projectId = url.searchParams.get('id') || '';
         const projectUrl = url.searchParams.get('projectUrl');

@@ -14,7 +14,7 @@
   import { autoSave, markClean, saveState } from '$lib/stores/saveStatus';
   import { createProjectFromRoomPlan, isRoomPlanJson } from '$lib/utils/roomplanImport';
   import { readProject } from '$lib/utils/projectValidation';
-  import { rememberImportOrigin } from '$lib/utils/importOrigin';
+  import { rememberImportOrigin, projectImportOrigin } from '$lib/utils/importOrigin';
   import TopBar from '$lib/components/toolbar/TopBar.svelte';
   import BuildPanel from '$lib/components/sidebar/BuildPanel.svelte';
   import PropertiesPanel from '$lib/components/sidebar/PropertiesPanel.svelte';
@@ -157,12 +157,23 @@
       if (projectUrl) {
         const response = await fetch(projectUrl);
         if (!response.ok) throw new Error(`project ${response.status}`);
-        const project = readProject(await response.json());
+        const remote = readProject(await response.json());
+        // Re-opening the same file card used to load the server copy without telling the local
+        // store which revision this tab holds, so the first save hit ProjectConflictError
+        // ("另存为副本 / 下载 JSON 备份"). Read the stored copy first (registers its revision),
+        // then keep whichever is newer: local edits are never written back to the import API.
+        const local = await localStore.load(remote.id).catch(() => null);
+        const time = (p: { updatedAt?: unknown } | null) => (p?.updatedAt ? new Date(p.updatedAt as any).getTime() || 0 : 0);
+        const project = local && time(local) >= time(remote) ? local : remote;
         loadProject(project);
         markClean();
-        try { await autoSave(); } catch { /* quota or storage; project stays in memory */ }
-        rememberImportOrigin(projectUrl);
-        replaceState(`${base}/editor?id=${encodeURIComponent(project.id)}`, page.state);
+        if (project === remote) {
+          try { await autoSave(); } catch { /* quota or storage; project stays in memory */ }
+        }
+        rememberImportOrigin(projectUrl, project.id);
+        const origin = new URL(projectUrl, window.location.href).origin;
+        // Keep the owning import service in the URL so reloads / 导入图纸 never fall back to another stack.
+        replaceState(`${base}/editor?id=${encodeURIComponent(project.id)}&apiOrigin=${encodeURIComponent(origin)}`, page.state);
         ready = true;
         return;
       }
@@ -204,6 +215,9 @@
       if (url.searchParams.get('id') === project.id) return;
       url.searchParams.delete('import');
       url.searchParams.set('id', project.id);
+      // apiOrigin belongs to the previous project; use the new one's own service if known.
+      const owner = projectImportOrigin(project.id);
+      if (owner) url.searchParams.set('apiOrigin', owner); else url.searchParams.delete('apiOrigin');
       replaceState(url, page.state);
     });
     const onBeforeUnload = (event: BeforeUnloadEvent) => {

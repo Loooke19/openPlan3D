@@ -1,7 +1,8 @@
 const KEY = 'openplan.importOrigin';
+const BY_PROJECT = 'openplan.importOrigin.byProject';
 const FALLBACK = 'http://127.0.0.1:8882';
 
-function originOf(value: string | null): string | null {
+export function originOf(value: string | null | undefined): string | null {
   if (!value) return null;
   try {
     return new URL(value).origin;
@@ -10,25 +11,49 @@ function originOf(value: string | null): string | null {
   }
 }
 
-/** Remember the drawing-import service a project was opened from (?projectUrl). */
-export function rememberImportOrigin(projectUrl: string): void {
+function readMap(): Record<string, string> {
+  try {
+    const map = JSON.parse(localStorage.getItem(BY_PROJECT) || '{}');
+    return map && typeof map === 'object' ? map : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Remember the drawing-import service a project was opened from (?projectUrl).
+ * Stored per project: one global key flipped between stacks (old worktree on another port,
+ * a second server) and sent 「导入图纸 / 打开已生成的文件」 to whichever server opened a project last.
+ */
+export function rememberImportOrigin(projectUrl: string, projectId?: string): void {
   const origin = originOf(projectUrl);
   if (!origin) return;
   try {
     localStorage.setItem(KEY, origin);
+    if (projectId) {
+      const map = readMap();
+      map[projectId] = origin;
+      localStorage.setItem(BY_PROJECT, JSON.stringify(map));
+    }
   } catch {
-    // Storage can be disabled; the fallback origin still applies.
+    // Storage can be disabled; the URL ?apiOrigin and fallback origin still apply.
   }
 }
 
-/** The import service to send 导入图纸 to: this page's ?projectUrl / ?apiOrigin, the remembered one, then the default stack. */
+/** Import service that owns a given project, if this browser opened it from one. */
+export function projectImportOrigin(projectId: string | null | undefined): string | null {
+  if (!projectId) return null;
+  return originOf(readMap()[projectId]);
+}
+
+/** The import service to send 导入图纸 to: this page's ?projectUrl / ?apiOrigin, the project's own service, the last one, then the default stack. */
 export function importOrigin(): string {
   const params = new URL(window.location.href).searchParams;
   const fromPage = originOf(params.get('projectUrl')) || originOf(params.get('apiOrigin'));
   if (fromPage) return fromPage;
   let remembered: string | null = null;
   try {
-    remembered = originOf(localStorage.getItem(KEY));
+    remembered = projectImportOrigin(params.get('id')) || originOf(localStorage.getItem(KEY));
   } catch {
     remembered = null;
   }
