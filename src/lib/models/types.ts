@@ -69,7 +69,11 @@ export interface Room {
   floorOpening?: boolean;
   details?: ItemDetails;
   id: string;
+  /** Name as printed on the drawing (OCR); kept for search. */
   name: string;
+  /** Patient-facing name (signs, dropdowns, steps); defaults to `name`. */
+  displayName?: string;
+  aliases?: string[];
   walls: string[];
   floorTexture: string;
   area: number;

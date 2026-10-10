@@ -828,6 +828,18 @@
         <input type="text" value={selectedRoom.name} oninput={onRoomName} class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <label class="block">
+        <span class="text-xs text-gray-500">显示名（导航/标牌用，留空=图上原名）</span>
+        <input type="text" value={selectedRoom.displayName ?? ''} placeholder={selectedRoom.name}
+          oninput={(e) => selectedRoom && updateRoom(selectedRoom.id, { displayName: (e.target as HTMLInputElement).value.trim() || undefined })}
+          class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
+      </label>
+      <label class="block">
+        <span class="text-xs text-gray-500">别名（逗号分隔，可搜索）</span>
+        <input type="text" value={(selectedRoom.aliases ?? []).join('，')}
+          oninput={(e) => selectedRoom && updateRoom(selectedRoom.id, { aliases: (e.target as HTMLInputElement).value.split(/[,，、]/).map(x => x.trim()).filter(Boolean) })}
+          class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
+      </label>
+      <label class="block">
         <span class="text-xs text-gray-500">{$t('roomProperties.labelSize')}</span>
         <input type="number" value={selectedRoom.labelSize ?? 17} min="8" max="72" step="1" oninput={onRoomLabelSize} onblur={onRoomLabelSize} class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>

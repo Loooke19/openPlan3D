@@ -8,7 +8,7 @@ import * as THREE from 'three';
 
 type P = { x: number; y: number };
 export type SignDoor = { center: P; along: P; normal: P; width: number; wallThickness: number; height: number };
-export type SignRoom = { name: string; polygon: P[] };
+export type SignRoom = { name: string; displayName?: string; polygon: P[] };
 
 function inside(p: P, poly: P[]) {
   let c = false;
@@ -96,7 +96,7 @@ export class NavSigns {
       const along = new THREE.Vector3(d.along.x, 0, d.along.y);
       const base = new THREE.Vector3(d.center.x, floorY, d.center.y);
       // Blade sign: projects from the wall above the door's edge, faces up/down the corridor.
-      const blade = new THREE.Mesh(this.box(64, 20, 2.5), faceMats(room.name));
+      const blade = new THREE.Mesh(this.box(64, 20, 2.5), faceMats(room.displayName || room.name));
       blade.position.copy(base).addScaledVector(along, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 38);
       // Low enough to stay in frame from eye height a few metres back, still above the door head.
       blade.position.y = floorY + Math.max(d.height + 14, 222);
@@ -106,7 +106,7 @@ export class NavSigns {
       arm.position.y = blade.position.y + 11;
       arm.quaternion.copy(blade.quaternion);
       // Flat plate on the wall next to the door, at eye height.
-      const plate = new THREE.Mesh(this.box(58, 18, 1.6), faceMats(room.name));
+      const plate = new THREE.Mesh(this.box(58, 18, 1.6), faceMats(room.displayName || room.name));
       plate.position.copy(base).addScaledVector(along, -(d.width / 2 + 42)).addScaledVector(n, d.wallThickness / 2 + 1.2);
       plate.position.y = floorY + 168;
       const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), n);

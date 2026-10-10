@@ -1,0 +1,19 @@
+import { describe, expect, it } from 'vitest';
+import { indexPlaces, searchPlaces } from '../src/lib/utils/placeSearch';
+const L = indexPlaces([
+  { key: 'a', name: '狂犬病暴露预防处置门诊', floorId: 'f1', floorLabel: '1楼' },
+  { key: 'b', name: '心理咨询室', originalName: '心里咨询室', floorId: 'f3', floorLabel: '3楼' },
+  { key: 'c', name: '西药房', aliases: ['药房'], floorId: 'f1', floorLabel: '1楼' },
+  { key: 'd', name: '门厅', floorId: 'f1', floorLabel: '1楼' },
+]);
+describe('place search', () => {
+  it('pinyin initials and full pinyin', () => {
+    expect(searchPlaces(L, 'kqb')[0].key).toBe('a');
+    expect(searchPlaces(L, 'xinli')[0].key).toBe('b');
+  });
+  it('original printed name and aliases', () => {
+    expect(searchPlaces(L, '心里').map(p => p.key)).toEqual(['b']);
+    expect(searchPlaces(L, '药房')[0].key).toBe('c');
+  });
+  it('common places first when empty', () => { expect(['c', 'd']).toContain(searchPlaces(L, '')[0].key); });
+});

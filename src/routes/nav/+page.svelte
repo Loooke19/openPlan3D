@@ -1,4 +1,6 @@
 <script lang="ts">
+  import PlacePicker from '$lib/components/nav/PlacePicker.svelte';
+  import { indexPlaces } from '$lib/utils/placeSearch';
   import { onMount, untrack } from 'svelte';
   import { replaceState as kitReplaceState } from '$app/navigation';
   import { page } from '$app/state';
@@ -96,6 +98,8 @@
     category?: string;
     floorId?: string;
     floorName?: string;
+    originalName?: string;
+    aliases?: string[];
   };
   type RouteLeg = {
     floorId: string;
@@ -227,6 +231,12 @@
     allPlaces().map((p) => ({ id: placeKey(p), name: !p.name || /^房间\s*\d+$/.test(p.name) ? '未命名房间' : p.name, floorId: p.floorId || '', x: p.x, y: p.y })),
     Object.fromEntries((view?.floors || []).map((f) => [f.id, view?.bounds])),
   ));
+
+  const pickerPlaces = $derived(indexPlaces(allPlaces().map(p => {
+    const k = placeKey(p); const full = placeLabel(p); const i = full.indexOf(' · ');
+    return { key: k, name: i >= 0 ? full.slice(i + 3) : full, originalName: p.originalName, aliases: p.aliases,
+      floorId: p.floorId || '', floorLabel: i >= 0 ? full.slice(0, i) : '' };
+  })));
 
   /** The stair/lift a transfer uses, under the same display name as the dropdown (「楼梯（东）」). */
   function withDisplay<T extends { from?: { x: number; y: number }; fromFloorId?: string; kind?: string; kindLabel?: string }>(t: T): T & { display?: string } {
@@ -877,26 +887,12 @@
         {#if noLiftFallback && !panelOpen}<button type="button" class="nolift nolift-peek" onclick={() => { accessible = false; void planRoute(); }}>{noLiftFallback}</button>{/if}
         <div class="route-stops">
           <label class="route-stop"><span class="dot start-dot"></span>从
-            <select bind:value={startId} aria-label="起点" onchange={() => planRoute()}>
-              <option value="">选择</option>
-              {#each allPlaces() as place}
-                <option value={placeKey(place)}>{placeLabel(place)}</option>
-              {/each}
-            </select>
+            <PlacePicker bind:value={startId} places={pickerPlaces} label="起点" onchange={() => planRoute()} />
           </label>
           <div class="waypoints" aria-label="途经点">
             {#each waypoints as wp, index}
               <label class="route-stop"><span class="dot via-dot"></span>经
-                <select
-                  bind:value={waypoints[index]}
-                  aria-label={`途经点 ${index + 1}`}
-                  onchange={() => planRoute()}
-                >
-                  <option value="">选择</option>
-                  {#each allPlaces() as place}
-                    <option value={placeKey(place)}>{placeLabel(place)}</option>
-                  {/each}
-                </select>
+                <PlacePicker bind:value={waypoints[index]} places={pickerPlaces} label="途经点" onchange={() => planRoute()} />
                 <button type="button" class="remove" onclick={() => { waypoints = waypoints.filter((_, i) => i !== index); planRoute(); }}>×</button>
               </label>
             {/each}
@@ -908,12 +904,7 @@
             onclick={() => { if (waypoints.length < MAX_VIA) waypoints = [...waypoints, '']; }}
           >＋ 途经点</button>
           <label class="route-stop"><span class="dot end-dot"></span>到
-            <select bind:value={endId} aria-label="终点" onchange={() => planRoute()}>
-              <option value="">选择</option>
-              {#each allPlaces() as place}
-                <option value={placeKey(place)}>{placeLabel(place)}</option>
-              {/each}
-            </select>
+            <PlacePicker bind:value={endId} places={pickerPlaces} label="终点" onchange={() => planRoute()} />
           </label>
           {#if multiFloor()}
             <label class="accessible">

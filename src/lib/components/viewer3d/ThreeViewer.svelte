@@ -1314,7 +1314,7 @@
         doors.push({ center: { x: wall.start.x + dx * door.position, y: wall.start.y + dy * door.position }, along: { x: dx / len, y: dy / len },
           normal: { x: -dy / len, y: dx / len }, width: door.width, wallThickness: wall.thickness || 15, height: door.height || 210 });
       }
-      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2).map(r => ({ name: r.room.name!, polygon: r.polygon }));
+      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: r.room.displayName, polygon: r.polygon }));
       navSigns = new NavSigns(doors, named, activeFloorElevation);
       scene.add(navSigns.group);
     }
@@ -1404,7 +1404,7 @@
       const caps = new NavDressing(g, { look: 'overview', floorY: 0, rooms: [], ceilings: [] });
       // Same room signs as the main floor, lifted above the walls.
       const faces = roomFaces(floor);
-      const stackNames = mapLabels(faces.map(f => ({ name: f.room.name, polygon: f.polygon })));
+      const stackNames = mapLabels(faces.map(f => ({ name: f.room.displayName || f.room.name, polygon: f.polygon })));
       for (const [fi, { room, polygon }] of faces.entries()) {
         if (!room.name || polygon.length < 3) continue;
         const baked = bakeNavRoomLabelSprite({ name: stackNames[fi] || room.name, style: room.labelStyle, labelColor: room.labelColor ?? '#000000' });
@@ -2685,7 +2685,7 @@
     const rooms = roomFaces(floor);
     const holes = roomHoles(rooms.map(r => r.polygon));
     // Same name twice on a floor (two 楼梯): label them by side, e.g. 楼梯（东）.
-    const mapNames = navShell ? mapLabels(rooms.map(r => ({ name: r.room.name, polygon: r.polygon }))) : [];
+    const mapNames = navShell ? mapLabels(rooms.map(r => ({ name: r.room.displayName || r.room.name, polygon: r.polygon }))) : [];
     for (let ri = 0; ri < rooms.length; ri++) {
       const { room, polygon: poly } = rooms[ri];
       if (poly.length < 3) continue;
