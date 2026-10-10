@@ -135,7 +135,7 @@
   let navBackdrops: Partial<Record<NavLook, THREE.Texture>> = {};
   let navWalkDistance = 0;
   // Exploded floor stack for cross-floor routes (overview only).
-  let navStack: { group: THREE.Group; floors: { group: THREE.Group; dir: number }[]; connectors: { base: THREE.Vector3; fromDir: number; toDir: number; column: THREE.Group }[]; rise: number; t: number; target: number; started?: number; dressings: NavDressing[]; routes: NavRouteVisual[]; labels: THREE.Sprite[] } | null = null;
+  let navStack: { group: THREE.Group; floors: { group: THREE.Group; dir: number }[]; connectors: { base: THREE.Vector3; fromDir: number; toDir: number; column: THREE.Group }[]; rise: number; shift: number; t: number; target: number; started?: number; dressings: NavDressing[]; routes: NavRouteVisual[]; labels: THREE.Sprite[] } | null = null;
   let routeMarker: THREE.Mesh | null = null;
   let routeArrowGroup: THREE.Group | null = null;
   type NavDoorLeaf = { doorId: string; pivot: THREE.Group; closedYaw: number; openYaw: number };
@@ -761,6 +761,11 @@
     if (what === 'noshadow') { sunLight.castShadow = false; renderer.shadowMap.needsUpdate = true; }
     if (what === 'nodressing' && navDressing) navDressing.group.visible = false;
     if (what === 'nopost') navPipeline = null;
+    if (what === 'routes') {
+      const out: unknown[] = [];
+      scene.traverse(o => { if (o.userData.navRoute) { let vis = true; o.traverseAncestors(a => { if (!a.visible) vis = false; }); const b = new THREE.Box3().setFromObject(o); out.push({ vis: vis && o.visible, kids: o.children.map(c => c.visible), min: b.min.toArray().map(Math.round), max: b.max.toArray().map(Math.round) }); } });
+      return { out, simRoute: simRoute.length };
+    }
     if (what === 'redcaps' && navDressing) {
       const caps = navDressing.group.children[1].children[0] as THREE.InstancedMesh;
       (caps.material as THREE.MeshStandardMaterial).color.set('#ff0000');
@@ -1260,11 +1265,11 @@
     const here = levelOf(currentFloor.id);
     const box = new THREE.Box3().setFromObject(wallGroup);
     const size = box.getSize(new THREE.Vector3());
-    const rise = Math.max(900, Math.min(size.x, size.z) * 1.1);
+    const rise = Math.max(800, Math.min(size.x, size.z) * 0.6);
     const group = new THREE.Group();
     group.userData.navDressing = true;
     scene.add(group);
-    const stack = navStack = { group, floors: [] as { group: THREE.Group; dir: number }[], connectors: [] as { base: THREE.Vector3; fromDir: number; toDir: number; column: THREE.Group }[], rise, t: 0, target: 1, dressings: [] as NavDressing[], routes: [] as NavRouteVisual[], labels: [] as THREE.Sprite[] };
+    const stack = navStack = { group, floors: [] as { group: THREE.Group; dir: number }[], connectors: [] as { base: THREE.Vector3; fromDir: number; toDir: number; column: THREE.Group }[], rise, shift: size.z * 0.7, t: 0, target: 1, dressings: [] as NavDressing[], routes: [] as NavRouteVisual[], labels: [] as THREE.Sprite[] };
     const built = new Map<string, number>();
     for (const leg of legs) {
       if (leg.floorId === currentFloor.id || built.has(leg.floorId)) continue;
@@ -1280,8 +1285,8 @@
         m.castShadow = false;
         const mat = m.material as THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[];
         for (const x of Array.isArray(mat) ? mat : [mat]) {
-          if (m.userData.renderMaterial === 'floor') { x.color.set('#eef0ec'); x.opacity = 0.9; }
-          x.depthWrite = true;
+          if (m.userData.renderMaterial === 'floor') { x.color.set('#f2f3ef'); x.opacity = 1; x.transparent = false; x.depthWrite = true; }
+          else { x.opacity = 0.5; x.depthWrite = false; } // see-through walls keep the lower floor's route readable
         }
       });
       const caps = new NavDressing(g, { look: 'overview', floorY: 0, rooms: [], ceilings: [] });
@@ -1355,9 +1360,10 @@
     const dirs = [0, ...stack.floors.map(f => f.dir)];
     const lo = Math.min(...dirs) * rise, hi = Math.max(...dirs) * rise + 300;
     const center = box.getCenter(new THREE.Vector3()); center.y = activeFloorElevation + (lo + hi) / 2;
-    const span = Math.max(size.x, size.z, hi - lo);
-    const dist = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.15;
-    const dirV = new THREE.Vector3(0.5, 0.36, 0.95).normalize();
+    center.z -= ((Math.min(...dirs) + Math.max(...dirs)) / 2) * stack.shift;
+    const span = Math.max(size.x, size.z + stack.shift, hi - lo);
+    const dist = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.2;
+    const dirV = new THREE.Vector3(0.45, 0.6, 0.9).normalize();
     camera.position.copy(center).addScaledVector(dirV, dist);
     controls.target.copy(center);
     controls.update();
@@ -1367,20 +1373,24 @@
   function applyNavStackRise() {
     if (!navStack) return;
     const e = 1 - Math.pow(1 - navStack.t, 3);
-    const y = (dir: number) => activeFloorElevation + dir * navStack!.rise * e;
-    for (const f of navStack.floors) f.group.position.y = y(f.dir);
+    // Exploded view: floors rise AND slide back, so the lower floor and its route stay in view.
+    const off = (dir: number) => new THREE.Vector3(0, activeFloorElevation + dir * navStack!.rise * e, -dir * navStack!.shift * e);
+    for (const f of navStack.floors) f.group.position.copy(off(f.dir));
     for (const c of navStack.connectors) {
-      const y0 = Math.min(y(c.fromDir), y(c.toDir)) + 5, y1 = Math.max(y(c.fromDir), y(c.toDir)) + 5;
-      const h = Math.max(1, y1 - y0);
-      c.column.position.set(c.base.x, y0, c.base.z);
+      const p0 = c.base.clone().add(off(c.fromDir)).setY(off(c.fromDir).y + 5);
+      const p1 = c.base.clone().add(off(c.toDir)).setY(off(c.toDir).y + 5);
+      const len = Math.max(1, p0.distanceTo(p1));
+      c.column.position.copy(p0);
+      c.column.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), p1.clone().sub(p0).normalize());
       for (const child of c.column.children) {
-        if (child.userData.ringEnd !== undefined) child.position.y = child.userData.ringEnd ? h : 0;
-        else if (child.userData.connectorTag) child.position.y = h / 2;
-        else child.scale.y = h;
+        if (child.userData.ringEnd !== undefined) child.position.y = child.userData.ringEnd ? len : 0;
+        else if (child.userData.connectorTag) child.position.y = len / 2;
+        else child.scale.y = len;
       }
     }
     markSceneDirty();
   }
+
 
   function renderView() {
     if (navPipeline) navPipeline.render();
