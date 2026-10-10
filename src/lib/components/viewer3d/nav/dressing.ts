@@ -63,6 +63,7 @@ export class NavDressing {
     this.group.add(this.walkOnly, this.overviewOnly);
     const walls = wallMeshes(root).filter(m => wallFootprint(m).height > 60);
     this.buildCaps(walls);
+    this.buildCutCaps(walls);
     this.bakeAo(walls, opts);
     // Every room gets a first-person ceiling (corridors often have none from the editor).
     const top = walls.length ? Math.max(...walls.map(w => wallFootprint(w).top)) - opts.floorY : 280;
@@ -97,6 +98,41 @@ export class NavDressing {
     }
   }
   private capped: THREE.Mesh[] = [];
+
+  /**
+   * Overview cut-away: walls are clipped at a model height, which would leave them hollow from
+   * above. One flat dark cap per wall footprint closes them; it rides on the cut plane.
+   */
+  readonly cutCaps = new THREE.Group();
+  private wallTop = Infinity;
+  private buildCutCaps(walls: THREE.Mesh[]) {
+    const pos: number[] = [];
+    let top = -Infinity;
+    for (const w of walls) {
+      const f = wallFootprint(w);
+      top = Math.max(top, f.top);
+      const [a, b, c, d] = f.corners;
+      for (const p of [a, b, c, a, c, d]) pos.push(p.x, 0, p.z);
+    }
+    if (!pos.length) return;
+    this.wallTop = top;
+    const g = this.track(new THREE.BufferGeometry());
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    const m = this.track(new THREE.MeshStandardMaterial({ color: '#34403c', roughness: 0.8, side: THREE.DoubleSide }));
+    const mesh = new THREE.Mesh(g, m);
+    mesh.userData.navDressing = true;
+    mesh.userData.navCutCap = true;
+    this.cutCaps.add(mesh);
+    this.cutCaps.visible = false;
+    this.group.add(this.cutCaps);
+  }
+
+  /** Move the caps onto the cut plane (world Y); hidden when the cut is at/above the wall tops. */
+  setCut(y: number) {
+    this.cutCaps.position.y = y + 0.3;
+    this.cutCaps.visible = y < this.wallTop - 1;
+  }
 
   /** Static "lightmap" AO: wall footprints rasterised, blurred twice, multiplied over the floors. */
   private bakeAo(walls: THREE.Mesh[], opts: DressingOptions) {

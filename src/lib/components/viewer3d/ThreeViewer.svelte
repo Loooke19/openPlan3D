@@ -960,6 +960,7 @@
     camera.position.set(800, 600, 800);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, logarithmicDepthBuffer: true });
+    renderer.localClippingEnabled = true; // nav overview cut-away walls
     renderer.setSize(container.clientWidth, container.clientHeight);
     // Glass/Electron often reports DPR=1 on 200% OS scale; floor at measured default 2.
     renderer.setPixelRatio(effectivePixelRatio());
@@ -1236,6 +1237,56 @@
     markSceneDirty();
   }
 
+  /**
+   * Overview cut-away (diorama): walls/doors are clipped at ~1.15 m so corridors and the route on
+   * their floor stay visible from oblique angles; first person keeps full-height walls. The cut
+   * eases between the two over 0.45 s when switching.
+   */
+  const NAV_CUT_HEIGHT = 115;
+  const navCutPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e6);
+  let navCut = { y: 1e6, from: 1e6, to: 1e6, started: 0 };
+  function navCutTarget() { return navLook === 'walk' || walkthroughMode ? activeFloorElevation + 1000 : activeFloorElevation + NAV_CUT_HEIGHT; }
+  function applyNavCutMaterials() {
+    if (!wallGroup) return;
+    const top = activeFloorElevation + NAV_CUT_HEIGHT + 10;
+    wallGroup.traverse(o => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || m.userData.navDressing || m.userData.renderMaterial === 'floor') return;
+      const b = new THREE.Box3().setFromObject(m);
+      if (b.max.y < top) return;
+      for (const mat of ([] as THREE.Material[]).concat(m.material)) {
+        if (mat.clippingPlanes?.includes(navCutPlane)) continue;
+        mat.clippingPlanes = [navCutPlane];
+        mat.clipShadows = true;
+        mat.needsUpdate = true;
+      }
+    });
+    // Start from full height and ease down, so entering the 3D map animates the cut.
+    navCut = { y: activeFloorElevation + 300, from: activeFloorElevation + 300, to: activeFloorElevation + 300, started: 0 };
+    navCutPlane.constant = navCut.y;
+    navDressing?.setCut(navCut.y);
+  }
+  /** Returns true while still animating. */
+  function stepNavCut(timestamp: number) {
+    const walk = navCutTarget() > activeFloorElevation + 300;
+    // Animate between the cut height and the full wall height (~300); in first person the
+    // plane is then lifted out of the way entirely.
+    const goal = walk ? activeFloorElevation + 300 : activeFloorElevation + NAV_CUT_HEIGHT;
+    if (goal !== navCut.to) navCut = { y: Math.min(navCut.y, activeFloorElevation + 300), from: Math.min(navCut.y, activeFloorElevation + 300), to: goal, started: 0 };
+    if (navCut.y === navCut.to) {
+      const want = walk ? 1e6 : navCut.y;
+      if (navCutPlane.constant !== want) { navCutPlane.constant = want; navDressing?.setCut(want); return true; }
+      return false;
+    }
+    navCut.started ||= timestamp;
+    const k = Math.min(1, (timestamp - navCut.started) / 450);
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    navCut.y = k >= 1 ? navCut.to : navCut.from + (navCut.to - navCut.from) * e;
+    navCutPlane.constant = navCut.y;
+    navDressing?.setCut(navCut.y);
+    return true;
+  }
+
   function rebuildNavDressing() {
     if (!navShell || !navPipeline) return;
     navDressing?.dispose();
@@ -1247,6 +1298,7 @@
     });
     navDressing = new NavDressing(wallGroup, { look: navLook, floorY: activeFloorElevation, rooms, walls: currentFloor?.walls ?? [], ceilings });
     scene.add(navDressing.group);
+    applyNavCutMaterials();
     navSigns?.dispose();
     navSigns = null;
     if (currentFloor) {
@@ -1864,6 +1916,7 @@
     // Nav: ride the corridor centreline with rounded corners (2D map and floor stack untouched).
     simRoute = navShell && currentFloor ? centerRoute(points, currentFloor.walls) : points.slice();
     if (navShell) queueMicrotask(updateNavLabelVisibility);
+    navWalkYaw = null;
     simSegLens = [];
     simTotalLen = 0;
     for (let i = 0; i + 1 < simRoute.length; i++) {
@@ -1949,6 +2002,7 @@
   export function setSimulationProgress(ratio: number) {
     if (simRoute.length < 2) return;
     simProgress = Math.max(0, Math.min(1, ratio));
+    navWalkYaw = null; // a jump: derive heading fresh from the route
     const pose = pointOnRoute(simProgress * simTotalLen);
     if (navAutoWalking) placeNavWalkCamera(simProgress * simTotalLen);
     else if (pose) placeRouteMarker(pose.x, pose.y);
@@ -1971,14 +2025,32 @@
     simRaf = requestAnimationFrame(tickSimulation);
   }
 
+  let navWalkYaw: number | null = null;
+  /** Heading of the last route segment longer than 40 cm at or before `distance`. */
+  function routeHeadingBefore(distance: number) {
+    let acc = 0, yaw = 0;
+    for (let i = 0; i < simSegLens.length; i++) {
+      const a = simRoute[i], b = simRoute[i + 1];
+      if (simSegLens[i] > 40 || !i) yaw = Math.atan2(b.y - a.y, b.x - a.x);
+      acc += simSegLens[i];
+      if (acc >= distance) break;
+    }
+    return yaw;
+  }
+
   function placeNavWalkCamera(distance: number) {
     const pose = pointOnRoute(distance);
     if (!pose) return;
-    const ahead = pointOnRoute(Math.min(simTotalLen, distance + 80));
-    const lookX = ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 1
-      ? ahead.x : pose.x + Math.cos(pose.yaw) * 80;
-    const lookY = ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 1
-      ? ahead.y : pose.y + Math.sin(pose.yaw) * 80;
+    // Face along the route tangent: chord over a short window around the camera (smooth through
+    // rounded corners). Near the end the window collapses, so keep the last good heading instead
+    // of a stub segment's direction (which used to aim the camera at a wall after a seek).
+    const back = pointOnRoute(Math.max(0, distance - 30)), fwd = pointOnRoute(Math.min(simTotalLen, distance + 60));
+    let yaw = navWalkYaw ?? pose.yaw;
+    if (back && fwd && Math.hypot(fwd.x - back.x, fwd.y - back.y) > 20) yaw = Math.atan2(fwd.y - back.y, fwd.x - back.x);
+    else if (navWalkYaw === null) yaw = routeHeadingBefore(distance);
+    navWalkYaw = yaw;
+    const lookX = pose.x + Math.cos(yaw) * 80;
+    const lookY = pose.y + Math.sin(yaw) * 80;
     // Subtle head bob in the nav look (about 1.5 cm at a 70 cm stride).
     const bob = navPipeline ? Math.sin(distance / 35) * 1.5 : 0;
     navWalkDistance = distance;
@@ -2998,6 +3070,7 @@
     animId = undefined;
     if (navPipeline) {
       applyNavLook(walkthroughMode ? 'walk' : 'overview');
+      if (stepNavCut(timestamp)) requestRender();
       if (navStack) {
         navStack.group.visible = !walkthroughMode;
         if (navStack.t < navStack.target) {
