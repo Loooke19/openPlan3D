@@ -81,3 +81,48 @@ export const pinText = {
   end: (name: string) => `目的地：${name}`,
   transfer: (what: string) => `在此换乘：${what}`,
 };
+
+/**
+ * 3D map labels for one floor: a name used twice gets its side in brackets (「楼梯（东）」);
+ * still-colliding ones are lettered (「楼梯（东A）」). Returns label per index ('' = unnamed).
+ */
+export function mapLabels(rooms: { name?: string | null; polygon: Pt[] }[]): string[] {
+  const pts = rooms.flatMap(r => r.polygon);
+  if (!pts.length) return rooms.map(r => r.name ?? '');
+  const box: Box = {
+    minX: Math.min(...pts.map(p => p.x)), maxX: Math.max(...pts.map(p => p.x)),
+    minY: Math.min(...pts.map(p => p.y)), maxY: Math.max(...pts.map(p => p.y)),
+  };
+  const centre = (poly: Pt[]) => ({ x: poly.reduce((s, p) => s + p.x, 0) / poly.length, y: poly.reduce((s, p) => s + p.y, 0) / poly.length });
+  const names = rooms.map(r => (r.name ?? '').trim());
+  const out = [...names];
+  const count = new Map<string, number>();
+  for (const n of names) if (n) count.set(n, (count.get(n) ?? 0) + 1);
+  const bySide = new Map<string, number[]>();
+  names.forEach((n, i) => {
+    if (!n || (count.get(n) ?? 0) < 2 || rooms[i].polygon.length < 3) return;
+    const key = `${n}（${sideOf(centre(rooms[i].polygon), box)}`;
+    bySide.set(key, [...(bySide.get(key) ?? []), i]);
+  });
+  for (const [key, idx] of bySide) {
+    if (idx.length === 1) { out[idx[0]] = `${key}）`; continue; }
+    idx.sort((a, b) => { const p = centre(rooms[a].polygon), q = centre(rooms[b].polygon); return p.x - q.x || p.y - q.y; });
+    idx.forEach((i, k) => { out[i] = `${key}${String.fromCharCode(65 + k)}）`; });
+  }
+  return out;
+}
+
+/** Room is "near" the route when its box is within `margin` cm of any route vertex/segment. */
+export function nearRoute(poly: Pt[], route: Pt[], margin = 350): boolean {
+  if (!route.length || !poly.length) return false;
+  const minX = Math.min(...poly.map(p => p.x)) - margin, maxX = Math.max(...poly.map(p => p.x)) + margin;
+  const minY = Math.min(...poly.map(p => p.y)) - margin, maxY = Math.max(...poly.map(p => p.y)) + margin;
+  for (let i = 0; i < route.length; i++) {
+    const a = route[i], b = route[Math.min(route.length - 1, i + 1)];
+    for (let t = 0; t <= 1; t += 0.1) {
+      const x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t;
+      if (x >= minX && x <= maxX && y >= minY && y <= maxY) return true;
+    }
+  }
+  return false;
+}

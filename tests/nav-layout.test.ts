@@ -87,3 +87,36 @@ describe('ceiling light layout', () => {
     expect(spots.reduce((a, s) => a + s.z, 0) / spots.length).toBeCloseTo(450, 5);
   });
 });
+
+import { orthogonalize } from '../src/lib/components/viewer3d/nav/layout';
+describe('diagonal corridor runs', () => {
+  it('turns a door-to-door diagonal into door → centreline → door', () => {
+    // Corridor y ∈ [0, 240] between two long walls.
+    const walls = [
+      { start: { x: -2000, y: 0 }, end: { x: 2000, y: 0 }, thickness: 20 },
+      { start: { x: -2000, y: 240 }, end: { x: 2000, y: 240 }, thickness: 20 },
+    ];
+    const out = orthogonalize([{ x: 0, y: 500 }, { x: 0, y: 240 }, { x: 1200, y: 0 }, { x: 1200, y: -300 }], walls);
+    const mid = out.filter(p => p.y > 1 && p.y < 239);
+    expect(mid.length).toBe(2);
+    for (const p of mid) expect(Math.abs(p.y - 120)).toBeLessThan(24); // within 10% of 240
+  });
+});
+
+import { corridorLightSpots, enclosedRooms } from '../src/lib/components/viewer3d/nav/layout';
+describe('corridor lights outside room faces', () => {
+  const rect = (x0: number, y0: number, x1: number, y1: number) => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+  const wallsOf = (poly: { x: number; y: number }[]) => poly.map((p, i) => ({ start: p, end: poly[(i + 1) % poly.length], thickness: 20 }));
+  // Two room rows with a 240 cm corridor (y 0..240) between them, building 0..2400.
+  const top = rect(0, -600, 2400, 0), bottom = rect(0, 240, 2400, 840);
+  const walls = [...wallsOf(top), ...wallsOf(bottom), { start: { x: 0, y: 0 }, end: { x: 0, y: 240 } }, { start: { x: 2400, y: 0 }, end: { x: 2400, y: 240 } }];
+  it('puts one evenly spaced row on the corridor centreline (≤10% of width)', () => {
+    const spots = corridorLightSpots([{ polygon: top }, { polygon: bottom }], walls);
+    expect(spots.length).toBeGreaterThan(5);
+    for (const s of spots) expect(Math.abs(s.z - 120)).toBeLessThanOrEqual(24);
+  });
+  it('treats a face wrapping other rooms as circulation', () => {
+    const wrap = { polygon: [{ x: 0, y: 0 }, { x: 2400, y: 0 }, { x: 2400, y: -600 }, { x: 2600, y: -600 }, { x: 2600, y: 840 }, { x: 2400, y: 840 }, { x: 2400, y: 240 }, { x: 0, y: 240 }] };
+    expect(enclosedRooms([{ polygon: top }, { polygon: bottom }, wrap]).length).toBe(2);
+  });
+});

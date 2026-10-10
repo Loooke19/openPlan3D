@@ -4,7 +4,7 @@
  * first-person ceiling light panels with soft light pools, and the per-view light rig.
  */
 import * as THREE from 'three';
-import { lightSpots } from './layout';
+import { lightSpots, corridorLightSpots, enclosedRooms } from './layout';
 import type { NavLook } from './pipeline';
 
 const box = new THREE.BoxGeometry(1, 1, 1);
@@ -50,7 +50,7 @@ export function wallMeshes(root: THREE.Object3D): THREE.Mesh[] {
   return out;
 }
 
-export type DressingOptions = { look: NavLook; floorY: number; rooms: { polygon: { x: number; y: number }[] }[]; ceilings: { polygon: { x: number; y: number }[]; height: number }[] };
+export type DressingOptions = { look: NavLook; floorY: number; rooms: { polygon: { x: number; y: number }[] }[]; walls?: { start: { x: number; y: number }; end: { x: number; y: number }; thickness?: number }[]; ceilings: { polygon: { x: number; y: number }[]; height: number }[] };
 
 export class NavDressing {
   readonly group = new THREE.Group();
@@ -161,7 +161,8 @@ export class NavDressing {
     // Panels follow the room/corridor layout (centred row on corridors, grid in halls), not the
     // building bounding box, so they sit on the corridor's centreline.
     const h = opts.ceilings[0]?.height ?? 280;
-    const spots = lightSpots(opts.rooms).map(sp => ({ ...sp, h }));
+    const real = enclosedRooms(opts.rooms);
+    const spots = [...lightSpots(real), ...corridorLightSpots(real, opts.walls ?? [])].map(sp => ({ ...sp, h }));
     if (!spots.length) return;
     const panelMat = this.track(new THREE.MeshBasicMaterial({ color: new THREE.Color('#fff4e2').multiplyScalar(1.5) }));
     const panels = new THREE.InstancedMesh(box, panelMat, spots.length);
@@ -169,9 +170,9 @@ export class NavDressing {
     const frames = new THREE.InstancedMesh(box, frameMat, spots.length);
     const m = new THREE.Matrix4(), dummy = new THREE.Object3D();
     spots.forEach((s, i) => {
-      dummy.position.set(s.x, opts.floorY + s.h - 1.2, s.z);
+      dummy.position.set(s.x, opts.floorY + s.h - 4, s.z);
       dummy.scale.set(s.long ? 120 : 30, 1.5, s.long ? 30 : 120); dummy.updateMatrix(); panels.setMatrixAt(i, dummy.matrix);
-      dummy.position.y = opts.floorY + s.h - 0.8; dummy.scale.set(s.long ? 128 : 38, 1.2, s.long ? 38 : 128); dummy.updateMatrix(); frames.setMatrixAt(i, dummy.matrix);
+      dummy.position.y = opts.floorY + s.h - 3; dummy.scale.set(s.long ? 128 : 38, 1.2, s.long ? 38 : 128); dummy.updateMatrix(); frames.setMatrixAt(i, dummy.matrix);
     });
     void m;
     // Light pools: additive radial gradient on the floor below each panel.

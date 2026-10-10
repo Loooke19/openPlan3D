@@ -707,8 +707,8 @@
   }
 
   onMount(() => {
-    // Test hook for scripted same-camera screenshots (harmless in production).
-    (window as any).__navTest = {
+    // Dev-only hook for scripted same-camera screenshots; absent from production builds.
+    if (import.meta.env.DEV) (window as any).__navTest = {
       get viewer() { return viewer; },
       places: () => allPlaces().map((p) => ({ key: placeKey(p), label: placeLabel(p) })),
       route: async (from: string, to: string) => { startId = from; endId = to; await planRoute(); return routeMessage; },

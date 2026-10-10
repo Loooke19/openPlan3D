@@ -51,3 +51,21 @@ describe('nav copy', () => {
     expect(pinText.transfer('电梯')).toBe('在此换乘：电梯');
   });
 });
+
+import { mapLabels, nearRoute } from '../src/lib/utils/navCopy';
+describe('3D map labels', () => {
+  const sq = (x: number, y: number) => [{ x, y }, { x: x + 100, y }, { x: x + 100, y: y + 100 }, { x, y: y + 100 }];
+  it('adds the side to duplicate names and leaves unique ones', () => {
+    expect(mapLabels([{ name: '楼梯', polygon: sq(0, 450) }, { name: '楼梯', polygon: sq(1900, 450) }, { name: '药房', polygon: sq(900, 0) }]))
+      .toEqual(['楼梯（西）', '楼梯（东）', '药房']);
+  });
+  it('letters duplicates on the same side', () => {
+    expect(mapLabels([{ name: '楼梯', polygon: sq(1900, 300) }, { name: '楼梯', polygon: sq(1900, 600) }, { name: 'x', polygon: sq(0, 450) }]).slice(0, 2))
+      .toEqual(['楼梯（东A）', '楼梯（东B）']);
+  });
+  it('nearRoute only keeps rooms along the path', () => {
+    const route = [{ x: 0, y: 0 }, { x: 1000, y: 0 }];
+    expect(nearRoute(sq(400, 200), route)).toBe(true);
+    expect(nearRoute(sq(400, 2000), route)).toBe(false);
+  });
+});

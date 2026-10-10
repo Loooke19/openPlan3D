@@ -34,6 +34,54 @@ export function lightSpots(rooms: { polygon: P2[] }[], step = 300): LightSpot[] 
   return spots;
 }
 
+/**
+ * Circulation that is not a room face (the corridor is usually the leftover between rooms):
+ * sample the plan, keep enclosed points outside every room whose cross-section is corridor-narrow,
+ * snap each to the midpoint between its facing walls and space them `step` apart along the run.
+ */
+export function corridorLightSpots(rooms: { polygon: P2[] }[], walls: WallSeg[], step = 300): LightSpot[] {
+  if (!walls.length) return [];
+  const xs = walls.flatMap(w => [w.start.x, w.end.x]), ys = walls.flatMap(w => [w.start.y, w.end.y]);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const seen = new Map<string, LightSpot>();
+  const grid = 60;
+  for (let x = x0 + grid / 2; x < x1; x += grid) for (let y = y0 + grid / 2; y < y1; y += grid) {
+    const p = { x, y };
+    if (rooms.some(r => inside(p, r.polygon))) continue;
+    const e = rayToWall(p, { x: 1, y: 0 }, walls, 4000), w = rayToWall(p, { x: -1, y: 0 }, walls, 4000);
+    const s = rayToWall(p, { x: 0, y: 1 }, walls, 4000), n = rayToWall(p, { x: 0, y: -1 }, walls, 4000);
+    // Both cross-section rays must hit walls (outside the building one escapes); the run may be
+    // open at an end (an entrance). Under 100 cm is a sample inside a wall's thickness.
+    const wx = e + w, wy = s + n;
+    if (wy >= 100 && wy <= CORRIDOR_MAX_WIDTH && wx >= wy * CORRIDOR_ASPECT && Math.min(e, w) < 4000) {
+      const cy = y + (s - n) / 2, sx = Math.round(x / step) * step;
+      if (Math.abs(sx - x) > grid / 2) continue;
+      const key = `h${Math.round(cy / 30)}:${sx}`;
+      if (!seen.has(key) && !rooms.some(r => inside({ x: sx, y: cy }, r.polygon))) seen.set(key, { x: sx, z: cy, long: true });
+    } else if (wx >= 100 && wx <= CORRIDOR_MAX_WIDTH && wy >= wx * CORRIDOR_ASPECT && Math.min(s, n) < 4000) {
+      const cx = x + (e - w) / 2, sy = Math.round(y / step) * step;
+      if (Math.abs(sy - y) > grid / 2) continue;
+      const key = `v${Math.round(cx / 30)}:${sy}`;
+      if (!seen.has(key) && !rooms.some(r => inside({ x: cx, y: sy }, r.polygon))) seen.set(key, { x: cx, z: sy, long: false });
+    }
+  }
+  return [...seen.values()];
+}
+
+/**
+ * Drop circulation faces: a face whose bounding box holds other faces' centres is the leftover
+ * corridor network (sometimes OCR-named, e.g. 护士站); corridorLightSpots lights it instead.
+ */
+export function enclosedRooms<T extends { polygon: P2[] }>(rooms: T[]): T[] {
+  const centre = (poly: P2[]) => ({ x: poly.reduce((a, q) => a + q.x, 0) / poly.length, y: poly.reduce((a, q) => a + q.y, 0) / poly.length });
+  const centres = rooms.map(r => centre(r.polygon));
+  return rooms.filter((r, i) => {
+    const xs = r.polygon.map(q => q.x), ys = r.polygon.map(q => q.y);
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    return !centres.some((c, j) => j !== i && c.x > x0 && c.x < x1 && c.y > y0 && c.y < y1 && !inside(c, r.polygon));
+  });
+}
+
 export function inside(p: P2, poly: P2[]) {
   let c = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -77,7 +125,41 @@ function lineIntersect(p: P2, d: P2, q: P2, e: P2): P2 | null {
   return { x: p.x + d.x * t, y: p.y + d.y * t };
 }
 
+/**
+ * The planner string-pulls door→door runs into diagonals across a corridor. Re-route such a
+ * diagonal as door → centreline → along the corridor → door, so the walk follows the medial line.
+ */
+export function orthogonalize(points: P2[], walls: WallSeg[], corridorMax = 700): P2[] {
+  const out: P2[] = [points[0]];
+  for (let i = 0; i + 1 < points.length; i++) {
+    const a = points[i], b = points[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+    const off = Math.min(Math.abs(dx), Math.abs(dy)) / (len || 1);
+    // Interior runs only: the first/last legs lead into a room destination and stay as drawn.
+    if (i > 0 && i + 2 < points.length && len > 200 && off > 0.03 && Math.min(Math.abs(dx), Math.abs(dy)) > 40) {
+      const horiz = Math.abs(dx) >= Math.abs(dy);
+      const nrm = horiz ? { x: 0, y: 1 } : { x: 1, y: 0 };
+      // Sample along the run; open sides (a lobby off the corridor) read wide, so take the
+      // narrowest section as the corridor and use its centre.
+      let best: { w: number; c: number } | null = null;
+      for (const t of [0.2, 0.35, 0.5, 0.65, 0.8]) {
+        const m = { x: a.x + dx * t, y: a.y + dy * t };
+        const l = rayToWall(m, nrm, walls, 1200), r = rayToWall(m, { x: -nrm.x, y: -nrm.y }, walls, 1200);
+        if (l + r <= corridorMax && (!best || l + r < best.w)) best = { w: l + r, c: (horiz ? m.y : m.x) + (l - r) / 2 };
+      }
+      if (best) {
+        const c = best.c;
+        if (horiz) out.push({ x: a.x, y: c }, { x: b.x, y: c });
+        else out.push({ x: c, y: a.y }, { x: c, y: b.y });
+      }
+    }
+    out.push(b);
+  }
+  return out.filter((p, i) => i === 0 || Math.hypot(p.x - out[i - 1].x, p.y - out[i - 1].y) > 1);
+}
+
 export function centerRoute(points: P2[], walls: WallSeg[], opts: { maxWidth?: number; radius?: number } = {}): P2[] {
+  if (points.length >= 2 && walls.length) points = orthogonalize(points, walls);
   if (points.length < 4 || !walls.length) return points.slice();
   // Wide halls are centred too (route must not hug a wall); door gaps give outlier widths.
   const maxWidth = opts.maxWidth ?? 1600;

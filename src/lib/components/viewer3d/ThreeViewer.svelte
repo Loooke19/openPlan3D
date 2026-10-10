@@ -49,7 +49,7 @@
   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
   import { NavSigns, type SignDoor } from './nav/signs';
   import { centerRoute } from './nav/layout';
-  import { pinText } from '$lib/utils/navCopy';
+  import { pinText, mapLabels, nearRoute } from '$lib/utils/navCopy';
   import { enableHospitalPbr } from '$lib/utils/hospitalMaterials';
   import { base as appBase } from '$app/paths';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
@@ -977,6 +977,11 @@
     controls.maxPolarAngle = Math.PI / 2.05;
     // Mark dirty when orbit controls move the camera
     controls.addEventListener('change', markSceneDirty);
+    controls.addEventListener('change', () => {
+      if (!navShell || !camera) return;
+      const far = camera.position.distanceTo(controls.target) > 2600;
+      if (far !== navLabelFar) updateNavLabelVisibility();
+    });
 
     // Click-to-select walls via raycasting
     let pointerDownPos = { x: 0, y: 0 };
@@ -1182,6 +1187,26 @@
     applyNavLook('overview', true);
   }
 
+  let navLabelLook: NavLook = 'overview';
+  let navLabelFar: boolean | null = null;
+  /**
+   * Overview labels: with a route and the camera zoomed out, show only rooms along the route
+   * (plus start/end rooms, which the route touches); zoomed in or no route, show all.
+   * First person reads the wall-mounted signs instead of floating text.
+   */
+  function updateNavLabelVisibility() {
+    if (!wallGroup || !camera || !controls) return;
+    const far = camera.position.distanceTo(controls.target) > 2600;
+    navLabelFar = far;
+    const filter = far && simRoute.length > 1;
+    wallGroup.traverse(o => {
+      const meta = o.userData.navLabel;
+      if (!meta) return;
+      o.visible = navLabelLook === 'overview' && (!filter || nearRoute(meta.poly ?? [], simRoute));
+    });
+    markSceneDirty();
+  }
+
   function applyNavLook(look: NavLook, force = false) {
     if (!navPipeline || (!force && look === navLook)) return;
     navLook = look;
@@ -1199,12 +1224,12 @@
     wallGroup?.traverse(o => {
       const meta = o.userData.navLabel;
       if (!meta) return;
-      // First person reads the wall-mounted signs instead of floating text.
-      o.visible = look === 'overview';
       const k = navLabelScale(meta.sx, meta.fit);
       o.scale.set(meta.sx * k, meta.sy * k, 1);
       o.position.y = 300;
     });
+    navLabelLook = look;
+    updateNavLabelVisibility();
     const bounds = wallGroup?.children.length ? new THREE.Box3().setFromObject(wallGroup) : null;
     applyNavLightRig({ ambient: ambientLight, hemi: hemiLight, sun: sunLight, fill: fillLight, rim: rimLight }, look, bounds, navPipeline.quality);
     renderer.shadowMap.needsUpdate = true;
@@ -1220,7 +1245,7 @@
       if (o.userData.navRoom) rooms.push({ polygon: o.userData.navRoom });
       if (o.userData.navCeiling) ceilings.push(o.userData.navCeiling);
     });
-    navDressing = new NavDressing(wallGroup, { look: navLook, floorY: activeFloorElevation, rooms, ceilings });
+    navDressing = new NavDressing(wallGroup, { look: navLook, floorY: activeFloorElevation, rooms, walls: currentFloor?.walls ?? [], ceilings });
     scene.add(navDressing.group);
     navSigns?.dispose();
     navSigns = null;
@@ -1322,9 +1347,11 @@
       });
       const caps = new NavDressing(g, { look: 'overview', floorY: 0, rooms: [], ceilings: [] });
       // Same room signs as the main floor, lifted above the walls.
-      for (const { room, polygon } of roomFaces(floor)) {
+      const faces = roomFaces(floor);
+      const stackNames = mapLabels(faces.map(f => ({ name: f.room.name, polygon: f.polygon })));
+      for (const [fi, { room, polygon }] of faces.entries()) {
         if (!room.name || polygon.length < 3) continue;
-        const baked = bakeNavRoomLabelSprite({ name: room.name, style: room.labelStyle, labelColor: room.labelColor ?? '#000000' });
+        const baked = bakeNavRoomLabelSprite({ name: stackNames[fi] || room.name, style: room.labelStyle, labelColor: room.labelColor ?? '#000000' });
         if (!baked) continue;
         const tex = new THREE.CanvasTexture(baked.canvas);
         tex.colorSpace = THREE.SRGBColorSpace;
@@ -1836,6 +1863,7 @@
     routeMarker = null;
     // Nav: ride the corridor centreline with rounded corners (2D map and floor stack untouched).
     simRoute = navShell && currentFloor ? centerRoute(points, currentFloor.walls) : points.slice();
+    if (navShell) queueMicrotask(updateNavLabelVisibility);
     simSegLens = [];
     simTotalLen = 0;
     for (let i = 0; i + 1 < simRoute.length; i++) {
@@ -2461,6 +2489,8 @@
     // Resolve labels and materials from this floor, including after a 3D floor switch.
     const rooms = roomFaces(floor);
     const holes = roomHoles(rooms.map(r => r.polygon));
+    // Same name twice on a floor (two 楼梯): label them by side, e.g. 楼梯（东）.
+    const mapNames = navShell ? mapLabels(rooms.map(r => ({ name: r.room.name, polygon: r.polygon }))) : [];
     for (let ri = 0; ri < rooms.length; ri++) {
       const { room, polygon: poly } = rooms[ri];
       if (poly.length < 3) continue;
@@ -2591,7 +2621,7 @@
         }));
         const labelFields = lookupRoomLabelFields(savedWithPolys, room, centroid);
         const baked = bakeNavRoomLabelSprite({
-          name: labelFields.name || room.name,
+          name: (mapNames[ri] && mapNames[ri] !== room.name ? mapNames[ri] : '') || labelFields.name || room.name,
           style: labelFields.labelStyle ?? room.labelStyle,
           icon: labelFields.labelIcon ?? room.labelIcon,
           iconColor: labelFields.labelIconColor ?? room.labelIconColor,
@@ -2620,7 +2650,7 @@
           sprite.position.set(centroid.x, 30, centroid.y);
           sprite.renderOrder = 10;
           sprite.scale.set(baked.scaleX * labelScale, baked.scaleY * labelScale, 1);
-          sprite.userData.navLabel = { sx: sprite.scale.x, sy: sprite.scale.y, fit: navLabelFit(poly) };
+          sprite.userData.navLabel = { sx: sprite.scale.x, sy: sprite.scale.y, fit: navLabelFit(poly), poly };
           wallGroup.add(sprite);
         }
       } else {
