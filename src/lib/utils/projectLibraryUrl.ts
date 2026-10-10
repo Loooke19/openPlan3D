@@ -32,12 +32,22 @@ export function resolveProjectLibraryUrl(search: URLSearchParams, appOrigin: str
     try {
       const url = new URL(files, appOrigin);
       const path = url.pathname.replace(/\/$/, '') || '/';
-      // Import-API file cards — not the openPlan library.
-      if (path === '/files') return projectLibraryUrl();
+      // An imported project's home is its import service's /files page (user review 10-10).
+      if (path === '/files') return projectHomeUrl(search.get('id'), url.origin);
       if (url.origin === appOrigin) return url.pathname.endsWith('/') ? url.pathname : `${url.pathname}/` || projectLibraryUrl();
     } catch {
       /* fall through */
     }
   }
   return projectLibraryUrl();
+}
+
+/**
+ * Where "back" goes for a project: the import service's file page that owns it (scrolled to
+ * and highlighting its card via #p-<id>), else this app's library.
+ */
+export function projectHomeUrl(projectId: string | null | undefined, importOrigin: string | null | undefined): string {
+  if (!importOrigin) return projectLibraryUrl();
+  const root = importOrigin.replace(/\/$/, '');
+  return projectId ? `${root}/files#p-${encodeURIComponent(projectId)}` : `${root}/files`;
 }

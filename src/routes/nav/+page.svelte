@@ -6,7 +6,8 @@
   import { markClean } from '$lib/stores/saveStatus';
   import { drawMapRoomLabel, resolveRoomLabelStyle, type RoomLabelStyle } from '$lib/utils/roomMapLabel';
   import { effectivePixelRatio } from '$lib/utils/pixelRatio';
-  import { resolveProjectLibraryUrl } from '$lib/utils/projectLibraryUrl';
+  import { projectHomeUrl, resolveProjectLibraryUrl } from '$lib/utils/projectLibraryUrl';
+  import { disambiguate, floorOption, floorSpoken, pinText, transferText } from '$lib/utils/navCopy';
   import { importOrigin, originOf, projectImportOrigin } from '$lib/utils/importOrigin';
   import type { Room } from '$lib/models/types';
 
@@ -33,6 +34,20 @@
   let lengthCm = $state(0);
   let walkSpeed = $state(1);
   let walkSeek = $state(0);
+  // Narrow screens: the route panel starts collapsed to a one-line instruction (QA 390px).
+  let panelOpen = $state(false);
+  let tapStart: { x: number; y: number; t: number } | null = null;
+
+  function onViewerPointerDown(e: PointerEvent) { tapStart = { x: e.clientX, y: e.clientY, t: performance.now() }; }
+  /** Tap-to-walk: in first person while paused, a tap steps ~2.5 m along the route. */
+  function onViewerPointerUp(e: PointerEvent) {
+    const s0 = tapStart; tapStart = null;
+    if (!s0 || !walking || playbackPlaying || !lengthCm) return;
+    if (Math.hypot(e.clientX - s0.x, e.clientY - s0.y) > 10 || performance.now() - s0.t > 350) return;
+    const step = (250 / Math.max(1, routeLegs[activeLegIndex]?.lengthCm || lengthCm)) * 100;
+    walkSeek = Math.min(100, (Number(walkSeek) || 0) + step);
+    viewer?.setSimulationProgress?.(walkSeek / 100);
+  }
   let pendingModeAction = $state<'simulate' | 'walk' | null>(null);
   let pendingLegAdvance = $state(false);
   let restoredViewer: any = null;
@@ -150,10 +165,9 @@
     }
     const transfer = routeTransfers.find((item) => item.afterLeg === activeLegIndex);
     const next = routeLegs[activeLegIndex + 1];
-    const way = transfer?.direction === 'up' ? '上' : transfer?.direction === 'down' ? '下' : '';
     const tip = transfer
-      ? `乘${transfer.kindLabel || '电梯'}${way}到 ${transfer.toFloorName || next?.floorName || '下一层'}`
-      : `换到 ${next?.floorName || '下一层'}`;
+      ? transferText({ ...transfer, toFloorName: transfer.toFloorName || next?.floorName }, view?.bounds)
+      : `换到 ${floorSpoken(next?.floorName) || '下一层'}`;
     say(tip);
     transferNotice = tip;
     pendingLegAdvance = true;
@@ -178,9 +192,15 @@
     return `${place.floorId || view?.floorId || ''}::${place.id}`;
   }
 
+  // Duplicate names on a floor read 「东侧卫生间」/「卫生间 A」 (floors share plan axes).
+  const displayNames = $derived(disambiguate(
+    allPlaces().map((p) => ({ id: placeKey(p), name: p.name || p.id, floorId: p.floorId || '', x: p.x, y: p.y })),
+    Object.fromEntries((view?.floors || []).map((f) => [f.id, view?.bounds])),
+  ));
+
   function placeLabel(place: Place) {
-    const floor = place.floorName || place.floorId || '';
-    const name = place.name || place.id;
+    const floor = floorSpoken(place.floorName || place.floorId || '');
+    const name = displayNames.get(placeKey(place)) || place.name || place.id;
     return floor ? `${floor} · ${name}` : name;
   }
 
@@ -421,10 +441,10 @@
     for (const transfer of routeTransfers) {
       const ends = [
         transfer.fromFloorId === view.floorId && transfer.from
-          ? { at: transfer.from, text: `${transfer.kindLabel || '电梯'} → ${transfer.toFloorName || ''}` }
+          ? { at: transfer.from, text: pinText.transfer(transferText(transfer, view.bounds)) }
           : null,
         transfer.toFloorId === view.floorId && transfer.to
-          ? { at: transfer.to, text: `${transfer.fromFloorName || ''} ${transfer.kindLabel || '电梯'}到达` }
+          ? { at: transfer.to, text: `从${floorSpoken(transfer.fromFloorName)}到达` }
           : null,
       ];
       for (const end of ends) {
@@ -548,7 +568,7 @@
     simulating = !firstPerson;
     pendingModeAction = firstPerson ? 'walk' : 'simulate';
     playbackPlaying = true;
-    say(firstPerson ? `继续 ${leg.floorName || '这一层'}` : `继续模拟 ${leg.floorName || '这一层'}`);
+    say(firstPerson ? `继续 ${floorSpoken(leg.floorName) || '这一层'}` : `继续模拟 ${floorSpoken(leg.floorName) || '这一层'}`);
   }
 
   async function planRoute() {
@@ -687,6 +707,13 @@
   }
 
   onMount(() => {
+    // Test hook for scripted same-camera screenshots (harmless in production).
+    (window as any).__navTest = {
+      get viewer() { return viewer; },
+      places: () => allPlaces().map((p) => ({ key: placeKey(p), label: placeLabel(p) })),
+      route: async (from: string, to: string) => { startId = from; endId = to; await planRoute(); return routeMessage; },
+      setMode: (m: '2d' | '3d') => { mode = m; },
+    };
     void (async () => {
       try {
         const url = new URL(window.location.href);
@@ -694,6 +721,7 @@
         const projectHint = url.searchParams.get('id') || url.searchParams.get('projectUrl')?.match(/\/projects\/([0-9a-f]{32})/i)?.[1];
         apiOrigin = (url.searchParams.get('apiOrigin') || originOf(url.searchParams.get('projectUrl')) || projectImportOrigin(projectHint) || importOrigin()).replace(/\/$/, '');
         libraryUrl = resolveProjectLibraryUrl(url.searchParams, url.origin);
+        if (libraryUrl === '/' && apiOrigin) libraryUrl = projectHomeUrl(projectHint, apiOrigin);
         projectId = url.searchParams.get('id') || '';
         const projectUrl = url.searchParams.get('projectUrl');
         if (!projectUrl && !projectId) {
@@ -733,7 +761,7 @@
 {:else if ready}
   <div class="nav" data-openplan-nav-shell>
     <header class="nav-bar">
-      <a class="back" href={libraryUrl} data-testid="back-to-projects">返回项目列表</a>
+      <a class="back" href={libraryUrl} data-testid="back-to-projects" aria-label="返回项目列表"><span class="back-icon" aria-hidden="true">‹</span><span class="back-text">返回项目列表</span></a>
       <h1>导航</h1>
       <label class="floor">
         {#if (view?.floors?.length || 0) > 1}
@@ -743,7 +771,7 @@
             onchange={(e) => showFloor((e.currentTarget as HTMLSelectElement).value)}
           >
             {#each view?.floors || [] as floor}
-              <option value={floor.id}>{floor.name}</option>
+              <option value={floor.id}>{floorOption(floor.name)}</option>
             {/each}
           </select>
         {:else}
@@ -763,7 +791,7 @@
           class:hidden={mode !== '2d'}
           onclick={onPlanClick}
         ></canvas>
-        <div class="viewer" class:hidden={mode !== '3d'}>
+        <div class="viewer" class:hidden={mode !== '3d'} onpointerdown={onViewerPointerDown} onpointerup={onViewerPointerUp}>
           {#if ThreeViewer}
             <ThreeViewer bind:this={viewer} navShell={true} routePolyline={routePolyline} routeDoorIds={routeDoorIds} onRouteProgress={handleRouteProgress} onNavWalkExit={handleNavWalkExit} />
           {/if}
@@ -772,7 +800,11 @@
           <div class="transfer-notice" role="status">{transferNotice}</div>
         {/if}
       </div>
-      <aside class="side">
+      <aside class="side" class:open={panelOpen}>
+        <button type="button" class="panel-peek" aria-expanded={panelOpen} onclick={() => (panelOpen = !panelOpen)}>
+          <span class="peek-text">{transferNotice || (routeLegs.length ? routeMessage : status)}</span>
+          <span class="peek-toggle">{panelOpen ? '收起' : '展开'}</span>
+        </button>
         <div class="route-stops">
           <label class="route-stop"><span class="dot start-dot"></span>从
             <select bind:value={startId} aria-label="起点" onchange={() => planRoute()}>
@@ -913,13 +945,13 @@
                   aria-pressed={index === activeLegIndex}
                   onclick={() => showLeg(index)}
                 >
-                  <span>{index + 1}. {leg.floorName || leg.floorId}</span>
+                  <span>{index + 1}. {floorSpoken(leg.floorName || leg.floorId)}</span>
                   <span class="leg-length">{metersLabel(leg.lengthCm || 0)}</span>
                 </button>
               </li>
               {#if transferAfter(index)}
                 {@const ride = transferAfter(index)!}
-                <li class="ride">乘{ride.kindLabel || '电梯'}「{ride.name}」{ride.fromFloorName} → {ride.toFloorName}</li>
+                <li class="ride">{transferText(ride, view?.bounds)}</li>
               {/if}
             {/each}
           </ol>
@@ -1044,7 +1076,8 @@
     padding: 8px 16px; background: rgba(15, 61, 122, 0.92); color: #fff;
     font-size: 15px; font-weight: 600; pointer-events: none;
   }
-  .accessible { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #444; }
+  .accessible { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 13px; color: #444; cursor: pointer; }
+  .accessible input { width: 20px; height: 20px; margin: 0; cursor: pointer; }
   .itinerary { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
   .itinerary button {
     width: 100%; height: 30px; display: flex; justify-content: space-between; align-items: center;
@@ -1068,8 +1101,22 @@
   .link-form button:disabled { opacity: 0.45; cursor: default; }
   .hint { margin: 4px 0 0; color: #777; font-size: 12px; }
   .nav-error { padding: 24px; font-family: system-ui, sans-serif; }
+  .panel-peek, .back-icon { display: none; }
   @media (max-width: 720px) {
     .stage { flex-direction: column; }
-    .side { width: 100%; max-height: 42vh; border-left: 0; border-top: 1px solid #e6e6e6; }
+    .side { width: 100%; max-height: 52vh; border-left: 0; border-top: 1px solid #e6e6e6; }
+    /* Collapsed: only the one-line instruction; 3D gets the screen. */
+    .side:not(.open) { max-height: 56px; overflow: hidden; }
+    .side:not(.open) > :not(.panel-peek) { display: none; }
+    .panel-peek { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; padding: 0 12px;
+      border: 0; border-bottom: 1px solid #eee; background: #fff; font: inherit; text-align: left; cursor: pointer; }
+    .peek-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: #16302a; }
+    .peek-toggle { color: #1a7af8; font-size: 13px; }
+    /* Header: back icon + floor + one view toggle. */
+    .nav-bar h1, .back-text { display: none; }
+    .back-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; font-size: 30px; line-height: 1; }
+    .mode-switch button.is-active { display: none; }
+    .mode-switch button { min-height: 44px; }
+    .status { display: none; }
   }
 </style>

@@ -72,13 +72,20 @@
   let lastProject = '';
   let busy = false;
 
-  async function tick() {
-    if (busy) return;
+  // Offline bridge: back off (2 s → 30 s) instead of probing every 800 ms, which filled the
+  // console with connection-refused errors on every editor page without MCP running.
+  let retryAt = 0;
+  let backoff = 0;
+
+  async function tick(force = false) {
+    if (busy || (!force && performance.now() < retryAt)) return;
     busy = true;
     try {
       const health = await fetch(`${origin}/bridge/health`, { signal: AbortSignal.timeout(2000) });
       if (!health.ok) throw new Error('health');
       const info = await health.json();
+      backoff = 0;
+      retryAt = 0;
       tokenRequired = Boolean(info.tokenRequired);
       const project = get(currentProject);
       if (!project) {
@@ -138,6 +145,8 @@
     } catch {
       status = 'offline';
       linked = false;
+      backoff = Math.min(30_000, backoff ? backoff * 2 : 2000);
+      retryAt = performance.now() + backoff;
     } finally {
       busy = false;
     }
@@ -160,7 +169,7 @@
     else sessionStorage.removeItem('openplan-editor-mcp-token');
     linked = false;
     lastProject = '';
-    void tick();
+    void tick(true);
   }
 
   async function copy(label: string, value: string) {

@@ -4,6 +4,7 @@
  * first-person ceiling light panels with soft light pools, and the per-view light rig.
  */
 import * as THREE from 'three';
+import { lightSpots } from './layout';
 import type { NavLook } from './pipeline';
 
 const box = new THREE.BoxGeometry(1, 1, 1);
@@ -157,26 +158,10 @@ export class NavDressing {
 
   /** First person: emissive panels on a grid inside every ceiling, each with a soft pool below. */
   private buildCeilingLights(opts: DressingOptions) {
-    const spots: { x: number; z: number; h: number; long: boolean }[] = [];
-    const inside = (x: number, z: number, poly: { x: number; y: number }[]) => {
-      let c = false;
-      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-        const a = poly[i], b = poly[j];
-        if ((a.y > z) !== (b.y > z) && x < ((b.x - a.x) * (z - a.y)) / (b.y - a.y) + a.x) c = !c;
-      }
-      return c;
-    };
-    for (const ceil of opts.ceilings) {
-      const xs = ceil.polygon.map(p => p.x), zs = ceil.polygon.map(p => p.y);
-      const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
-      const long = x1 - x0 >= z1 - z0;
-      const step = 300;
-      const nx = Math.max(1, Math.floor((x1 - x0) / step)), nz = Math.max(1, Math.floor((z1 - z0) / step));
-      for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
-        const x = x0 + ((i + 0.5) * (x1 - x0)) / nx, z = z0 + ((j + 0.5) * (z1 - z0)) / nz;
-        if (inside(x, z, ceil.polygon)) spots.push({ x, z, h: ceil.height, long });
-      }
-    }
+    // Panels follow the room/corridor layout (centred row on corridors, grid in halls), not the
+    // building bounding box, so they sit on the corridor's centreline.
+    const h = opts.ceilings[0]?.height ?? 280;
+    const spots = lightSpots(opts.rooms).map(sp => ({ ...sp, h }));
     if (!spots.length) return;
     const panelMat = this.track(new THREE.MeshBasicMaterial({ color: new THREE.Color('#fff4e2').multiplyScalar(1.5) }));
     const panels = new THREE.InstancedMesh(box, panelMat, spots.length);

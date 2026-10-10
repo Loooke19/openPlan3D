@@ -48,6 +48,8 @@
   import { NavRouteVisual } from './nav/route';
   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
   import { NavSigns, type SignDoor } from './nav/signs';
+  import { centerRoute } from './nav/layout';
+  import { pinText } from '$lib/utils/navCopy';
   import { enableHospitalPbr } from '$lib/utils/hospitalMaterials';
   import { base as appBase } from '$app/paths';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
@@ -720,6 +722,80 @@
     exitWalkthroughMode();
   }
 
+  /** Dev/nav test hook: put the orbit camera at an exact pose (same-camera before/after shots). */
+  export function setOrbitPoseForTest(position: [number, number, number], target: [number, number, number]) {
+    if (!camera || !controls) return;
+    camera.position.set(...position);
+    controls.target.set(...target);
+    controls.update();
+    markSceneDirty();
+  }
+
+  /** Dev/nav test hook: renderer counters for perf notes. */
+  export function getRenderStatsForTest() {
+    if (!renderer) return null;
+    return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures };
+  }
+
+  /** Dev/nav test hook: render N frames back to back and report ms per frame. */
+  export function benchmarkForTest(frames = 60) {
+    if (!renderer) return null;
+    const draw = () => { renderFrameForTest(); };
+    draw();
+    renderer.getContext().finish();
+    renderer.info.autoReset = false;
+    renderer.info.reset();
+    draw();
+    const stats = { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
+    renderer.info.autoReset = true;
+    const t0 = performance.now();
+    for (let i = 0; i < frames; i++) draw();
+    renderer.getContext().finish();
+    return { msPerFrame: (performance.now() - t0) / frames, ...getRenderStatsForTest(), ...stats, pixelRatio: renderer.getPixelRatio() };
+  }
+
+  /** Dev/nav test hook: what is under a canvas pixel (fractions 0..1). */
+  export function pickForTest(fx: number, fy: number) {
+    const rc = new THREE.Raycaster();
+    rc.setFromCamera(new THREE.Vector2(fx * 2 - 1, -(fy * 2 - 1)), camera);
+    return rc.intersectObjects(scene.children, true).slice(0, 4).map(h => ({
+      type: h.object.type, name: h.object.name, y: Math.round(h.point.y * 10) / 10, ud: Object.keys(h.object.userData),
+      mat: (Array.isArray((h.object as THREE.Mesh).material) ? 'multi' : ((h.object as THREE.Mesh).material as THREE.Material)?.type),
+      color: ((h.object as THREE.Mesh).material as THREE.MeshStandardMaterial)?.color?.getHexString?.(), face: h.face?.normal?.toArray().map(v => Math.round(v * 100) / 100) }));
+  }
+
+  export function debugForTest(what: string) {
+    if (what === 'noshadow') { sunLight.castShadow = false; renderer.shadowMap.needsUpdate = true; }
+    if (what === 'nodressing' && navDressing) navDressing.group.visible = false;
+    if (what === 'nopost') navPipeline = null;
+    if (what === 'routes') {
+      const out: unknown[] = [];
+      scene.traverse(o => { if (o.userData.navRoute) { let vis = true; o.traverseAncestors(a => { if (!a.visible) vis = false; }); const b = new THREE.Box3().setFromObject(o); out.push({ vis: vis && o.visible, kids: o.children.map(c => c.visible), min: b.min.toArray().map(Math.round), max: b.max.toArray().map(Math.round) }); } });
+      return { out, simRoute: simRoute.length };
+    }
+    if (what === 'redcaps' && navDressing) {
+      const caps = navDressing.group.children[1].children[0] as THREE.InstancedMesh;
+      (caps.material as THREE.MeshStandardMaterial).color.set('#ff0000');
+      const m = new THREE.Matrix4(); const out: number[][] = [];
+      for (let i = 0; i < Math.min(caps.count, 40); i++) { caps.getMatrixAt(i, m); const p = new THREE.Vector3().setFromMatrixPosition(m); if (p.y < 200) out.push(p.toArray().map(Math.round)); }
+      return { count: caps.count, low: out };
+    }
+    if (what === 'walls') {
+      const out: unknown[] = [];
+      wallGroup.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && (m.userData.renderMaterial === 'wall' || m.userData.wallId)) {
+        m.geometry.computeBoundingBox(); const b = m.geometry.boundingBox!;
+        out.push({ rm: m.userData.renderMaterial, wid: m.userData.wallId, type: m.geometry.type, rot: m.rotation.toArray().slice(0, 3).map(v => Math.round(Number(v) * 100) / 100), pos: m.position.toArray().map(Math.round), min: b.min.toArray().map(Math.round), max: b.max.toArray().map(Math.round), parent: m.parent === wallGroup }); } });
+      return out.filter((x: any) => x.max[1] < 200 || x.min[1] < -1 || x.rot.some((r: number) => Math.abs(r) > 0.01 && Math.abs(Math.abs(r) - 3.14) > 0.01 && Math.abs(Math.abs(r) - 1.57) > 0.01) || !x.parent).slice(0, 12);
+    }
+    if (what === 'nocaps' && navDressing) navDressing.group.children[1].visible = false;
+    if (what === 'noao' && navDressing) navDressing.group.children.slice(2).forEach(c => (c.visible = false));
+    markSceneDirty();
+    return { hemi: hemiLight.intensity, amb: ambientLight.intensity, sun: sunLight.intensity, env: scene.environmentIntensity, sunPos: sunLight.position.toArray(), tgt: sunLight.target.position.toArray(), tgtParent: !!sunLight.target.parent };
+  }
+
+  function renderFrameForTest() { renderView(); }
+
+
   /** Dev/nav test hook: orbit pose for floor-switch camera checks. */
   export function getOrbitSnapshot() {
     if (!camera || !controls) return null;
@@ -1125,7 +1201,8 @@
       if (!meta) return;
       // First person reads the wall-mounted signs instead of floating text.
       o.visible = look === 'overview';
-      o.scale.set(meta.sx * 3.2, meta.sy * 3.2, 1);
+      const k = navLabelScale(meta.sx, meta.fit);
+      o.scale.set(meta.sx * k, meta.sy * k, 1);
       o.position.y = 300;
     });
     const bounds = wallGroup?.children.length ? new THREE.Box3().setFromObject(wallGroup) : null;
@@ -1200,6 +1277,7 @@
     });
     navStack.group.removeFromParent();
     navStack = null;
+    navStackFrame = null;
     markSceneDirty();
   }
 
@@ -1253,7 +1331,9 @@
         const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
         const c = roomCentroid(polygon);
         label.position.set(c.x, 300, c.y);
-        label.scale.set(baked.scaleX * 3.2, baked.scaleY * 3.2, 1);
+        // The far layer reads smaller in perspective: a bit larger, still fitted to its room.
+        const k = navLabelScale(baked.scaleX, navLabelFit(polygon), 4.2);
+        label.scale.set(baked.scaleX * k, baked.scaleY * k, 1);
         label.renderOrder = 10;
         g.add(label);
       }
@@ -1276,11 +1356,13 @@
         const holder = stack.floors.find(f => f.dir === dir)!.group;
         const isLast = i === legs.length - 1;
         const r = new NavRouteVisual(leg.polyline, { y: 4.6, start: false, end: isLast });
+        // Draw after the see-through walls so the other floor's route stays full strength.
+        r.group.traverse(o => { o.renderOrder = 6; });
         holder.add(r.group);
         stack.routes.push(r);
         if (isLast && endLabel) {
           const end = leg.polyline[leg.polyline.length - 1];
-          const t = navTextSprite(`终 · ${endLabel}`, { bg: '#ff7a2f', fg: '#ffffff', size: 40 });
+          const t = navTextSprite(pinText.end(endLabel), { bg: '#ff7a2f', fg: '#ffffff', size: 40 });
           t.position.set(end.x, 330, end.y);
           holder.add(t);
         }
@@ -1304,7 +1386,7 @@
         column.add(ring);
       }
       const label = transfers.find(tr => tr.afterLeg === i)?.kindLabel || '电梯';
-      const tag = navTextSprite(`换乘 · ${label}`, { bg: '#ff7a2f', fg: '#ffffff', size: 36 });
+      const tag = navTextSprite(pinText.transfer(label), { bg: '#ff7a2f', fg: '#ffffff', size: 36 });
       tag.userData.connectorTag = true;
       column.add(tag);
       group.add(column);
@@ -1317,13 +1399,20 @@
     const center = box.getCenter(new THREE.Vector3()); center.y = activeFloorElevation + (lo + hi) / 2;
     center.z -= ((Math.min(...dirs) + Math.max(...dirs)) / 2) * stack.shift;
     const span = Math.max(size.x, size.z + stack.shift, hi - lo);
-    const dist = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.2;
-    const dirV = new THREE.Vector3(0.45, 0.6, 0.9).normalize();
-    camera.position.copy(center).addScaledVector(dirV, dist);
-    controls.target.copy(center);
-    controls.update();
-    markSceneDirty();
+    navStackFrame = () => {
+      // Fit the wider of the two view axes: portrait phones are limited by the horizontal FOV.
+      const dist = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.2 / Math.min(1, camera.aspect);
+      const dirV = new THREE.Vector3(0.45, 0.6, 0.9).normalize();
+      camera.position.copy(center).addScaledVector(dirV, dist);
+      controls.target.copy(center);
+      controls.update();
+      markSceneDirty();
+    };
+    navStackFrame();
   }
+
+  /** Re-frames the stacked view when the canvas changes shape (e.g. the phone panel collapses). */
+  let navStackFrame: (() => void) | null = null;
 
   function applyNavStackRise() {
     if (!navStack) return;
@@ -1745,7 +1834,8 @@
     navRouteVisual = null;
     clearGroup(routeGroup);
     routeMarker = null;
-    simRoute = points.slice();
+    // Nav: ride the corridor centreline with rounded corners (2D map and floor stack untouched).
+    simRoute = navShell && currentFloor ? centerRoute(points, currentFloor.walls) : points.slice();
     simSegLens = [];
     simTotalLen = 0;
     for (let i = 0; i + 1 < simRoute.length; i++) {
@@ -1776,7 +1866,8 @@
   function tickSimulation(ts: number) {
     if (!simPlaying) return;
     if (!simLastTs) simLastTs = ts;
-    const dt = Math.min(0.05, (ts - simLastTs) / 1000);
+    // Time-based: slow frames must not slow the walk (cap only long stalls, e.g. tab switches).
+    const dt = Math.min(0.25, (ts - simLastTs) / 1000);
     simLastTs = ts;
     // ~120 cm/s at 1×
     simProgress = Math.min(1, simProgress + (dt * simSpeed * 120) / Math.max(1, simTotalLen));
@@ -1921,6 +2012,19 @@
       doorAnimationRaf = progress < 1 ? requestAnimationFrame(tick) : 0;
     };
     doorAnimationRaf = requestAnimationFrame(tick);
+  }
+
+  /** Room's narrower side (cm): a label never spills over into its neighbour (电梯 vs 楼梯). */
+  function navLabelFit(poly: { x: number; y: number }[]) {
+    if (!poly?.length) return Infinity;
+    const xs = poly.map(p => p.x), ys = poly.map(p => p.y);
+    return Math.max(...xs) - Math.min(...xs);
+  }
+
+  /** Overview label scale: larger on narrow screens, capped so the text fits its room. */
+  function navLabelScale(sx: number, fit = Infinity, base = 3.2) {
+    const narrow = (container?.clientWidth ?? 1024) < 600 ? 1.35 : 1;
+    return Math.max(1.1, Math.min(base * narrow, (0.92 * fit) / Math.max(1, sx)));
   }
 
   function navVeneerTexture() {
@@ -2516,7 +2620,7 @@
           sprite.position.set(centroid.x, 30, centroid.y);
           sprite.renderOrder = 10;
           sprite.scale.set(baked.scaleX * labelScale, baked.scaleY * labelScale, 1);
-          sprite.userData.navLabel = { sx: sprite.scale.x, sy: sprite.scale.y };
+          sprite.userData.navLabel = { sx: sprite.scale.x, sy: sprite.scale.y, fit: navLabelFit(poly) };
           wallGroup.add(sprite);
         }
       } else {
@@ -2920,6 +3024,7 @@
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     navPipeline?.setSize(w, h);
+    if (navStack && !navAutoWalking) navStackFrame?.();
     markSceneDirty();
   }
 

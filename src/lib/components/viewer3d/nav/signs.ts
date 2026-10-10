@@ -97,7 +97,8 @@ export class NavSigns {
       // Blade sign: projects from the wall above the door's edge, faces up/down the corridor.
       const blade = new THREE.Mesh(this.box(64, 20, 2.5), faceMats(room.name));
       blade.position.copy(base).addScaledVector(along, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 38);
-      blade.position.y = floorY + Math.max(d.height + 22, 228);
+      // Low enough to stay in frame from eye height a few metres back, still above the door head.
+      blade.position.y = floorY + Math.max(d.height + 14, 222);
       blade.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(n, new THREE.Vector3(0, 1, 0), along));
       const arm = new THREE.Mesh(this.box(42, 2, 2), bracketMat);
       arm.position.copy(base).addScaledVector(along, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 20);

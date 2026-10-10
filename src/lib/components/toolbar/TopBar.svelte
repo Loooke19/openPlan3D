@@ -12,7 +12,8 @@
   import AssistantShareDialog from '$lib/components/AssistantShareDialog.svelte';
   import { onMount, onDestroy } from 'svelte';
   import { orderedFloors } from '$lib/utils/floors';
-  import { projectLibraryUrl } from '$lib/utils/projectLibraryUrl';
+  import { projectHomeUrl } from '$lib/utils/projectLibraryUrl';
+  import { projectImportOrigin } from '$lib/utils/importOrigin';
   import type { FloorSeed } from '$lib/stores/project';
   import { currentProject, viewMode, undo, redo, addFloor, removeFloor, setActiveFloor, updateProjectName, createDefaultProject, snapEnabled, canvasZoom, canvasMinimumZoom, panMode, showFurnitureStore, layerVisibility, activeFloor, selectedElementId, elevationWallId, elevationPickMode } from '$lib/stores/project';
   import { get } from 'svelte/store';
@@ -326,9 +327,9 @@
 </script>
 
 <div class="h-12 bg-gradient-to-r from-slate-800 to-slate-700 flex items-center px-4 gap-2 max-xl:px-2 max-xl:gap-1 shrink-0 shadow-sm">
-  <!-- Back to openPlan project library (not the import API /files page) -->
+  <!-- Back to the project's home: its import service's /files card, else the openPlan library -->
   <a
-    href={projectLibraryUrl()}
+    href={projectHomeUrl($currentProject?.id, projectImportOrigin($currentProject?.id))}
     class="flex items-center gap-1 text-white/70 hover:text-white text-sm transition-colors"
     title={$t('projectToolbar.back')}
     data-testid="back-to-projects"

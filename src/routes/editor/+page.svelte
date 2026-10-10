@@ -325,7 +325,7 @@
   <!-- Tools drawer FAB (mobile only) -->
   {#if mode === '2d'}
     <button
-      class="md:hidden fixed bottom-4 left-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg active:bg-blue-700 transition-colors z-40 flex items-center justify-center"
+      class="md:hidden fixed bottom-[128px] left-3 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg active:bg-blue-700 transition-colors z-40 flex items-center justify-center"
       onclick={() => buildPanelOpen = !buildPanelOpen}
       title={$t('buildTools.tools')}
       aria-label={$t('editorPanels.tools')}
