@@ -77,6 +77,21 @@ export interface Room {
   roomType?: RoomCategory;
   /** Custom label position offset from centroid (in world units) */
   labelOffset?: Point;
+  /** Room-name colour. Omitted labels keep the plan default. */
+  labelColor?: string;
+  /** Room-name size in plan pixels at zoom 1. Omitted labels use 13. */
+  labelSize?: number;
+  /**
+   * Nav / plan label presentation.
+   * `stroke` = outlined name; `mapPoi` / `mapPoiSoft` = map-app icon+name; `hidden` = omit.
+   */
+  labelStyle?: 'stroke' | 'mapPoi' | 'mapPoiSoft' | 'hidden';
+  /** Map-POI category icon (elevator, restroom, clinic, …). */
+  labelIcon?: 'elevator' | 'stairs' | 'restroom' | 'clinic' | 'service' | 'food' | 'exit' | 'general';
+  /** Override circle colour for map-POI icons (`#RRGGBB`). */
+  labelIconColor?: string;
+  /** Explicit floor outline in centimetres. Drawn even when the wall graph has no closed face. */
+  floorPolygon?: Point[];
 }
 
 export interface Door {

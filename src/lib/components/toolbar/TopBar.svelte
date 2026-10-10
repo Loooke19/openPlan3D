@@ -11,8 +11,8 @@
   import ImportError from '$lib/components/ImportError.svelte';
   import AssistantShareDialog from '$lib/components/AssistantShareDialog.svelte';
   import { onMount, onDestroy } from 'svelte';
-  import { base } from '$app/paths';
   import { orderedFloors } from '$lib/utils/floors';
+  import { projectLibraryUrl } from '$lib/utils/projectLibraryUrl';
   import type { FloorSeed } from '$lib/stores/project';
   import { currentProject, viewMode, undo, redo, addFloor, removeFloor, setActiveFloor, updateProjectName, createDefaultProject, snapEnabled, canvasZoom, canvasMinimumZoom, panMode, showFurnitureStore, layerVisibility, activeFloor, selectedElementId, elevationWallId, elevationPickMode } from '$lib/stores/project';
   import { get } from 'svelte/store';
@@ -305,11 +305,12 @@
 </script>
 
 <div class="h-12 bg-gradient-to-r from-slate-800 to-slate-700 flex items-center px-4 gap-2 max-xl:px-2 max-xl:gap-1 shrink-0 shadow-sm">
-  <!-- Back to Projects -->
+  <!-- Back to openPlan project library (not the import API /files page) -->
   <a
-    href={base || '/'}
+    href={projectLibraryUrl()}
     class="flex items-center gap-1 text-white/70 hover:text-white text-sm transition-colors"
     title={$t('projectToolbar.back')}
+    data-testid="back-to-projects"
   >
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
     <span class="hidden sm:inline">{$t('projectToolbar.projects')}</span>

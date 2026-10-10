@@ -21,5 +21,6 @@ export const wallMaterialLabels: Record<string, TranslationKey> = {
   "stone": "wallMaterial.stone",
   "wood-panel": "wallMaterial.wood-panel",
   "concrete-block": "wallMaterial.concrete-block",
-  "subway-tile": "wallMaterial.subway-tile"
+  "subway-tile": "wallMaterial.subway-tile",
+  "hospital-wall": "wallMaterial.hospital-wall"
 };

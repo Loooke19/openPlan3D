@@ -280,6 +280,7 @@
           <label class="block mb-4 text-sm font-medium text-gray-700 dark:text-gray-300">
             {$t('settings.language')}
             <select value={$locale} onchange={(e) => locale.set(e.currentTarget.value as Locale)} class="mt-2 block w-full rounded-lg border border-gray-300 p-2 bg-white dark:bg-gray-700 dark:border-gray-600">
+              <option value="zh" lang="zh">中文</option>
               <option value="en" lang="en">English</option>
               <option value="pt" lang="pt">Português</option>
             </select>

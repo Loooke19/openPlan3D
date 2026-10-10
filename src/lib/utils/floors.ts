@@ -30,3 +30,11 @@ export function getFloorBelow(project: Project | null): Floor | null {
   const active = entries.find(entry => entry.floor.id === project.activeFloorId);
   return active ? entries.filter(entry => entry.level < active.level).at(-1)?.floor ?? null : null;
 }
+
+/** Next higher floor in level order (e.g. 2F → 3F). */
+export function getFloorAbove(project: Project | null): Floor | null {
+  if (!project) return null;
+  const entries = orderedFloors(project.floors);
+  const active = entries.find(entry => entry.floor.id === project.activeFloorId);
+  return active ? entries.find(entry => entry.level > active.level)?.floor ?? null : null;
+}

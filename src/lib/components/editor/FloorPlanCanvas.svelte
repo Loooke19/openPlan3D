@@ -12,7 +12,7 @@
   import { activeFloor, selectedTool, selectedElementId, selectedElementIds, selectedRoomId, addWall, addDoor, addWindow, updateWall, moveWallEndpoint, moveWallGeometryDuringDrag, updateDoor, updateWindow, addFurniture, moveFurniture, transformFurnitureDuringDrag, rotateFurniture, rotateSelection, setFurnitureRotation, scaleFurniture, removeElement, placingFurnitureId, placingRotation, placingDoorType, placingWindowType, detectedRoomsStore, duplicateDoor, duplicateWindow, duplicateFurniture, duplicateSelection, pasteSelection, moveWallParallel, splitWall, wallSplitIntersectsOpening, snapEnabled, placingStair, addStair, moveStair, updateStair, placingColumn, placingColumnShape, addColumn, moveColumn, updateColumn, calibrationMode, calibrationPoints, updateBackgroundImage, setBackgroundImage, canvasZoom, canvasMinimumZoom, canvasCamX, canvasCamY, panMode, showFurnitureStore, addGuide, moveGuide, removeGuide, beginUndoGroup, endUndoGroup, layerVisibility, updateRoom, addMeasurement, updateMeasurement, removeMeasurement, addAnnotation, removeAnnotation, updateAnnotation, addTextAnnotation, removeTextAnnotation, updateTextAnnotation, moveTextAnnotation, toggleFurnitureLock, toggleSelectionLock, createGroup, ungroupElements, findGroupForElement, placingEntourageId, addEntourageItem, moveEntourage, resizeEntourage, currentProject, elevationWallId, elevationPickMode } from '$lib/stores/project';
   import type { Point, Wall, Door, Window as Win, FurnitureItem, Stair, Column, GuideLine, Measurement, Annotation, TextAnnotation, CustomEntourageDef } from '$lib/models/types';
   import type { Floor, Room } from '$lib/models/types';
-  import { resolveRoomGeometry, roomLabelPosition, roomCentroid } from '$lib/utils/roomDetection';
+  import { roomFaces, roomLabelPosition, roomCentroid } from '$lib/utils/roomDetection';
   import { roomHoles } from '$lib/utils/roomNesting';
   import { getFloorBelow } from '$lib/utils/floors';
   import { detectOuterWalls } from '$lib/utils/outerWalls';
@@ -892,7 +892,7 @@
     if (hash === lastWallHash) return;
     lastWallHash = hash;
     const previous = lastRoomFloorId === currentFloor.id ? detectedRooms : [];
-    const geometry = resolveRoomGeometry(currentFloor, previous);
+    const geometry = roomFaces(currentFloor, previous);
     const newRooms = geometry.map(item => item.room);
     roomPolygons = new Map(geometry.map(({ room, polygon }) => [room.id, polygon]));
     const holes = roomHoles(geometry.map(g => g.polygon));
@@ -3937,6 +3937,7 @@
     bind:this={canvas}
     class="block w-full h-full touch-none"
     tabindex="0"
+    data-plan2d-canvas="true"
     aria-label={$t('canvas.editorLabel')}
     style="cursor: {cursorStyle}"
     onmousedown={onMouseDown}

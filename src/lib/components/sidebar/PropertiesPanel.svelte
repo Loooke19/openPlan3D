@@ -7,12 +7,14 @@
   const furnitureFinishLabels: Record<string, TranslationKey> = {"Wood": "furnitureFinish.Wood", "Metal": "furnitureFinish.Metal", "Fabric": "furnitureFinish.Fabric", "Leather": "furnitureFinish.Leather", "Glass": "furnitureFinish.Glass", "Plastic": "furnitureFinish.Plastic", "Stone": "furnitureFinish.Stone", "Ceramic": "furnitureFinish.Ceramic"};
   import { furnitureFinishes } from '$lib/utils/furnitureFinishes';
   import { resolveRooms } from '$lib/utils/roomDetection';
+  import { ROOM_LABEL_STYLES, ROOM_LABEL_ICONS, roomLabelIconColor, type RoomLabelStyle, type RoomLabelIcon } from '$lib/utils/roomMapLabel';
   import { onDestroy } from 'svelte';
   import ItemDetailsPanel from './ItemDetailsPanel.svelte';
   import type { DetailTarget } from '$lib/models/types';
   import { catalogAssetUrl } from '$lib/utils/catalogAssetUrl';
+  import VerticalLinkRoomControls from '$lib/components/editor/VerticalLinkRoomControls.svelte';
 
-  import { currentProject, activeFloor, selectedElementId, selectedRoomId, updateWall, resizeWallLength, reverseWall, updateDoor, updateWindow, updateRoom, updateFurniture, detectedRoomsStore, updateStair, updateColumn, updateBackgroundImage, setBackgroundImage, calibrationMode, calibrationPoints, updateTextAnnotation, toggleFurnitureLock, updateEntourageItem, removeElement, elevationWallId } from '$lib/stores/project';
+  import { currentProject, activeFloor, selectedElementId, selectedRoomId, updateWall, resizeWallLength, reverseWall, updateDoor, updateWindow, updateRoom, updateFurniture, detectedRoomsStore, updateStair, updateColumn, updateBackgroundImage, setBackgroundImage, calibrationMode, calibrationPoints, updateTextAnnotation, toggleFurnitureLock, updateEntourageItem, removeElement, elevationWallId, applyRoomLabels } from '$lib/stores/project';
   import { wallLength as calcWallLength, MIN_WALL_LENGTH, type WallEndpoint } from '$lib/utils/wallEditing';
   import { openingOnWall } from '$lib/utils/wallProfiles';
   import { getEntourageDef } from '$lib/utils/entourageCatalog';
@@ -286,7 +288,7 @@
     { name: 'Navy', color: '#1e3a8a' },
   ];
 
-  function updateDetectedRoom(id: string, updates: Partial<{ name: string; floorTexture: string; color: string }>) {
+  function updateDetectedRoom(id: string, updates: Partial<{ name: string; floorTexture: string; color: string; labelColor: string; labelSize: number; labelStyle: Room['labelStyle']; labelIcon: Room['labelIcon']; labelIconColor: string }>) {
     detectedRoomsStore.update(rooms => rooms.map(r => r.id === id ? { ...r, ...updates } : r));
   }
 
@@ -305,6 +307,42 @@
     if (!selectedRoom) return;
     updateRoom(selectedRoom.id, { color });
     updateDetectedRoom(selectedRoom.id, { color });
+  }
+  function onRoomLabelColor(color: string) {
+    if (!selectedRoom) return;
+    updateRoom(selectedRoom.id, { labelColor: color });
+    updateDetectedRoom(selectedRoom.id, { labelColor: color });
+  }
+  function onRoomLabelSize(e: Event) {
+    if (!selectedRoom) return;
+    const room = selectedRoom;
+    scalarInput(e, room.labelSize ?? 17, value => {
+      const labelSize = Math.min(72, Math.max(8, value));
+      updateRoom(room.id, { labelSize });
+      updateDetectedRoom(room.id, { labelSize });
+    });
+  }
+  function onApplyRoomLabels() {
+    if (!selectedRoom) return;
+    applyRoomLabels(selectedRoom.labelSize ?? 17, selectedRoom.labelColor ?? '#000000');
+  }
+  function onRoomLabelStyle(e: Event) {
+    if (!selectedRoom) return;
+    const labelStyle = (e.target as HTMLSelectElement).value as RoomLabelStyle;
+    updateRoom(selectedRoom.id, { labelStyle });
+    updateDetectedRoom(selectedRoom.id, { labelStyle });
+  }
+  function onRoomLabelIcon(e: Event) {
+    if (!selectedRoom) return;
+    const labelIcon = (e.target as HTMLSelectElement).value as RoomLabelIcon;
+    const presetColor = roomLabelIconColor(labelIcon);
+    updateRoom(selectedRoom.id, { labelIcon, labelIconColor: presetColor });
+    updateDetectedRoom(selectedRoom.id, { labelIcon, labelIconColor: presetColor });
+  }
+  function onRoomLabelIconColor(color: string) {
+    if (!selectedRoom) return;
+    updateRoom(selectedRoom.id, { labelIconColor: color });
+    updateDetectedRoom(selectedRoom.id, { labelIconColor: color });
   }
 
   const roomTypes = [
@@ -354,6 +392,7 @@
   };
   const textureGroups = [
     { label: '🎨 Plain', ids: ['none'] },
+    { label: '🏥 Hospital', ids: ['hospital-floor'] },
     { label: '🪵 Wood', ids: ['light-oak', 'walnut', 'bamboo', 'laminate'] },
     { label: '🔲 Tile', ids: ['ceramic-white', 'ceramic-gray', 'porcelain', 'vinyl'] },
     { label: '🪨 Stone', ids: ['marble-white', 'marble-dark', 'concrete', 'slate'] },
@@ -788,6 +827,48 @@
         <span class="text-xs text-gray-500">{$t('roomProperties.name')}</span>
         <input type="text" value={selectedRoom.name} oninput={onRoomName} class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
+      <label class="block">
+        <span class="text-xs text-gray-500">{$t('roomProperties.labelSize')}</span>
+        <input type="number" value={selectedRoom.labelSize ?? 17} min="8" max="72" step="1" oninput={onRoomLabelSize} onblur={onRoomLabelSize} class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
+      </label>
+      <label class="block">
+        <span class="text-xs text-gray-500">{$t('roomProperties.labelColor')}</span>
+        <div class="flex items-center gap-2">
+          <input type="color" aria-label={$t('roomProperties.labelColor')} value={selectedRoom.labelColor ?? '#000000'} oninput={(e) => onRoomLabelColor((e.target as HTMLInputElement).value)} class="w-8 h-6 rounded border border-gray-200 cursor-pointer" />
+          <span class="text-xs text-gray-400">{selectedRoom.labelColor ?? '#000000'}</span>
+        </div>
+      </label>
+      <label class="block">
+        <span class="text-xs text-gray-500">{$t('roomProperties.labelStyle')}</span>
+        <select value={selectedRoom.labelStyle ?? 'stroke'} onchange={onRoomLabelStyle} class="w-full px-2 py-1 border border-gray-200 rounded text-sm">
+          {#each ROOM_LABEL_STYLES as st}
+            <option value={st.id}>{$t(st.labelKey)}</option>
+          {/each}
+        </select>
+      </label>
+      {#if (selectedRoom.labelStyle ?? 'stroke') === 'mapPoi' || (selectedRoom.labelStyle ?? 'stroke') === 'mapPoiSoft'}
+        <label class="block">
+          <span class="text-xs text-gray-500">{$t('roomProperties.labelIcon')}</span>
+          <select value={selectedRoom.labelIcon ?? 'general'} onchange={onRoomLabelIcon} class="w-full px-2 py-1 border border-gray-200 rounded text-sm">
+            {#each ROOM_LABEL_ICONS as ic}
+              <option value={ic.id}>{$t(ic.labelKey)}</option>
+            {/each}
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-xs text-gray-500">{$t('roomProperties.labelIconColor')}</span>
+          <div class="flex items-center gap-2">
+            <input type="color" aria-label={$t('roomProperties.labelIconColor')} value={selectedRoom.labelIconColor ?? roomLabelIconColor(selectedRoom.labelIcon)} oninput={(e) => onRoomLabelIconColor((e.target as HTMLInputElement).value)} class="w-8 h-6 rounded border border-gray-200 cursor-pointer" />
+            <span class="text-xs text-gray-400">{selectedRoom.labelIconColor ?? roomLabelIconColor(selectedRoom.labelIcon)}</span>
+          </div>
+        </label>
+      {/if}
+      <button type="button" onclick={onApplyRoomLabels} class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+        {$t('roomProperties.applyLabels')}
+      </button>
+      {#if floor && selectedRoom}
+        <VerticalLinkRoomControls room={selectedRoom} floor={floor} />
+      {/if}
       <label class="block">
         <span class="text-xs text-gray-500">{$t('roomProperties.category')}</span>
         <select value={selectedRoom.roomType ?? 'indoor'} onchange={(e) => { if (selectedRoom) { const v = (e.target as HTMLSelectElement).value as RoomCategory; updateRoom(selectedRoom.id, { roomType: v }); updateDetectedRoom(selectedRoom.id, { roomType: v } as any); } }} class="w-full px-2 py-1 border border-gray-200 rounded text-sm">
