@@ -6,7 +6,7 @@ export type IndexedPlace = SearchPlace & { haystack: string[] };
 // 常用, in this order: entrance, 导医台, 药房/收费, 卫生间, 电梯.
 const COMMON_ORDER = [/入口|出入口|大门|门厅|大厅/, /导医|服务台|咨询台/, /药房|收费|挂号/, /卫生间|男卫|女卫|^卫$|厕所/, /电梯/];
 const COMMON = new RegExp(COMMON_ORDER.map(r => r.source).join('|'));
-const UNNAMED = /^(未命名|房间\s*\d+$)/;
+const UNNAMED = /^(未命名|(房间|Room)\s*\d+$)/i;
 const squash = (s: string) => s.toLowerCase().replace(/[\s·・\-_（）()]/g, '');
 export function commonRank(p: SearchPlace) { const i = COMMON_ORDER.findIndex(r => r.test(p.name)); return i < 0 ? 99 : i; }
 
