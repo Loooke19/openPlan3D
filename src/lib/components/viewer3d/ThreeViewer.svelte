@@ -3377,7 +3377,7 @@
         for (const r of navStack.routes) r.tick(timestamp / 1000);
       }
       if (navRouteVisual && typeof document !== 'undefined' && !document.hidden) {
-        navRouteVisual.tick(timestamp / 1000);
+        navRouteVisual.tick(timestamp / 1000, walkthroughMode ? camera.position : undefined);
         // Route doors open on approach and close behind (swinging into the room).
         updateNavDoors(lastDoorTs ? timestamp - lastDoorTs : 16);
         lastDoorTs = timestamp;

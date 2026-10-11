@@ -176,6 +176,7 @@ export class NavRouteVisual {
           gl_FragColor = vec4(uColor * a, 1.); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     }));
+    column.userData.beaconColumn = true;
     g.add(rim, disc, ring, column);
     this.group.add(g);
   }
@@ -187,9 +188,12 @@ export class NavRouteVisual {
 
   setTraveled(distance: number) { this.uniforms.uTraveled.value = distance; }
 
-  tick(seconds: number) {
+  tick(seconds: number, eye?: THREE.Vector3) {
     this.uniforms.uTime.value = seconds;
     if (this.beacon) {
+      // First person: the glow column swallowed the whole view when the camera reached it.
+      const col = this.beacon.children.find(c => c.userData.beaconColumn);
+      if (col) col.visible = !eye || Math.hypot(eye.x - this.beacon.position.x, eye.z - this.beacon.position.z) > 180;
       const ring = this.beacon.children.find(c => c.userData.pulse) as THREE.Mesh | undefined;
       if (ring) {
         const t = (seconds * 0.8) % 1;
