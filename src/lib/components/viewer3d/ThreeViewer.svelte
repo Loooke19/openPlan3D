@@ -2108,7 +2108,9 @@
     const ahead = pointOnRoute(Math.min(simTotalLen, distance + 250));
     const back = pointOnRoute(Math.max(0, distance - 30)), fwd = pointOnRoute(Math.min(simTotalLen, distance + 60));
     let yaw = navWalkYaw ?? pose.yaw;
-    const first = pointOnRoute(Math.min(simTotalLen, 60));
+    // Start: aim at where the route goes ~3 m on (a short first stub out of a doorway or a
+    // snapped start used to point the camera straight at the adjacent wall).
+    const first = pointOnRoute(Math.min(simTotalLen, 300)) ?? pointOnRoute(Math.min(simTotalLen, 60));
     if (distance < 60 && first && Math.hypot(first.x - pose.x, first.y - pose.y) > 20) yaw = Math.atan2(first.y - pose.y, first.x - pose.x);
     else if (ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 80) yaw = Math.atan2(ahead.y - pose.y, ahead.x - pose.x);
     else if (back && fwd && Math.hypot(fwd.x - back.x, fwd.y - back.y) > 20) yaw = Math.atan2(fwd.y - back.y, fwd.x - back.x);
