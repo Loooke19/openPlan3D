@@ -21,7 +21,10 @@
   // Identical rows (same kind, same floor) get a building-relative side: 卫生间（右侧）· 2F · 约 15 米.
   const toiletRow = (t: (typeof toilets)[number]) => {
     const peers = toilets.filter(o => o.kind === t.kind && o.p.floorId === t.p.floorId).map(o => o.p);
-    const side = peers.length > 1 ? relativeSide(t.p, places, peers) : '';
+    // A person-set landmark in the name (卫生间（靠楼梯B）/（走廊尽头）) beats the computed side.
+    const mark = /（([^）]{1,6})）$/.exec(t.p.name)?.[1];
+    const landmark = mark && !/^(男|女|无障碍)$/.test(mark) ? mark : '';
+    const side = landmark || (peers.length > 1 ? relativeSide(t.p, places, peers) : '');
     const base = toiletLabel(t.kind);
     const lab = side ? (base.endsWith('）') ? base.replace(/）$/, `·${side}）`) : `${base}（${side}）`) : base;
     return `${lab} · ${floorShort(t.p.floorLabel)}${t.m !== null ? ` · 约 ${t.m} 米` : ''}`;
