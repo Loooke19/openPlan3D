@@ -3844,7 +3844,7 @@
     </div>
 
     {#if navAutoWalking}
-      <div class="absolute bottom-16 left-1/2 -translate-x-1/2 z-10 bg-black/60 text-white text-xs rounded-lg px-3 py-1.5 pointer-events-none whitespace-nowrap">沿路线自动行走</div>
+      <div class="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 bg-black/60 text-white text-xs rounded-lg px-3 py-1.5 pointer-events-none whitespace-nowrap">沿路线自动行走</div>
     {:else if !(navShell && touchUi)}
     <!-- Controls Panel (keyboard/mouse; the nav page shows touch hints itself) -->
     <div class="absolute top-4 left-4 z-10 bg-black/70 text-white text-xs rounded-lg backdrop-blur-sm p-3 space-y-2 min-w-[180px]">
