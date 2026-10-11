@@ -1309,7 +1309,7 @@
   <div class="nav-loading" role="status" aria-live="polite">
     <div class="nav-spinner" aria-hidden="true"></div>
     <p>正在打开导航地图…{loadSecs >= 3 ? `（已 ${loadSecs} 秒，第一次打开较慢）` : ''}</p>
-    <div class="nav-bar"><span style="width:{Math.min(95, 15 + loadSecs * 8)}%"></span></div>
+    <div class="load-bar"><span style="width:{Math.min(95, 15 + loadSecs * 8)}%"></span></div>
   </div>
 {/if}
 
@@ -1426,8 +1426,8 @@
   .nav-loading { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-family: system-ui, sans-serif; color: #334; }
   .nav-loading p { margin: 0; font-size: 16px; }
   .nav-spinner { width: 40px; height: 40px; border-radius: 50%; border: 4px solid #d6dde6; border-top-color: #1e6fd9; animation: nav-spin 0.9s linear infinite; }
-  .nav-bar { width: min(280px, 70vw); height: 6px; background: #e3e8ef; border-radius: 3px; overflow: hidden; }
-  .nav-bar span { display: block; height: 100%; background: #1e6fd9; transition: width 0.8s ease; }
+  .load-bar { width: min(280px, 70vw); height: 6px; background: #e3e8ef; border-radius: 3px; overflow: hidden; }
+  .load-bar span { display: block; height: 100%; background: #1e6fd9; transition: width 0.8s ease; }
   @keyframes nav-spin { to { transform: rotate(360deg); } }
   .tap-hint { position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%); z-index: 5; padding: 8px 14px; border-radius: 20px; background: rgba(22, 48, 42, .88); color: #fff; font-size: 14px; pointer-events: none; }
   .nolift-peek { display: none; }
