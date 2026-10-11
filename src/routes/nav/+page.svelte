@@ -178,14 +178,21 @@
   $effect(() => {
     if (mode !== '3d' || !viewer || !pendingModeAction) return;
     const action = pendingModeAction;
-    requestAnimationFrame(() => {
+    // The scene may still be (re)building the floor when this fires (P3: FP sometimes did nothing,
+    // the route set on the old scene was wiped by the rebuild). Retry each frame until the viewer
+    // reports it really started, for up to ~4 s.
+    let tries = 0;
+    const attempt = () => {
       if (pendingModeAction !== action || !viewer || mode !== '3d') return;
-      pendingModeAction = null;
       restoredViewer = viewer; // a fresh start: never seek back to an older playback position
       viewer.setNavRoute?.(routePolyline, routeDoorIds);
       if (action === 'simulate') viewer.startRouteSimulation?.(walkSpeed);
       else viewer.enterWalkAlongRoute?.(Number(walkSpeed) || 1);
-    });
+      const started = action === 'simulate' ? viewer.isSimulating?.() !== false : viewer.isNavWalking?.() !== false;
+      if (started || ++tries > 240) pendingModeAction = null;
+      else requestAnimationFrame(attempt);
+    };
+    requestAnimationFrame(attempt);
   });
 
   $effect(() => {
