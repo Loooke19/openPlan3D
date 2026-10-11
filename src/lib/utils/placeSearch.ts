@@ -87,7 +87,13 @@ export function nearestToilets<T extends { name: string; floorId: string; x?: nu
  * Leaves real department names (卫生健康监督…, 公共卫生科) untouched.
  */
 export function toiletDisplay(name: string): string | null {
-  const m = (name || '').replace(/\s+/g, '').match(/^(男|女|残|无障碍)?(卫生间|卫生|卫|厕所|厕|洗手间)([A-Za-z0-9一二三四]{0,2})$/);
+  // 「卫生间/卫生间」 (two OCR reads of one label) → one; 「卫生间（女）」 → 女卫生间.
+  let n = (name || '').replace(/\s+/g, '');
+  const parts = n.split(/[\/／]/);
+  if (parts.length > 1 && parts.every((x) => x === parts[0])) n = parts[0];
+  const pg = n.match(/^(.+?)[（(](男|女|无障碍|残)[）)]$/);
+  if (pg) n = pg[2] + pg[1];
+  const m = n.match(/^(男|女|残|无障碍)?(卫生间|卫生|卫|厕所|厕|洗手间)([A-Za-z0-9一二三四]{0,2})$/);
   if (!m) return null;
   const g = m[1];
   const base = g === '男' ? '男卫生间' : g === '女' ? '女卫生间' : g ? '无障碍卫生间' : '卫生间';
