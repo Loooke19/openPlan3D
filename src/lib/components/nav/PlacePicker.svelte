@@ -74,7 +74,7 @@
         <div class="pp-group">{floor}</div>
         {#each list as p (p.key)}
           <button type="button" class="pp-item" class:sel={p.key === value} onpointerdown={keepFocus} onclick={() => pick(p)}>
-            <span>{p.name}{#if p.originalName}<em>（图上：{p.originalName}）</em>{/if}</span><small>{p.floorLabel}</small>
+            <span>{p.name}{#if p.originalName}<em>（图上：{p.originalName}）</em>{/if}{#if p.restricted}<em class="pp-restricted">限制通行区域</em>{/if}</span><small>{p.floorLabel}</small>
           </button>
         {/each}
       {/each}
@@ -101,6 +101,7 @@
   .pp-item em { font-style: normal; color: #889; font-size: 12px; }
   .pp-item small { color: #889; flex: none; }
   .pp-item.sel { background: #eef5ff; }
+  .pp-item em.pp-restricted { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: #fdecea; color: #b3261e; }
   .pp-empty { padding: 16px; color: #889; }
   @media (max-width: 720px) {
     .pp-sheet { inset: 0; top: 0; left: 0; transform: none; width: 100vw; max-height: none; height: 100dvh; border-radius: 0; }

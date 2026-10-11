@@ -1,6 +1,6 @@
 import { pinyin } from 'pinyin-pro';
 
-export type SearchPlace = { key: string; name: string; originalName?: string; aliases?: string[]; floorId: string; floorLabel: string; category?: string; x?: number; y?: number };
+export type SearchPlace = { key: string; name: string; originalName?: string; aliases?: string[]; floorId: string; floorLabel: string; category?: string; x?: number; y?: number; restricted?: boolean };
 export type IndexedPlace = SearchPlace & { haystack: string[] };
 
 // 常用, in this order: entrance, 导医台, 药房/收费, 卫生间, 电梯.
@@ -21,7 +21,7 @@ export function pinyinKeys(text: string): [string, string] {
 export function indexPlaces(list: SearchPlace[]): IndexedPlace[] {
   // Unnamed rooms are not destinations anyone searches for.
   return list.filter(p => p.name && !UNNAMED.test(p.name)).map(p => {
-    const names = [p.name, p.originalName, ...(p.aliases || [])].filter(Boolean) as string[];
+    const names = [p.name, p.originalName, ...(p.aliases || []), ...(p.restricted ? ['限制通行区域'] : [])].filter(Boolean) as string[];
     return { ...p, haystack: names.flatMap(n => [squash(n), ...pinyinKeys(n)]) };
   });
 }

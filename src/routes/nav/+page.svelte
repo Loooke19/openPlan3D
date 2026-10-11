@@ -112,6 +112,7 @@
     floorName?: string;
     originalName?: string;
     aliases?: string[];
+    restricted?: boolean;
   };
   type RouteLeg = {
     floorId: string;
@@ -180,6 +181,7 @@
     requestAnimationFrame(() => {
       if (pendingModeAction !== action || !viewer || mode !== '3d') return;
       pendingModeAction = null;
+      restoredViewer = viewer; // a fresh start: never seek back to an older playback position
       viewer.setNavRoute?.(routePolyline, routeDoorIds);
       if (action === 'simulate') viewer.startRouteSimulation?.(walkSpeed);
       else viewer.enterWalkAlongRoute?.(Number(walkSpeed) || 1);
@@ -248,7 +250,7 @@
   const pickerPlaces = $derived(indexPlaces(allPlaces().filter(p => !(p as { ensuite?: boolean }).ensuite).map(p => {
     const k = placeKey(p); const full = placeLabel(p); const i = full.indexOf(' · ');
     return { key: k, name: i >= 0 ? full.slice(i + 3) : full, originalName: p.originalName, aliases: p.aliases,
-      floorId: p.floorId || '', floorLabel: i >= 0 ? full.slice(0, i) : '', x: p.x, y: p.y };
+      floorId: p.floorId || '', floorLabel: i >= 0 ? full.slice(0, i) : '', x: p.x, y: p.y, restricted: p.restricted };
   })));
   // Where 「最近的卫生间」 measures from: the chosen start, else the first-person position.
   const pickerOrigin = $derived.by(() => {
@@ -257,7 +259,10 @@
     const w = walking ? viewer?.getWalkPosition?.() : null;
     if (w && view) return { ...w, floorId: view.floorId };
     // No start yet: measure from the main entrance (patients usually come in there).
-    const gate = allPlaces().find((p) => /大门|出入口/.test(p.name || '')) || allPlaces().find((p) => /门厅|大厅/.test(p.name || ''));
+    // Never a 限制通行区 entrance; the main entrance (大门 / 主入口) first.
+    const open = allPlaces().filter((p) => !p.restricted);
+    const gate = open.find((p) => /大门|主入口/.test(p.name || '') || (p.aliases || []).includes('大门'))
+      || open.find((p) => /出入口/.test(p.name || '')) || open.find((p) => /门厅|大厅/.test(p.name || ''));
     return gate ? { x: gate.x, y: gate.y, floorId: gate.floorId || view?.floorId || '' } : null;
   });
   /** Data-driven: any elevator among this building's places. */
@@ -1057,7 +1062,7 @@
               walking = false;
               simulating = true;
               playbackPlaying = true;
-              pendingModeAction = 'simulate';
+              walkSeek = 0; pendingModeAction = 'simulate';
               say('模拟导航已开始');
             }}
           >模拟导航</button>
@@ -1070,7 +1075,7 @@
               simulating = false;
               walking = true;
               playbackPlaying = true;
-              pendingModeAction = 'walk';
+              walkSeek = 0; pendingModeAction = 'walk';
               say('第一人称已开始');
             }}
           >第一人称</button>

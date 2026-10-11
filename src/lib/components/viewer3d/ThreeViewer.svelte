@@ -151,7 +151,7 @@
   let navStack: { group: THREE.Group; floors: { group: THREE.Group; dir: number }[]; connectors: { base: THREE.Vector3; fromDir: number; toDir: number; column: THREE.Group }[]; rise: number; shift: number; t: number; target: number; started?: number; dressings: NavDressing[]; routes: NavRouteVisual[]; labels: THREE.Sprite[] } | null = null;
   let routeMarker: THREE.Mesh | null = null;
   let routeArrowGroup: THREE.Group | null = null;
-  type NavDoorLeaf = { doorId: string; pivot: THREE.Group; closedYaw: number; openYaw: number; closedPos: THREE.Vector3; openPos: THREE.Vector3; t: number; center: { x: number; y: number } };
+  type NavDoorLeaf = { doorId: string; pivot: THREE.Group; closedYaw: number; openYaw: number; closedPos: THREE.Vector3; openPos: THREE.Vector3; t: number; center: { x: number; y: number }; angle?: number };
   let navDoorLeaves: NavDoorLeaf[] = [];
   let activeRouteDoorIds = new Set<string>();
   let doorAnimationRaf = 0;
@@ -1381,11 +1381,12 @@
     const here = levelOf(currentFloor.id);
     const box = new THREE.Box3().setFromObject(wallGroup);
     const size = box.getSize(new THREE.Vector3());
-    const rise = Math.max(800, Math.min(size.x, size.z) * 0.6);
+    // Tighter stack (user 10-11): more floors per screen; slabs still clear each other at the ≥38° orbit.
+    const rise = Math.max(650, Math.min(size.x, size.z) * 0.46);
     const group = new THREE.Group();
     group.userData.navDressing = true;
     scene.add(group);
-    const stack = navStack = { group, floors: [] as { group: THREE.Group; dir: number }[], connectors: [] as { base: THREE.Vector3; fromDir: number; toDir: number; column: THREE.Group }[], rise, shift: size.z * 0.7, t: 0, target: 1, dressings: [] as NavDressing[], routes: [] as NavRouteVisual[], labels: [] as THREE.Sprite[] };
+    const stack = navStack = { group, floors: [] as { group: THREE.Group; dir: number }[], connectors: [] as { base: THREE.Vector3; fromDir: number; toDir: number; column: THREE.Group }[], rise, shift: size.z * 0.6, t: 0, target: 1, dressings: [] as NavDressing[], routes: [] as NavRouteVisual[], labels: [] as THREE.Sprite[] };
     const built = new Map<string, number>();
     for (const leg of legs) {
       if (leg.floorId === currentFloor.id || built.has(leg.floorId)) continue;
@@ -1490,7 +1491,7 @@
     const span = Math.max(size.x, Math.hypot(size.z + dirSpan * stack.shift, hi - lo)) * 1.1;
     navStackFrame = () => {
       // Fit the wider of the two view axes: portrait phones are limited by the horizontal FOV.
-      const dist = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.2 / Math.min(1, camera.aspect);
+      const dist = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.12 / Math.min(1, camera.aspect);
       const dirV = new THREE.Vector3(0.45, 0.6, 0.9).normalize();
       camera.position.copy(center).addScaledVector(dirV, dist);
       controls.target.copy(center);
@@ -2075,7 +2076,9 @@
     const ahead = pointOnRoute(Math.min(simTotalLen, distance + 250));
     const back = pointOnRoute(Math.max(0, distance - 30)), fwd = pointOnRoute(Math.min(simTotalLen, distance + 60));
     let yaw = navWalkYaw ?? pose.yaw;
-    if (ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 80) yaw = Math.atan2(ahead.y - pose.y, ahead.x - pose.x);
+    const first = pointOnRoute(Math.min(simTotalLen, 60));
+    if (distance < 60 && first && Math.hypot(first.x - pose.x, first.y - pose.y) > 20) yaw = Math.atan2(first.y - pose.y, first.x - pose.x);
+    else if (ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 80) yaw = Math.atan2(ahead.y - pose.y, ahead.x - pose.x);
     else if (back && fwd && Math.hypot(fwd.x - back.x, fwd.y - back.y) > 20) yaw = Math.atan2(fwd.y - back.y, fwd.x - back.x);
     else if (navWalkYaw === null) yaw = routeHeadingBefore(distance);
     // Smooth turns while playing (no snap at corners); seeks set navWalkYaw = null and snap.
@@ -2119,37 +2122,45 @@
   export function faceNavArrival() {
     if (!navShell || !camera || !simRoute.length || simTotalLen <= 0) return;
     const end = simRoute[simRoute.length - 1];
-    let door = navDoorLeaves.find(l => l.doorId === navDestDoorId);
+    // The destination door is the door nearest the route's end (≤ 5 m) — not merely the last
+    // door the route used (often a corridor door far behind). It opens; we stand in front of it.
+    let door: NavDoorLeaf | undefined;
+    let bestD = 500;
+    for (const l of navDoorLeaves) {
+      const k = Math.hypot(l.center.x - end.x, l.center.y - end.y);
+      if (k < bestD) { bestD = k; door = l; }
+    }
+    door ??= navDoorLeaves.find(l => l.doorId === navDestDoorId);
+    if (door) navDestDoorId = door.doorId;
     if (!door) {
-      // Route data carried no destination door: use the door nearest the route's end (≤ 5 m)
-      // so arrival frames the room's entrance (and it swings open) instead of a wall.
-      let bestD = 500;
-      for (const l of navDoorLeaves) {
-        const k = Math.hypot(l.center.x - end.x, l.center.y - end.y);
-        if (k < bestD) { bestD = k; door = l; }
-      }
-      if (door) navDestDoorId = door.doorId;
+      const pose = pointOnRoute(simTotalLen);
+      if (!pose) return;
+      const yaw = navWalkYaw ?? pose.yaw;
+      setFloorCameraPose(camera, activeFloorElevation, { x: pose.x, y: eyeHeight, z: pose.y },
+        { x: pose.x + Math.cos(yaw) * 80, y: eyeHeight - 3, z: pose.y + Math.sin(yaw) * 80 });
+      markSceneDirty();
+      return;
     }
-    let at = simTotalLen;
-    if (door) {
-      let best = Infinity;
-      for (let d = 0; d <= simTotalLen; d += 10) {
-        const p = pointOnRoute(d);
-        if (!p) continue;
-        const k = Math.hypot(p.x - door.center.x, p.y - door.center.y);
-        if (k < best) { best = k; at = d; }
-      }
-      at = Math.max(0, at - 120);
+    // Stand on the approach side, square to the door, ~1.6 m back: the opening is centred and
+    // the frame never fills the view.
+    const c = door.center;
+    let side = { x: 0, y: 0 };
+    for (let d = 0; d <= simTotalLen; d += 10) {
+      const p = pointOnRoute(d);
+      if (!p) continue;
+      const k = Math.hypot(p.x - c.x, p.y - c.y);
+      if (k > 80 && k < 400) side = { x: p.x - c.x, y: p.y - c.y };
     }
-    const pose = pointOnRoute(at);
-    if (!pose) return;
-    const target = door ? door.center : end;
-    const yaw = Math.hypot(target.x - pose.x, target.y - pose.y) > 10 ? Math.atan2(target.y - pose.y, target.x - pose.x) : (navWalkYaw ?? pose.yaw);
-    navWalkYaw = yaw;
-    setFloorCameraPose(camera, activeFloorElevation,
-      { x: pose.x, y: eyeHeight, z: pose.y },
-      { x: pose.x + Math.cos(yaw) * 80, y: eyeHeight - 3, z: pose.y + Math.sin(yaw) * 80 });
+    let n = door.angle !== undefined ? { x: -Math.sin(door.angle), y: Math.cos(door.angle) } : { x: side.x, y: side.y };
+    const len = Math.hypot(n.x, n.y) || 1;
+    n = { x: n.x / len, y: n.y / len };
+    if (n.x * side.x + n.y * side.y < 0) n = { x: -n.x, y: -n.y };
+    const pos = { x: c.x + n.x * 160, y: c.y + n.y * 160 };
+    navWalkYaw = Math.atan2(c.y - pos.y, c.x - pos.x);
+    setFloorCameraPose(camera, activeFloorElevation, { x: pos.x, y: eyeHeight, z: pos.y },
+      { x: c.x, y: eyeHeight - 15, z: c.y });
     markSceneDirty();
+    requestRender();
   }
 
   // ── Tap-to-walk (first person) ──────────────────────────────────────────────
@@ -2222,6 +2233,7 @@
     simProgress = 0;
     simPlaying = true;
     simLastTs = 0;
+    navWalkYaw = null; // first frame: route tangent, never the previous route's last heading
     placeNavWalkCamera(0);
     paintRouteVisual(0, true);
     onRouteProgress?.(0, true);
@@ -2399,7 +2411,7 @@
       pivot.add(rose, lever);
     }
     wallGroup.add(pivot);
-    navDoorLeaves.push({ doorId, pivot, closedYaw, openYaw, closedPos, openPos, t: 0, center: mid });
+    navDoorLeaves.push({ doorId, pivot, closedYaw, openYaw, closedPos, openPos, t: 0, center: mid, angle });
   }
 
   function addOpeningFrame(wall: Wall, position: number, width: number, bottom: number, height: number, depth: number, material: THREE.Material, excludeFromRender = false) {
