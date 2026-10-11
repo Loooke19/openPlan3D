@@ -1428,7 +1428,7 @@
       const faces = roomFaces(floor);
       const stackNames = mapLabels(faces.map(f => ({ name: f.room.displayName || toiletDisplay(f.room.name || '') || f.room.name, polygon: f.polygon })));
       for (const [fi, { room, polygon }] of faces.entries()) {
-        if (!room.name || polygon.length < 3) continue;
+        if (!room.name || /^Room \d+$/.test(room.name) || polygon.length < 3) continue; // auto-detected unnamed faces carry a placeholder name
         const baked = bakeNavRoomLabelSprite({ name: stackNames[fi] || room.name, style: room.labelStyle, labelColor: room.labelColor ?? '#000000' });
         if (!baked) continue;
         const tex = new THREE.CanvasTexture(baked.canvas);
