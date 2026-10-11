@@ -255,13 +255,29 @@
       : `换到 ${floorSpoken(next?.floorName) || '下一层'}`;
     say(tip);
     transferNotice = tip;
-    if (walking) viewer?.faceNavArrival?.(); // QA r7: at the transfer, look at the stair/lift door
+    if (walking && transfer?.from) {
+      // QA r7: at the transfer, look at the stair/lift itself (nearest 楼梯/电梯 place on this floor).
+      const stairs = transfer.kind === 'stairs' || /楼梯/.test(transfer.kindLabel || '');
+      let best: Place | null = null, bestD = 500;
+      for (const p of allPlaces()) {
+        if (p.floorId !== routeLegs[activeLegIndex]?.floorId || !(stairs ? /楼梯/ : /电梯/).test(p.name || '')) continue;
+        const d = Math.hypot(p.x - transfer.from.x, p.y - transfer.from.y);
+        if (d < bestD) { bestD = d; best = p; }
+      }
+      // No named stair room (e.g. P3 楼梯 A): the landing is where the route meets the shaft,
+      // so look on along the final approach direction, into the stairs.
+      const pts = routePolyline;
+      const a = pts[pts.length - 2], b = pts[pts.length - 1];
+      const fwd = a && b ? { x: b.x + (b.x - a.x) / (Math.hypot(b.x - a.x, b.y - a.y) || 1) * 150, y: b.y + (b.y - a.y) / (Math.hypot(b.x - a.x, b.y - a.y) || 1) * 150 } : null;
+      const target = best && bestD < 500 ? { x: best.x, y: best.y } : fwd;
+      if (target) viewer?.faceNavPoint?.(target); else viewer?.faceNavArrival?.();
+    }
     pendingLegAdvance = true;
     if (transferTimer) clearTimeout(transferTimer);
     transferTimer = setTimeout(() => {
       transferTimer = null;
       void advanceToLeg(activeLegIndex + 1);
-    }, Math.max(450, 1200 / (Number(walkSpeed) || 1)));
+    }, walking ? Math.max(1500, 2500 / (Number(walkSpeed) || 1)) : Math.max(450, 1200 / (Number(walkSpeed) || 1)));
   }
 
   function handleNavWalkExit() {
@@ -948,6 +964,7 @@
       places: () => allPlaces().map((p) => ({ key: placeKey(p), label: placeLabel(p) })),
       route: async (from: string, to: string) => { startId = from; endId = to; await planRoute(); return routeMessage; },
       showLeg: async (i: number) => showLeg(Math.min(i, routeLegs.length - 1)),
+      transfers: () => routeTransfers.map((t) => { const st = allPlaces().filter((p) => p.floorId === t.fromFloorId && /楼梯|电梯/.test(p.name || '')).sort((a, b) => Math.hypot(a.x - t.from!.x, a.y - t.from!.y) - Math.hypot(b.x - t.from!.x, b.y - t.from!.y))[0]; return { from: st ? { x: st.x, y: st.y } : t.from, name: (t as any).name }; }),
       setMode: (m: '2d' | '3d') => { mode = m; },
     };
     void (async () => {
