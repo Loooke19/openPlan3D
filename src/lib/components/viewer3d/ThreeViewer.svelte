@@ -706,12 +706,14 @@
   }
 
   function exitWalkthroughMode() {
+    const wasWalking = walkthroughMode || navAutoWalking;
     if (navAutoWalking) {
       navAutoWalking = false;
       pauseRouteSimulation();
       onRouteProgress?.(simProgress, false);
-      onNavWalkExit?.();
     }
+    // Tell the nav shell even when auto-walk was paused (drag-to-look), otherwise Esc left it in FP state.
+    if (wasWalking) onNavWalkExit?.();
     walkthroughMode = false;
     controls.enabled = true;
     walkthroughMotion.reset();
@@ -2337,6 +2339,25 @@
     return moving;
   }
 
+  /** Transfer: stand ~1.6 m from the stair/lift and look at it (its room centre / door). */
+  export function faceNavPoint(target: { x: number; y: number }) {
+    if (!camera || !simRoute.length) return;
+    const end = simRoute[simRoute.length - 1];
+    let vx = end.x - target.x, vy = end.y - target.y;
+    const L = Math.hypot(vx, vy);
+    if (L < 1) { const p = pointOnRoute(Math.max(0, simTotalLen - 150)); if (p) { vx = p.x - target.x; vy = p.y - target.y; } }
+    const n = Math.hypot(vx, vy) || 1;
+    const back = Math.max(120, Math.min(220, L + 60));
+    const pos = { x: target.x + vx / n * back, y: target.y + vy / n * back };
+    navWalkYaw = Math.atan2(target.y - pos.y, target.x - pos.x);
+    setFloorCameraPose(camera, activeFloorElevation, { x: pos.x, y: eyeHeight, z: pos.y }, { x: target.x, y: eyeHeight - 10, z: target.y });
+    markSceneDirty();
+  }
+
+  export function debugCamera() {
+    const d = new THREE.Vector3(); camera.getWorldDirection(d);
+    return { x: camera.position.x, y: camera.position.z, dx: d.x, dy: d.z, walk: walkthroughMode, floor: currentFloor?.id };
+  }
   export function debugNavDoors() {
     return { dest: navDestDoorId, visual: !!navRouteVisual, leaves: navDoorLeaves.map(l => ({ id: l.doorId, t: l.t, x: Math.round(l.center.x), y: Math.round(l.center.y) })) };
   }

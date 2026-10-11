@@ -730,6 +730,10 @@
     viewer.setNavFloorStack(routeLegs, routeTransfers.map((t) => ({ ...t, kindLabel: transferPlace(withDisplay(t), view?.bounds) })), end ? (displayNames.get(placeKey(end)) || end.name || '') : '');
   }
 
+  let navLoadSeq = 0;
+  let pendingFloorId = $state('');
+  const navCache = new Map<string, any>();
+
   async function loadNav(floorId: string, opts: { keepRoute?: boolean } = {}) {
     if (!opts.keepRoute) {
       stopAll();
@@ -743,13 +747,32 @@
       endId = '';
       say('正在打开');
     }
-    const query = new URLSearchParams({ floor: floorId || '' });
-    const response = await fetch(`${apiOrigin}/api/projects/${projectId}/nav.json?${query}`);
-    if (!response.ok) {
-      say('这一层没有打开');
-      return;
+    // Newest request wins, and the pressed floor lights up at once: a slow nav.json used to make
+    // the first floor click look ignored (and an older response could land after a newer one).
+    const seq = ++navLoadSeq;
+    pendingFloorId = floorId || '';
+    let data: any = floorId ? navCache.get(floorId) : null;
+    if (!data) {
+      const query = new URLSearchParams({ floor: floorId || '' });
+      let response: Response;
+      try {
+        response = await fetch(`${apiOrigin}/api/projects/${projectId}/nav.json?${query}`);
+      } catch {
+        if (seq === navLoadSeq) { pendingFloorId = ''; say('服务连不上，请重试'); }
+        return;
+      }
+      if (seq !== navLoadSeq) return;
+      if (!response.ok) {
+        pendingFloorId = '';
+        say('这一层没有打开');
+        return;
+      }
+      data = await response.json();
+      if (seq !== navLoadSeq) return;
+      if (data?.floorId) navCache.set(data.floorId, data);
     }
-    view = await response.json();
+    pendingFloorId = '';
+    view = data;
     if (view?.floorId) {
       const project = get(currentProject);
       if (project?.floors?.some((f) => f.id === view!.floorId)) {
@@ -1029,7 +1052,7 @@
       <div class="floor" role="group" aria-label="楼层">
         {#if (view?.floors?.length || 0) > 1}
           {#each view?.floors || [] as floor}
-            <button type="button" class="floor-btn" class:on={floor.id === view?.floorId} aria-pressed={floor.id === view?.floorId}
+            <button type="button" class="floor-btn" class:on={pendingFloorId ? floor.id === pendingFloorId : floor.id === view?.floorId} aria-pressed={floor.id === view?.floorId}
               title={floorOption(floor.name)} onclick={() => showFloor(floor.id)}>{floor.name}</button>
           {/each}
         {:else}
