@@ -106,4 +106,5 @@ import { transferText as tt } from '../src/lib/utils/navCopy';
 import { it as it2, expect as ex2 } from 'vitest';
 it2('lettered stair name first, only-this-stair note (P3)', () => {
   ex2(tt({ kind: 'stairs', display: '楼梯 A', direction: 'up', toFloorName: '4F', onlyTo: ['4F'] })).toBe('走楼梯 A 上到 4楼（只有这部能到 4楼）');
+  ex2(tt({ kind: 'stairs', display: '楼梯 A', direction: 'up', toFloorName: '4F', onlyTo: ['4F'], floors: 3 } as any)).toBe('走楼梯 A 上到 4楼（共 3 层，只有这部能到 4楼）');
 });

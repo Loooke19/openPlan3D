@@ -3875,7 +3875,7 @@
       </div>
     </div>
 
-    {#if navAutoWalking}
+    {#if navAutoWalking && simProgress < 0.999}
       <div class="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 bg-black/60 text-white text-xs rounded-lg px-3 py-1.5 pointer-events-none whitespace-nowrap">沿路线自动行走</div>
     {:else if !(navShell && touchUi)}
     <!-- Controls Panel (keyboard/mouse; the nav page shows touch hints itself) -->
