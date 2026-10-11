@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { searchPlaces, isCommon, commonRank, searchExample, nearestToilets, toiletLabel, floorShort, type IndexedPlace, type Origin } from '$lib/utils/placeSearch';
+  import { searchPlaces, isCommon, commonRank, searchExample, nearestToilets, toiletLabel, floorShort, relativeSide, type IndexedPlace, type Origin } from '$lib/utils/placeSearch';
   let { value = $bindable(''), places, label, placeholder = '选择', onchange, origin = null, floorIndex = () => 0, accessible = false, hasLift = true }: {
     value: string; places: IndexedPlace[]; label: string; placeholder?: string; onchange?: () => void;
     origin?: Origin; floorIndex?: (id: string) => number; accessible?: boolean; hasLift?: boolean;
@@ -18,7 +18,14 @@
   const accessibleFloors = $derived([...new Set(nearestToilets(places, null, floorIndex).filter(t => t.kind === 'accessible').map(t => floorShort(t.p.floorLabel)))]);
   const accessibleNote = $derived(accessible && origin && !toilets.some(t => t.kind === 'accessible')
     ? (accessibleFloors.length ? `本楼仅 ${accessibleFloors.join('、').replace(/(\d+)F/g, '$1 楼')} 设有无障碍卫生间` : '本楼没有无障碍卫生间') : '');
-  const toiletRow = (t: (typeof toilets)[number]) => `${toiletLabel(t.kind)} · ${floorShort(t.p.floorLabel)}${t.m !== null ? ` · 约 ${t.m} 米` : ''}`;
+  // Identical rows (same kind, same floor) get a building-relative side: 卫生间（右侧）· 2F · 约 15 米.
+  const toiletRow = (t: (typeof toilets)[number]) => {
+    const peers = toilets.filter(o => o.kind === t.kind && o.p.floorId === t.p.floorId).map(o => o.p);
+    const side = peers.length > 1 ? relativeSide(t.p, places, peers) : '';
+    const base = toiletLabel(t.kind);
+    const lab = side ? (base.endsWith('）') ? base.replace(/）$/, `·${side}）`) : `${base}（${side}）`) : base;
+    return `${lab} · ${floorShort(t.p.floorLabel)}${t.m !== null ? ` · 约 ${t.m} 米` : ''}`;
+  };
   const showToilets = $derived(!q || /卫|厕|洗手|wc|wsj|cs/i.test(q));
   const groups = $derived.by(() => {
     const m = new Map<string, IndexedPlace[]>();

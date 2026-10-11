@@ -100,3 +100,20 @@ export function withToiletDisplay<T extends { name?: string | null; aliases?: st
   const aliases = Array.from(new Set([...(p.aliases || []), p.name as string, d === '卫生间' ? '' : '卫生间', '厕所'].filter(Boolean)));
   return { ...p, originalName: (p as { originalName?: string }).originalName || p.name, name: d, aliases };
 }
+
+/**
+ * Building-relative side of a place on its floor (no compass needed): 左侧/中部/右侧, with
+ * 上/下 added when that alone still collides. Used to tell identical toilet rows apart.
+ */
+export function relativeSide<T extends { floorId: string; x?: number; y?: number }>(p: T, all: T[], peers: T[]): string {
+  const same = all.filter(q => q.floorId === p.floorId && q.x !== undefined && q.y !== undefined);
+  if (p.x === undefined || p.y === undefined || same.length < 2) return '';
+  const xs = same.map(q => q.x as number), ys = same.map(q => q.y as number);
+  const fx = (p.x - Math.min(...xs)) / Math.max(1, Math.max(...xs) - Math.min(...xs));
+  const fy = (p.y - Math.min(...ys)) / Math.max(1, Math.max(...ys) - Math.min(...ys));
+  const h = (f: number) => (f < 0.34 ? '左侧' : f > 0.66 ? '右侧' : '中部');
+  const v = (f: number) => (f < 0.5 ? '上' : '下');
+  const side = h(fx);
+  const clash = peers.filter(q => q !== p && q.x !== undefined && h((q.x - Math.min(...xs)) / Math.max(1, Math.max(...xs) - Math.min(...xs))) === side);
+  return clash.length ? `${side}${v(fy)}` : side;
+}

@@ -2068,10 +2068,21 @@
     // Face along the route tangent: chord over a short window around the camera (smooth through
     // rounded corners). Near the end the window collapses, so keep the last good heading instead
     // of a stub segment's direction (which used to aim the camera at a wall after a seek).
+    // Look ahead ~2.5 m along the route (a person looks where they are going, not at the wall
+    // beside the next corner); fall back to the local tangent, then the last heading.
+    const ahead = pointOnRoute(Math.min(simTotalLen, distance + 250));
     const back = pointOnRoute(Math.max(0, distance - 30)), fwd = pointOnRoute(Math.min(simTotalLen, distance + 60));
     let yaw = navWalkYaw ?? pose.yaw;
-    if (back && fwd && Math.hypot(fwd.x - back.x, fwd.y - back.y) > 20) yaw = Math.atan2(fwd.y - back.y, fwd.x - back.x);
+    if (ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 80) yaw = Math.atan2(ahead.y - pose.y, ahead.x - pose.x);
+    else if (back && fwd && Math.hypot(fwd.x - back.x, fwd.y - back.y) > 20) yaw = Math.atan2(fwd.y - back.y, fwd.x - back.x);
     else if (navWalkYaw === null) yaw = routeHeadingBefore(distance);
+    // Smooth turns while playing (no snap at corners); seeks set navWalkYaw = null and snap.
+    if (navWalkYaw !== null && simPlaying) {
+      let dy = yaw - navWalkYaw;
+      while (dy > Math.PI) dy -= 2 * Math.PI;
+      while (dy < -Math.PI) dy += 2 * Math.PI;
+      yaw = navWalkYaw + dy * 0.25;
+    }
     navWalkYaw = yaw;
     const lookX = pose.x + Math.cos(yaw) * 80;
     const lookY = pose.y + Math.sin(yaw) * 80;

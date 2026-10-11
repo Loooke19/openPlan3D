@@ -1,5 +1,6 @@
 <script lang="ts">
   import PlacePicker from '$lib/components/nav/PlacePicker.svelte';
+  import { centerRoute } from '$lib/components/viewer3d/nav/layout';
   import { indexPlaces, withToiletDisplay, toiletDisplay } from '$lib/utils/placeSearch';
   import { setNavNorth } from '$lib/utils/navCopy';
   import { onMount, untrack } from 'svelte';
@@ -254,7 +255,10 @@
     const s0 = placeByKey(startId);
     if (s0) return { x: s0.x, y: s0.y, floorId: s0.floorId || view?.floorId || '' };
     const w = walking ? viewer?.getWalkPosition?.() : null;
-    return w && view ? { ...w, floorId: view.floorId } : null;
+    if (w && view) return { ...w, floorId: view.floorId };
+    // No start yet: measure from the main entrance (patients usually come in there).
+    const gate = allPlaces().find((p) => /大门|出入口/.test(p.name || '')) || allPlaces().find((p) => /门厅|大厅/.test(p.name || ''));
+    return gate ? { x: gate.x, y: gate.y, floorId: gate.floorId || view?.floorId || '' } : null;
   });
   /** Data-driven: any elevator among this building's places. */
   const hasLift = () => allPlaces().some((p) => /电梯/.test(p.name || ''));
@@ -357,6 +361,17 @@
     status = text;
   }
 
+  let planRouteMemo: { src: unknown; walls: unknown; out: { x: number; y: number }[] } = { src: null, walls: null, out: [] };
+  function planRoutePts() {
+    const walls = view?.walls || [];
+    if (planRouteMemo.src !== routePolyline || planRouteMemo.walls !== walls) {
+      let out = routePolyline;
+      try { out = centerRoute(routePolyline, walls as any); } catch { /* keep raw */ }
+      planRouteMemo = { src: routePolyline, walls, out };
+    }
+    return planRouteMemo.out;
+  }
+
   function drawPlan() {
     const canvas = planCanvas;
     if (!canvas || !view) return;
@@ -409,6 +424,8 @@
       ctx.stroke();
     }
     if (routePolyline.length > 1) {
+      // Same corridor-centred path as the 3D ribbon (never the raw sparse polyline).
+      const routePolyline = planRoutePts();
       const drawPoly = (pts: { x: number; y: number }[], color: string, width = 3) => {
         if (pts.length < 2) return;
         ctx.strokeStyle = color;
@@ -449,7 +466,8 @@
         if (!cut) return { traveled: routePolyline, remaining: [] as { x: number; y: number }[] };
         return { traveled, remaining };
       };
-      const showSplit = Number(walkSeek) > 0.5 && routePolyline.length > 1;
+      // After arrival (≥99.5 %) keep the whole route blue, not a grey "travelled" line.
+      const showSplit = Number(walkSeek) > 0.5 && Number(walkSeek) < 99.5 && routePolyline.length > 1;
       if (showSplit) {
         const { traveled, remaining } = splitAt(Number(walkSeek) / 100);
         drawPoly(traveled, '#8b9490', 3);
@@ -1173,7 +1191,8 @@
   .floor-btn { min-width: 44px; min-height: 36px; border: 1px solid #d0d5dd; background: #fff; border-radius: 6px; font: inherit; font-weight: 600; cursor: pointer; flex: none; }
   .floor-btn.on { background: #1f2937; color: #fff; border-color: #1f2937; }
   .floor select { height: 32px; border: 1px solid #d9d9d9; background: #fff; padding: 0 8px; }
-  .mode-switch { display: flex; border: 1px solid #d9d9d9; background: #f7f7f8; }
+  .mode-switch { display: flex; flex: none; border: 1px solid #d9d9d9; background: #f7f7f8; }
+  .mode-switch button { white-space: nowrap; }
   .mode-switch button {
     height: 32px; border: 0; background: transparent; padding: 0 10px; cursor: pointer; color: #555;
   }
@@ -1267,6 +1286,9 @@
   @keyframes fpHint { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
   @media (max-width: 720px) {
     .floor-btn, .side select { min-height: 44px; }
+    /* 5+ floors: buttons scroll sideways (edge fade hints more), never clipped mid-button. */
+    .floor { min-width: 0; flex: 1 1 auto; max-width: none; scroll-snap-type: x mandatory; mask-image: linear-gradient(90deg, #000 85%, transparent); }
+    .floor-btn { scroll-snap-align: start; min-width: 44px; padding: 0 6px; }
     .stage { flex-direction: column; }
     /* The 3D view never collapses to 0 when the panel opens (grey canvas / zero-size attachments). */
     .canvas-wrap { flex: 1 1 auto; min-height: 40vh; }
