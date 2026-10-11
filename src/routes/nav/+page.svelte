@@ -23,6 +23,14 @@
   let loadError = $state<string | null>(null);
   let mode = $state<'2d' | '3d'>('3d');
   let status = $state('正在打开');
+  // First open can take a few seconds: show a spinner, a filling bar and elapsed seconds.
+  let loadSecs = $state(0);
+  $effect(() => {
+    if (view) return;
+    loadSecs = 0;
+    const t = setInterval(() => { loadSecs += 1; }, 1000);
+    return () => clearInterval(t);
+  });
   let routeMessage = $state('选择起点和终点');
   let noLiftFallback = $state('');
   let routeFailed = $state(false);
@@ -1298,7 +1306,11 @@
     <p class="status">{status}</p>
   </div>
 {:else}
-  <div class="nav-error">正在打开…</div>
+  <div class="nav-loading" role="status" aria-live="polite">
+    <div class="nav-spinner" aria-hidden="true"></div>
+    <p>正在打开导航地图…{loadSecs >= 3 ? `（已 ${loadSecs} 秒，第一次打开较慢）` : ''}</p>
+    <div class="nav-bar"><span style="width:{Math.min(95, 15 + loadSecs * 8)}%"></span></div>
+  </div>
 {/if}
 
 <style>
@@ -1411,6 +1423,12 @@
   .link-form button:disabled { opacity: 0.45; cursor: default; }
   .hint { margin: 4px 0 0; color: #777; font-size: 12px; }
   .nav-error { padding: 24px; font-family: system-ui, sans-serif; }
+  .nav-loading { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-family: system-ui, sans-serif; color: #334; }
+  .nav-loading p { margin: 0; font-size: 16px; }
+  .nav-spinner { width: 40px; height: 40px; border-radius: 50%; border: 4px solid #d6dde6; border-top-color: #1e6fd9; animation: nav-spin 0.9s linear infinite; }
+  .nav-bar { width: min(280px, 70vw); height: 6px; background: #e3e8ef; border-radius: 3px; overflow: hidden; }
+  .nav-bar span { display: block; height: 100%; background: #1e6fd9; transition: width 0.8s ease; }
+  @keyframes nav-spin { to { transform: rotate(360deg); } }
   .tap-hint { position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%); z-index: 5; padding: 8px 14px; border-radius: 20px; background: rgba(22, 48, 42, .88); color: #fff; font-size: 14px; pointer-events: none; }
   .nolift-peek { display: none; }
   .nolift { min-height: 44px; padding: 0 14px; border-radius: 8px; border: 0; background: #1f7cf2; color: #fff; font-weight: 600; }
