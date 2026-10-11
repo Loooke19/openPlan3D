@@ -1119,7 +1119,7 @@
           {/each}
         </nav>
         <div class="places">
-          {#each filteredPlaces() as place}
+          {#each filteredPlaces().filter((p) => p.name && !/^(未命名|房间\s*\d+$)/.test(p.name) && !(p as { ensuite?: boolean }).ensuite) as place}
             <button
               type="button"
               class="place"

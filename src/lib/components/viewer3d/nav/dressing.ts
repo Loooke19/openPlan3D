@@ -293,7 +293,7 @@ export function navBackdrop(look: NavLook): THREE.Texture {
   const c = document.createElement('canvas'); c.width = 16; c.height = 256;
   const g = c.getContext('2d')!;
   const grad = g.createLinearGradient(0, 0, 0, 256);
-  if (look === 'overview') { grad.addColorStop(0, '#eef1f2'); grad.addColorStop(1, '#d6dbdc'); }
+  if (look === 'overview') { grad.addColorStop(0, '#c3cbd0'); grad.addColorStop(1, '#8f9aa1'); /* mid-grey: light floors read as objects */ }
   else { grad.addColorStop(0, '#d9dcd8'); grad.addColorStop(1, '#b9bdb8'); }
   g.fillStyle = grad; g.fillRect(0, 0, 16, 256);
   const tex = new THREE.CanvasTexture(c);

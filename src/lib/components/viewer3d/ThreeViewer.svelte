@@ -1187,7 +1187,7 @@
     // Clean studio ground instead of the gridded concrete sheet: reads as a model on a table.
     const ground = sceneGround.material as THREE.MeshStandardMaterial;
     ground.map = null;
-    ground.color.set('#d9ddda');
+    ground.color.set('#9aa4a9'); // darker than floors so the model separates from the table
     ground.roughness = 1;
     ground.needsUpdate = true;
     sceneGround.position.y = -0.5;
@@ -1219,7 +1219,7 @@
     if (!navPipeline || (!force && look === navLook)) return;
     navLook = look;
     navPipeline.setLook(look);
-    navPipeline.setExposure(look === 'walk' ? 1.05 : 1.0);
+    navPipeline.setExposure(look === 'walk' ? 1.05 : 0.9);
     navDressing?.setLook(look);
     if (navSigns) navSigns.group.visible = look === 'walk';
     // Walking past jambs and open leaves: a 6 cm near plane stops the camera seeing inside them.
@@ -2106,7 +2106,17 @@
   export function faceNavArrival() {
     if (!navShell || !camera || !simRoute.length || simTotalLen <= 0) return;
     const end = simRoute[simRoute.length - 1];
-    const door = navDoorLeaves.find(l => l.doorId === navDestDoorId);
+    let door = navDoorLeaves.find(l => l.doorId === navDestDoorId);
+    if (!door) {
+      // Route data carried no destination door: use the door nearest the route's end (≤ 5 m)
+      // so arrival frames the room's entrance (and it swings open) instead of a wall.
+      let bestD = 500;
+      for (const l of navDoorLeaves) {
+        const k = Math.hypot(l.center.x - end.x, l.center.y - end.y);
+        if (k < bestD) { bestD = k; door = l; }
+      }
+      if (door) navDestDoorId = door.doorId;
+    }
     let at = simTotalLen;
     if (door) {
       let best = Infinity;
