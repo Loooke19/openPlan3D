@@ -345,13 +345,22 @@
     const span = t.fromFloorId && t.toFloorId ? Math.abs(ids.indexOf(t.toFloorId) - ids.indexOf(t.fromFloorId)) : 0;
     if (span >= 2) t = { ...t, floors: span };
     if (!t.from) return t;
+    // Both directions of one shaft read the same: search the lower end first, then the other end
+    // (going down from 5F the 5F lobby may carry no 「电梯 A」 room or landmark; 1F does).
+    const to = (t as { to?: { x: number; y: number } }).to;
+    const ends = [{ floorId: t.fromFloorId, at: t.from }, ...(to && t.toFloorId ? [{ floorId: t.toFloorId, at: to }] : [])]
+      .sort((a, b) => ids.indexOf(a.floorId || '') - ids.indexOf(b.floorId || ''));
     // Landmark: the nearest named, non-circulation place within 8 m (「护士站旁」).
-    let mark = '', markD = 800;
-    for (const p of allPlaces()) {
-      // Only places a patient can see and name (never 配电间/氧气瓶存放处).
-      if ((t.fromFloorId && p.floorId !== t.fromFloorId) || p.restricted || !/护士站|收费|挂号|大门|门厅|大厅|候诊|导医|服务台|药房/.test(p.name || '')) continue;
-      const d = Math.hypot(p.x - t.from!.x, p.y - t.from!.y);
-      if (d < markD) { markD = d; mark = displayNames.get(placeKey(p)) || p.name; }
+    let mark = '';
+    for (const end of ends) {
+      let markD = 800;
+      for (const p of allPlaces()) {
+        // Only places a patient can see and name (never 配电间/氧气瓶存放处).
+        if ((end.floorId && p.floorId !== end.floorId) || p.restricted || !/护士站|收费|挂号|大门|门厅|大厅|候诊|导医|服务台|药房/.test(p.name || '')) continue;
+        const d = Math.hypot(p.x - end.at.x, p.y - end.at.y);
+        if (d < markD) { markD = d; mark = displayNames.get(placeKey(p)) || p.name; }
+      }
+      if (mark) break;
     }
     if (mark) t = { ...t, landmark: mark };
     // The importer names stairs for patients (「楼梯 A」/「楼梯（北）」): the link's own name wins,
@@ -359,14 +368,17 @@
     const own = (t as { name?: string }).name || '';
     if (/^(楼梯|电梯|扶梯)(\s[A-Z]|（.+）)$/.test(own)) return { ...t, display: own };
     const stairs = t.kind === 'stairs' || /楼梯/.test(t.kindLabel || '');
-    let best: Place | null = null, bestD = 450;
-    for (const p of allPlaces()) {
-      if ((t.fromFloorId && p.floorId !== t.fromFloorId) || !/楼梯|电梯/.test(p.name || '')) continue;
-      if (stairs !== /楼梯/.test(p.name || '') && /电梯楼梯/.test(p.name || '') === false) continue;
-      const d = Math.hypot(p.x - t.from!.x, p.y - t.from!.y);
-      if (d < bestD) { bestD = d; best = p; }
+    for (const end of ends) {
+      let best: Place | null = null, bestD = 450;
+      for (const p of allPlaces()) {
+        if ((end.floorId && p.floorId !== end.floorId) || !/楼梯|电梯/.test(p.name || '')) continue;
+        if (stairs !== /楼梯/.test(p.name || '') && /电梯楼梯/.test(p.name || '') === false) continue;
+        const d = Math.hypot(p.x - end.at.x, p.y - end.at.y);
+        if (d < bestD) { bestD = d; best = p; }
+      }
+      if (best) return { ...t, display: displayNames.get(placeKey(best)) };
     }
-    return { ...t, display: best ? displayNames.get(placeKey(best)) : undefined };
+    return { ...t, display: undefined };
   }
 
   function placeLabel(place: Place) {
