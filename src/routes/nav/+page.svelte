@@ -372,6 +372,33 @@
     return planRouteMemo.out;
   }
 
+  // 2D zoom/pan (wheel, pinch-free buttons, drag). Labels re-declutter at each zoom level.
+  let planZoom = $state(1);
+  let planPan = $state({ x: 0, y: 0 });
+  let planDrag: { x: number; y: number; px: number; py: number; moved: boolean } | null = null;
+  function zoomPlan(factor: number, cx?: number, cy?: number) {
+    const c = planCanvas; if (!c) return;
+    const z = Math.max(1, Math.min(8, planZoom * factor));
+    const k = z / planZoom;
+    const ax = (cx ?? c.clientWidth / 2) - c.clientWidth / 2, ay = (cy ?? c.clientHeight / 2) - c.clientHeight / 2;
+    planPan = z === 1 ? { x: 0, y: 0 } : { x: ax - (ax - planPan.x) * k, y: ay - (ay - planPan.y) * k };
+    planZoom = z;
+    drawPlan();
+  }
+  function onPlanWheel(e: WheelEvent) {
+    e.preventDefault();
+    const r = (e.currentTarget as HTMLCanvasElement).getBoundingClientRect();
+    zoomPlan(e.deltaY < 0 ? 1.25 : 0.8, e.clientX - r.left, e.clientY - r.top);
+  }
+  function onPlanDown(e: PointerEvent) { planDrag = { x: e.clientX, y: e.clientY, px: planPan.x, py: planPan.y, moved: false }; }
+  function onPlanMove(e: PointerEvent) {
+    if (!planDrag || planZoom === 1) return;
+    const dx = e.clientX - planDrag.x, dy = e.clientY - planDrag.y;
+    if (Math.hypot(dx, dy) > 6) planDrag.moved = true;
+    if (planDrag.moved) { planPan = { x: planDrag.px + dx, y: planDrag.py + dy }; drawPlan(); }
+  }
+  function onPlanUp() { setTimeout(() => { planDrag = null; }, 0); }
+
   function drawPlan() {
     const canvas = planCanvas;
     if (!canvas || !view) return;
@@ -390,9 +417,10 @@
     const pad = 28;
     const spanX = Math.max(1, bounds.maxX - bounds.minX);
     const spanY = Math.max(1, bounds.maxY - bounds.minY);
-    const scale = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY);
-    const ox = (width - spanX * scale) / 2 - bounds.minX * scale;
-    const oy = (height - spanY * scale) / 2 - bounds.minY * scale;
+    const fit = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY);
+    const scale = fit * planZoom;
+    const ox = (width - spanX * scale) / 2 - bounds.minX * scale + planPan.x;
+    const oy = (height - spanY * scale) / 2 - bounds.minY * scale + planPan.y;
     const toScreen = (x: number, y: number) => [ox + x * scale, oy + y * scale] as const;
     // Maker-style room fills under walls (soft hospital palette).
     for (const room of view.rooms || []) {
@@ -830,9 +858,10 @@
     const pad = 28;
     const spanX = Math.max(1, bounds.maxX - bounds.minX);
     const spanY = Math.max(1, bounds.maxY - bounds.minY);
-    const scale = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY);
-    const ox = (width - spanX * scale) / 2 - bounds.minX * scale;
-    const oy = (height - spanY * scale) / 2 - bounds.minY * scale;
+    const fit = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY);
+    const scale = fit * planZoom;
+    const ox = (width - spanX * scale) / 2 - bounds.minX * scale + planPan.x;
+    const oy = (height - spanY * scale) / 2 - bounds.minY * scale + planPan.y;
     const mx = (px - ox) / scale;
     const my = (py - oy) / scale;
     let best: Place | null = null;
@@ -944,8 +973,18 @@
           bind:this={planCanvas}
           class="plan"
           class:hidden={mode !== '2d'}
-          onclick={onPlanClick}
+          onclick={(e) => { if (!planDrag?.moved) onPlanClick(e); }}
+          onwheel={onPlanWheel}
+          onpointerdown={onPlanDown}
+          onpointermove={onPlanMove}
+          onpointerup={onPlanUp}
         ></canvas>
+        {#if mode === '2d'}
+          <div class="plan-zoom">
+            <button type="button" aria-label="放大" onclick={() => zoomPlan(1.4)}>＋</button>
+            <button type="button" aria-label="缩小" onclick={() => zoomPlan(1 / 1.4)}>－</button>
+          </div>
+        {/if}
         <div class="viewer" class:hidden={mode !== '3d'} onpointerdowncapture={onViewerPointerDown} onpointerupcapture={onViewerPointerUp}>
           {#if ThreeViewer}
             <ThreeViewer bind:this={viewer} navShell={true} routePolyline={routePolyline} routeDoorIds={routeDoorIds} onRouteProgress={handleRouteProgress} onNavWalkExit={handleNavWalkExit} />
@@ -1191,6 +1230,8 @@
   .floor-btn { min-width: 44px; min-height: 36px; border: 1px solid #d0d5dd; background: #fff; border-radius: 6px; font: inherit; font-weight: 600; cursor: pointer; flex: none; }
   .floor-btn.on { background: #1f2937; color: #fff; border-color: #1f2937; }
   .floor select { height: 32px; border: 1px solid #d9d9d9; background: #fff; padding: 0 8px; }
+  .plan-zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; z-index: 2; }
+  .plan-zoom button { width: 44px; height: 44px; border-radius: 8px; border: 1px solid #d0d5dd; background: #fff; font-size: 22px; cursor: pointer; }
   .mode-switch { display: flex; flex: none; border: 1px solid #d9d9d9; background: #f7f7f8; }
   .mode-switch button { white-space: nowrap; }
   .mode-switch button {
