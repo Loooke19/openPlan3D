@@ -5,6 +5,7 @@ import { NAV_FONT } from '$lib/utils/navFonts';
  * flat plate on the corridor wall beside it. Teal plate, white pictogram tile, large white name.
  */
 import * as THREE from 'three';
+import { toiletKind } from '$lib/utils/placeSearch';
 
 type P = { x: number; y: number };
 export type SignDoor = { center: P; along: P; normal: P; width: number; wallThickness: number; height: number };
@@ -35,12 +36,40 @@ function drawIcon(g: CanvasRenderingContext2D, name: string, x: number, y: numbe
     g.beginPath(); g.moveTo(x + s * 0.18, y + s * 0.8);
     for (let i = 0; i < 3; i++) { g.lineTo(x + s * (0.18 + i * 0.22), y + s * (0.58 - i * 0.2)); g.lineTo(x + s * (0.4 + i * 0.22), y + s * (0.58 - i * 0.2)); }
     g.stroke();
+  } else if (toiletKind(name) && toiletKind(name) !== 'any') {
+    drawToiletPictogram(g, toiletKind(name)!, cx, cy, s);
   } else if (/卫生间|洗手间|厕/.test(name)) {
     g.font = `800 ${s * 0.46}px ${NAV_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('WC', cx, cy + s * 0.03);
   } else {
     const a = s * 0.14, b = s * 0.34;
     g.fillStyle = '#d6453d';
     g.fillRect(cx - a, cy - b, a * 2, b * 2); g.fillRect(cx - b, cy - a, b * 2, a * 2);
+  }
+}
+
+/** Standard toilet pictograms so 男 / 女 / 无障碍 doors in a shared anteroom read apart at a glance. */
+function drawToiletPictogram(g: CanvasRenderingContext2D, kind: 'male' | 'female' | 'accessible', cx: number, cy: number, s: number) {
+  g.fillStyle = kind === 'female' ? '#c8324a' : kind === 'male' ? '#1f5fbf' : '#0e5f58';
+  g.strokeStyle = g.fillStyle;
+  const head = (x: number, y: number) => { g.beginPath(); g.arc(x, y, s * 0.075, 0, Math.PI * 2); g.fill(); };
+  if (kind === 'male') {
+    head(cx, cy - s * 0.28);
+    g.fillRect(cx - s * 0.11, cy - s * 0.18, s * 0.22, s * 0.24);
+    g.fillRect(cx - s * 0.11, cy + s * 0.06, s * 0.09, s * 0.3); g.fillRect(cx + s * 0.02, cy + s * 0.06, s * 0.09, s * 0.3);
+  } else if (kind === 'female') {
+    head(cx, cy - s * 0.28);
+    g.beginPath(); g.moveTo(cx - s * 0.06, cy - s * 0.18); g.lineTo(cx + s * 0.06, cy - s * 0.18);
+    g.lineTo(cx + s * 0.17, cy + s * 0.14); g.lineTo(cx - s * 0.17, cy + s * 0.14); g.closePath(); g.fill();
+    g.fillRect(cx - s * 0.08, cy + s * 0.14, s * 0.06, s * 0.22); g.fillRect(cx + s * 0.02, cy + s * 0.14, s * 0.06, s * 0.22);
+  } else {
+    // ISO 7001 style wheelchair user
+    g.lineWidth = s * 0.07; g.lineCap = 'round'; g.lineJoin = 'round';
+    head(cx - s * 0.04, cy - s * 0.32);
+    g.beginPath(); g.moveTo(cx - s * 0.06, cy - s * 0.2); g.lineTo(cx - s * 0.06, cy + s * 0.02); g.lineTo(cx + s * 0.16, cy + s * 0.02);
+    g.lineTo(cx + s * 0.24, cy + s * 0.24); g.stroke();
+    g.beginPath(); g.moveTo(cx - s * 0.06, cy - s * 0.12); g.lineTo(cx + s * 0.12, cy - s * 0.12); g.stroke();
+    g.lineWidth = s * 0.055;
+    g.beginPath(); g.arc(cx - s * 0.04, cy + s * 0.12, s * 0.2, Math.PI * 1.15, Math.PI * 2.85); g.stroke();
   }
 }
 

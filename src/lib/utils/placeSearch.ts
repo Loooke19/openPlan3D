@@ -47,8 +47,8 @@ export function searchExample(list: IndexedPlace[]): string {
 export type ToiletKind = 'female' | 'male' | 'accessible' | 'any';
 export function toiletKind(name: string): ToiletKind | null {
   if (/残卫|无障碍/.test(name)) return 'accessible';
-  if (/女卫|女厕|女卫生间/.test(name)) return 'female';
-  if (/男卫|男厕|男卫生间/.test(name)) return 'male';
+  if (/女卫|女厕|女卫生间|(卫生间|厕所)[（(]女[）)]/.test(name)) return 'female';
+  if (/男卫|男厕|男卫生间|(卫生间|厕所)[（(]男[）)]/.test(name)) return 'male';
   if (/卫生间|厕所|^卫$|洗手间/.test(name)) return 'any';
   return null;
 }

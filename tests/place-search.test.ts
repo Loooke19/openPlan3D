@@ -66,3 +66,15 @@ it('toilets display as 卫生间, printed form kept as alias, 卫生/卫生间 h
   const idx = ip2([p]);
   for (const q of ['卫生间', '卫生', '卫A', 'wsj']) expect(sp2(idx, q).length).toBe(1);
 });
+
+import { toiletKind as _tk } from '../src/lib/utils/placeSearch';
+import { describe as _d, it as _it, expect as _e } from 'vitest';
+_d('toiletKind for door signs', () => {
+  _it('reads gender from printed and parenthesised forms', () => {
+    _e(_tk('男卫生间')).toBe('male');
+    _e(_tk('卫生间（女）')).toBe('female');
+    _e(_tk('卫生间(男)')).toBe('male');
+    _e(_tk('无障碍卫生间')).toBe('accessible');
+    _e(_tk('卫生间（靠电梯）')).toBe('any');
+  });
+});
