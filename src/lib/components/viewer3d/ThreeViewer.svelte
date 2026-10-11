@@ -2713,14 +2713,14 @@
         depthWrite: true,
       });
       const doorHeight = opening.top;
-      const jamb = 5; // jamb thickness
+      const jamb = navShell ? 3 : 5; // jamb thickness (nav: slim 3 cm trim, read as slabs at 5)
       // Pull jambs into the opening so their faces are not coplanar with wall end-caps
       // (that coplanar pair showed as fine vertical stripes in first-person).
       const jambClear = 3;
       // Nav: make the frame slightly thicker than the wall so front/back faces sit
       // proud of the wall slab (coplanar wt-depth frames still shimmered at FPS).
       // Editor preview keeps flush depth.
-      const frameDepth = navShell ? wt + 5 : wt; // trim proud of the wall by 2.5 cm per side
+      const frameDepth = navShell ? wt + 2 : wt; // trim 1 cm proud per side: no z-fight, reads flush
 
       // Clip jambs and header too when an opening reaches the wall profile.
       addOpeningFrame(wall, (opening.left + jamb / 2 + jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
