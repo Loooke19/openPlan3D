@@ -947,6 +947,7 @@
       get viewer() { return viewer; },
       places: () => allPlaces().map((p) => ({ key: placeKey(p), label: placeLabel(p) })),
       route: async (from: string, to: string) => { startId = from; endId = to; await planRoute(); return routeMessage; },
+      showLeg: async (i: number) => showLeg(Math.min(i, routeLegs.length - 1)),
       setMode: (m: '2d' | '3d') => { mode = m; },
     };
     void (async () => {
@@ -1055,7 +1056,7 @@
         {#if walking}
           <!-- Touch first person: no pointer lock / keyboard here, so say how to move and offer a big exit. -->
           <div class="fp-touch-hint" aria-hidden="true">拖动看四周 · 点地面前进</div>
-          <button type="button" class="fp-exit" onclick={() => { stopAll(); arrivedText = ''; say('已退出第一人称'); }}>退出</button>
+          <button type="button" class="fp-exit" onclick={() => { const done = arrivedText; stopAll(); arrivedText = done; say('已退出第一人称'); }}>退出</button>
         {/if}
         {#if arrivedText}
           <div class="transfer-notice arrived" role="status">{arrivedText}{#if walking}<small>按 Esc 或点「结束」退出第一人称</small>{/if}</div>
@@ -1063,7 +1064,7 @@
       </div>
       <aside class="side" class:open={panelOpen}>
         <button type="button" class="panel-peek" aria-expanded={panelOpen} onclick={() => (panelOpen = !panelOpen)}>
-          <span class="peek-text">{transferNotice || arrivedText || (routeLegs.length > 1 ? currentStepText() : '') || (routeLegs.length || noLiftFallback || routeFailed || routeMessage !== '选择起点和终点' ? routeMessage : status)}</span>
+          <span class="peek-text">{transferNotice || arrivedText || (routeLegs.length > 1 && (simulating || walking) ? currentStepText() : '') || (routeLegs.length || noLiftFallback || routeFailed || routeMessage !== '选择起点和终点' ? routeMessage : status)}</span>
           <span class="peek-toggle">{panelOpen ? '收起' : '展开'}</span>
         </button>
         {#if !panelOpen && multiFloor() && !hasLift() && view}<p class="nolift-peek peek-nolift" role="note">本楼无电梯，可联系导医台协助</p>{/if}

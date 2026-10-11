@@ -2174,12 +2174,19 @@
     // Stand on the approach side, square to the door, ~1.6 m back: the opening is centred and
     // the frame never fills the view.
     const c = door.center;
-    let side = { x: 0, y: 0 };
+    // Approach side = where the route is ~2 m BEFORE it reaches the door (the route may end
+    // inside the room, so never sample after the closest approach).
+    let closestD = 0, closestK = Infinity;
     for (let d = 0; d <= simTotalLen; d += 10) {
       const p = pointOnRoute(d);
       if (!p) continue;
       const k = Math.hypot(p.x - c.x, p.y - c.y);
-      if (k > 80 && k < 400) side = { x: p.x - c.x, y: p.y - c.y };
+      if (k < closestK) { closestK = k; closestD = d; }
+    }
+    let side = { x: 0, y: 0 };
+    for (const back of [200, 150, 100, 60]) {
+      const p = pointOnRoute(Math.max(0, closestD - back));
+      if (p && Math.hypot(p.x - c.x, p.y - c.y) > 40) { side = { x: p.x - c.x, y: p.y - c.y }; break; }
     }
     let n = door.angle !== undefined ? { x: -Math.sin(door.angle), y: Math.cos(door.angle) } : { x: side.x, y: side.y };
     const len = Math.hypot(n.x, n.y) || 1;
@@ -2328,6 +2335,10 @@
     }
     if (moving) markSceneDirty();
     return moving;
+  }
+
+  export function debugNavDoors() {
+    return { dest: navDestDoorId, visual: !!navRouteVisual, leaves: navDoorLeaves.map(l => ({ id: l.doorId, t: l.t, x: Math.round(l.center.x), y: Math.round(l.center.y) })) };
   }
 
   function setNavDoorStates(doorIds: string[]) {
