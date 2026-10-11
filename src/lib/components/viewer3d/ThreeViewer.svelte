@@ -2367,16 +2367,26 @@
   /** Transfer: stand ~1.6 m from the stair/lift and look at it (its room centre / door). */
   export function faceNavPoint(target: { x: number; y: number }) {
     if (!camera || !simRoute.length) return;
+    // Stand ~3 m back on the approach (not 1.2–2.2 m from the shaft room's centre, which in a
+    // narrow portrait FOV showed only the lift lobby wall) and look up a little, so the lift/stair
+    // door and the sign above it are both in frame.
+    const back = narrowViewport() ? 320 : 240;
+    const p = pointOnRoute(Math.max(0, simTotalLen - back));
     const end = simRoute[simRoute.length - 1];
-    let vx = end.x - target.x, vy = end.y - target.y;
-    const L = Math.hypot(vx, vy);
-    if (L < 1) { const p = pointOnRoute(Math.max(0, simTotalLen - 150)); if (p) { vx = p.x - target.x; vy = p.y - target.y; } }
-    const n = Math.hypot(vx, vy) || 1;
-    const back = Math.max(120, Math.min(220, L + 60));
-    const pos = { x: target.x + vx / n * back, y: target.y + vy / n * back };
+    let pos = p && Math.hypot(p.x - target.x, p.y - target.y) > 60 ? { x: p.x, y: p.y } : null;
+    if (!pos) {
+      let vx = end.x - target.x, vy = end.y - target.y;
+      const n = Math.hypot(vx, vy) || 1;
+      if (n < 1) { vx = 1; vy = 0; }
+      pos = { x: target.x + vx / n * back, y: target.y + vy / n * back };
+    }
     navWalkYaw = Math.atan2(target.y - pos.y, target.x - pos.x);
-    setFloorCameraPose(camera, activeFloorElevation, { x: pos.x, y: eyeHeight, z: pos.y }, { x: target.x, y: eyeHeight - 10, z: target.y });
+    setFloorCameraPose(camera, activeFloorElevation, { x: pos.x, y: eyeHeight, z: pos.y }, { x: target.x, y: eyeHeight + 25, z: target.y });
     markSceneDirty();
+  }
+
+  function narrowViewport() {
+    return typeof window !== 'undefined' && window.innerWidth < 600;
   }
 
   export function debugCamera() {
