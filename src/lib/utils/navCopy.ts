@@ -115,8 +115,11 @@ export function transferText(t: TransferLike, box?: Box | null): string {
   const way = t.direction === 'up' ? '上到' : t.direction === 'down' ? '下到' : '到';
   const span = (t as { floors?: number }).floors;
   const mark = (t as { landmark?: string }).landmark;
-  const only = t.toFloorName && t.onlyTo?.includes(t.toFloorName) ? `（只有这部${stairs ? '楼梯' : '电梯'}能到 ${to}）` : '';
-  return `${stairs ? '走' : '乘'}${mark ? `${mark}旁的` : ''}${transferPlace(t, box)}${way} ${to}${only}${span && span >= 2 ? `（共 ${span} 层）` : ''}`;
+  const only = t.toFloorName && t.onlyTo?.includes(t.toFloorName) ? `（只有这部能到 ${to}）` : '';
+  const place = transferPlace(t, box);
+  // Name first (「走楼梯 A 上到 4楼」); a landmark only when the name alone doesn't identify it.
+  const named = /\s[A-Z]$|（.+）$/.test(place);
+  return `${stairs ? '走' : '乘'}${!named && mark ? `${mark}旁的` : ''}${place}${/\s[A-Z]$/.test(place) ? " " : ""}${way} ${to}${only}${span && span >= 2 ? `（共 ${span} 层）` : ''}`;
 }
 
 export const pinText = {

@@ -151,6 +151,7 @@
     openings?: any[];
     bounds?: { minX: number; minY: number; maxX: number; maxY: number };
     empty?: boolean;
+    verticalLinks?: { name?: string; stops: { floorId: string; x: number; y: number }[] }[];
   };
 
   let view = $state<NavView | null>(null);
@@ -204,10 +205,38 @@
     });
   });
 
+  // Keep the current floor's button visible in the scrolling floor bar (P2 5F looked unselected).
+  $effect(() => {
+    const id = view?.floorId;
+    if (!id) return;
+    requestAnimationFrame(() => document.querySelector('.floor-btn.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+  });
+
+  // 3D signs over every stair/lift landing, same patient name as banner/steps (「楼梯 A」).
+  $effect(() => {
+    const links = view?.verticalLinks || [];
+    if (!viewer) return;
+    const list = links.flatMap((l) => l.name ? l.stops.map((st) => ({ floorId: st.floorId, x: st.x, y: st.y, name: l.name! })) : []);
+    untrack(() => viewer?.setNavLinkSigns?.(list));
+  });
+
   // The 3D viewer mounts lazily; rebuild the floor stack once it exists.
   $effect(() => {
     if (mode !== '3d' || !viewer) return;
     untrack(() => requestAnimationFrame(() => syncFloorStack()));
+  });
+
+  // One monotonic progress for the whole multi-floor trip (QA r7: 85→100 then back to ~40%).
+  const legLens = $derived(routeLegs.map((l) => l.lengthCm || (l.polyline || []).reduce((a, p, i, arr) => i ? a + Math.hypot(p.x - arr[i - 1].x, p.y - arr[i - 1].y) : 0, 0)));
+  const tripSpan = (i: number) => {
+    const total = legLens.reduce((a, b) => a + b, 0) || 1;
+    const before = legLens.slice(0, i).reduce((a, b) => a + b, 0);
+    return { from: (before / total) * 100, width: ((legLens[i] || 0) / total) * 100 };
+  };
+  const tripSeek = $derived.by(() => {
+    if (!routeLegs.length) return Number(walkSeek) || 0;
+    const { from, width } = tripSpan(activeLegIndex);
+    return Math.round((from + width * (Number(walkSeek) || 0) / 100) * 10) / 10;
   });
 
   function handleRouteProgress(ratio: number, playing: boolean) {
@@ -226,6 +255,7 @@
       : `换到 ${floorSpoken(next?.floorName) || '下一层'}`;
     say(tip);
     transferNotice = tip;
+    if (walking) viewer?.faceNavArrival?.(); // QA r7: at the transfer, look at the stair/lift door
     pendingLegAdvance = true;
     if (transferTimer) clearTimeout(transferTimer);
     transferTimer = setTimeout(() => {
@@ -1136,9 +1166,13 @@
               min="0"
               max="100"
               step="0.1"
-              bind:value={walkSeek}
+              value={tripSeek}
               aria-label="进度"
-              oninput={() => {
+              oninput={(e) => {
+                // Seek within the current floor's stretch of the trip.
+                const { from, width } = tripSpan(activeLegIndex);
+                const v = Number((e.currentTarget as HTMLInputElement).value) || 0;
+                walkSeek = width > 0 ? Math.max(0, Math.min(100, ((v - from) / width) * 100)) : v;
                 viewer?.setSimulationProgress?.((Number(walkSeek) || 0) / 100);
                 if (mode === '2d') drawPlan();
               }}

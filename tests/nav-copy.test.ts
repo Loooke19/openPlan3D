@@ -101,3 +101,9 @@ describe('transfer landmarks and span', () => {
     expect(t).toContain('（共 2 层）');
   });
 });
+
+import { transferText as tt } from '../src/lib/utils/navCopy';
+import { it as it2, expect as ex2 } from 'vitest';
+it2('lettered stair name first, only-this-stair note (P3)', () => {
+  ex2(tt({ kind: 'stairs', display: '楼梯 A', direction: 'up', toFloorName: '4F', onlyTo: ['4F'] })).toBe('走楼梯 A 上到 4楼（只有这部能到 4楼）');
+});

@@ -74,7 +74,7 @@ export class NavSigns {
   readonly group = new THREE.Group();
   private disposables: { dispose(): void }[] = [];
 
-  constructor(doors: SignDoor[], rooms: SignRoom[], floorY: number) {
+  constructor(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string }[] = []) {
     this.group.userData.navDressing = true;
     const edge = new THREE.MeshStandardMaterial({ color: '#cfd4d2', metalness: 0.6, roughness: 0.35 });
     const bracketMat = new THREE.MeshStandardMaterial({ color: '#9aa2a0', metalness: 0.7, roughness: 0.3 });
@@ -123,6 +123,21 @@ export class NavSigns {
       const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), n);
       plate.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(side, new THREE.Vector3(0, 1, 0), n));
       for (const m of [blade, arm, plate]) { m.userData.navDressing = true; this.group.add(m); }
+    }
+    this.hangLinks(links, floorY, faceMats, bracketMat);
+  }
+
+  /** Ceiling-hung two-sided sign over each stair/lift landing with its patient name (「楼梯 A」). */
+  private hangLinks(links: { x: number; y: number; name: string }[], floorY: number, faceMats: (n: string) => THREE.Material[], mat: THREE.Material) {
+    for (const l of links) {
+      for (const rot of [0, Math.PI / 2]) {
+        const sign = new THREE.Mesh(this.box(90, 28, 3), faceMats(l.name));
+        sign.position.set(l.x, floorY + 232, l.y);
+        sign.rotation.y = rot;
+        const rod = new THREE.Mesh(this.box(1.5, 30, 1.5), mat);
+        rod.position.set(l.x, floorY + 261, l.y);
+        for (const m of [sign, rod]) { m.userData.navDressing = true; this.group.add(m); }
+      }
     }
   }
 

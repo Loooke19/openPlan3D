@@ -992,10 +992,21 @@
 
     // Click-to-select walls via raycasting
     let pointerDownPos = { x: 0, y: 0 };
+    // Touch/mouse look during auto-walk pauses playback while the finger is down (QA r7).
+    let lookHeld = false;
+    const releaseLook = () => {
+      if (!lookHeld) return;
+      lookHeld = false;
+      if (navAutoWalking && simProgress < 1) { simPlaying = true; simLastTs = 0; onRouteProgress?.(simProgress, true); }
+    };
     renderer.domElement.addEventListener('pointerdown', (e) => {
       pointerDownPos = { x: e.clientX, y: e.clientY };
+      if (navAutoWalking && simPlaying) { lookHeld = true; simPlaying = false; onRouteProgress?.(simProgress, false); }
     });
+    renderer.domElement.addEventListener('pointercancel', releaseLook);
+    renderer.domElement.addEventListener('pointerleave', releaseLook);
     renderer.domElement.addEventListener('pointerup', (e) => {
+      releaseLook();
       // Only select in edit mode, and only if mouse didn't move much (not a drag/orbit)
       if (!editMode) return;
       const dx = e.clientX - pointerDownPos.x;
@@ -1317,8 +1328,12 @@
         doors.push({ center: { x: wall.start.x + dx * door.position, y: wall.start.y + dy * door.position }, along: { x: dx / len, y: dy / len },
           normal: { x: -dy / len, y: dx / len }, width: door.width, wallThickness: wall.thickness || 15, height: door.height || 210 });
       }
-      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
-      navSigns = new NavSigns(doors, named, activeFloorElevation);
+      const fid = currentFloor.id;
+      const links = navLinkSigns.filter(l => l.floorId === fid);
+      // A stair/lift room's door sign carries the same patient name as banner and steps.
+      const linkName = (poly: { x: number; y: number }[]) => links.find(l => insidePoly(l, poly))?.name;
+      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
+      navSigns = new NavSigns(doors, named, activeFloorElevation, links);
       scene.add(navSigns.group);
     }
     applyNavLook(navLook, true);
@@ -1993,6 +2008,21 @@
   }
 
   /** Public nav API — called from /nav shell. */
+  let navLinkSigns: { floorId: string; x: number; y: number; name: string }[] = [];
+  function insidePoly(p: { x: number; y: number }, poly: { x: number; y: number }[]) {
+    let c = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) c = !c;
+    }
+    return c;
+  }
+  /** Patient names of stairs/lifts at each stop; hung as 3D signs (「楼梯 A」). */
+  export function setNavLinkSigns(list: { floorId: string; x: number; y: number; name: string }[]) {
+    navLinkSigns = list;
+    rebuildNavDressing();
+  }
+
   export function setNavRoute(points: { x: number; y: number }[], doorIds: string[] = []) {
     stopRouteSimulation();
     drawNavRoute(points);
@@ -3812,7 +3842,7 @@
     </div>
 
     {#if navAutoWalking}
-      <div class="absolute top-4 left-4 z-10 bg-black/70 text-white text-xs rounded-lg p-3">沿路线自动行走</div>
+      <div class="absolute bottom-16 left-1/2 -translate-x-1/2 z-10 bg-black/60 text-white text-xs rounded-lg px-3 py-1.5 pointer-events-none whitespace-nowrap">沿路线自动行走</div>
     {:else if !(navShell && touchUi)}
     <!-- Controls Panel (keyboard/mouse; the nav page shows touch hints itself) -->
     <div class="absolute top-4 left-4 z-10 bg-black/70 text-white text-xs rounded-lg backdrop-blur-sm p-3 space-y-2 min-w-[180px]">
