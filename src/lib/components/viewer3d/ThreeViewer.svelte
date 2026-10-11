@@ -2097,6 +2097,26 @@
     return yaw;
   }
 
+  function startAimPoint(pose: { x: number; y: number }) {
+    let best: { x: number; y: number; yaw: number } | null = null;
+    for (let d = 60; d <= Math.min(simTotalLen, 300); d += 20) {
+      const p = pointOnRoute(d);
+      if (!p) break;
+      const L = Math.hypot(p.x - pose.x, p.y - pose.y);
+      if (L < 20) continue;
+      let ok = true;
+      for (let k = 10; k < d; k += 10) {
+        const q = pointOnRoute(k);
+        if (!q) continue;
+        const dev = Math.abs((p.x - pose.x) * (q.y - pose.y) - (p.y - pose.y) * (q.x - pose.x)) / L;
+        if (dev > 30) { ok = false; break; }
+      }
+      if (!ok) break;
+      best = p;
+    }
+    return best;
+  }
+
   function placeNavWalkCamera(distance: number) {
     const pose = pointOnRoute(distance);
     if (!pose) return;
@@ -2110,7 +2130,10 @@
     let yaw = navWalkYaw ?? pose.yaw;
     // Start: aim at where the route goes ~3 m on (a short first stub out of a doorway or a
     // snapped start used to point the camera straight at the adjacent wall).
-    const first = pointOnRoute(Math.min(simTotalLen, 300)) ?? pointOnRoute(Math.min(simTotalLen, 60));
+    // Aim at the farthest point (≤3 m) whose sight line still follows the route: a chord to a fixed
+    // 3 m point cuts across the first corner and, in a narrow portrait FOV, fills the view with the
+    // corner wall (P3 390px).
+    const first = startAimPoint(pose) ?? pointOnRoute(Math.min(simTotalLen, 60));
     if (distance < 60 && first && Math.hypot(first.x - pose.x, first.y - pose.y) > 20) yaw = Math.atan2(first.y - pose.y, first.x - pose.x);
     else if (ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 80) yaw = Math.atan2(ahead.y - pose.y, ahead.x - pose.x);
     else if (back && fwd && Math.hypot(fwd.x - back.x, fwd.y - back.y) > 20) yaw = Math.atan2(fwd.y - back.y, fwd.x - back.x);
