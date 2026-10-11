@@ -1485,7 +1485,9 @@
     const lo = Math.min(...dirs) * rise, hi = Math.max(...dirs) * rise + 300;
     const center = box.getCenter(new THREE.Vector3()); center.y = activeFloorElevation + (lo + hi) / 2;
     center.z -= ((Math.min(...dirs) + Math.max(...dirs)) / 2) * stack.shift;
-    const span = Math.max(size.x, size.z + stack.shift, hi - lo);
+    // Whole stack in frame: every floor is shifted by dir·shift in depth and dir·rise in height.
+    const dirSpan = Math.max(...dirs) - Math.min(...dirs);
+    const span = Math.max(size.x, Math.hypot(size.z + dirSpan * stack.shift, hi - lo)) * 1.1;
     navStackFrame = () => {
       // Fit the wider of the two view axes: portrait phones are limited by the horizontal FOV.
       const dist = span / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.2 / Math.min(1, camera.aspect);
