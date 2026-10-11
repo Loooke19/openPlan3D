@@ -3391,6 +3391,8 @@
     navPipeline?.setSize(w, h);
     if (navStack && !navAutoWalking) navStackFrame?.();
     markSceneDirty();
+    // setSize clears the canvas; draw now so a panel toggle never shows a blank frame (QA r7).
+    try { renderView(); } catch { /* next frame retries */ }
   }
 
   function takeScreenshot() {

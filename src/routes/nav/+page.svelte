@@ -274,6 +274,15 @@
     return meters < 1 ? '不到 1 米' : `约 ${meters} 米`;
   }
 
+  /** Collapsed panel line: what to do on this leg (「1楼：走楼梯 A 上到 4楼」 / 「4楼：到 办公室 A」). */
+  function currentStepText() {
+    const leg = routeLegs[activeLegIndex];
+    if (!leg) return '';
+    const ride = transferAfter(activeLegIndex);
+    const here = floorSpoken(leg.floorName || leg.floorId);
+    return `${activeLegIndex + 1}/${routeLegs.length} ${here}：${ride ? transferText(withDisplay(ride), view?.bounds) : `前往目的地 · ${metersLabel(leg.lengthCm || 0)}`}`;
+  }
+
   function placeKey(place: Place) {
     return `${place.floorId || view?.floorId || ''}::${place.id}`;
   }
@@ -1054,7 +1063,7 @@
       </div>
       <aside class="side" class:open={panelOpen}>
         <button type="button" class="panel-peek" aria-expanded={panelOpen} onclick={() => (panelOpen = !panelOpen)}>
-          <span class="peek-text">{transferNotice || arrivedText || (routeLegs.length || noLiftFallback || routeFailed || routeMessage !== '选择起点和终点' ? routeMessage : status)}</span>
+          <span class="peek-text">{transferNotice || arrivedText || (routeLegs.length > 1 ? currentStepText() : '') || (routeLegs.length || noLiftFallback || routeFailed || routeMessage !== '选择起点和终点' ? routeMessage : status)}</span>
           <span class="peek-toggle">{panelOpen ? '收起' : '展开'}</span>
         </button>
         {#if !panelOpen && multiFloor() && !hasLift() && view}<p class="nolift-peek peek-nolift" role="note">本楼无电梯，可联系导医台协助</p>{/if}
@@ -1373,7 +1382,7 @@
   .route-tools button { flex: 1; min-height: 44px; border: 1px solid #ccd; border-radius: 8px; background: #fff; font: inherit; }
   @media (max-width: 720px), (pointer: coarse) {
     .fp-touch-hint { display: block; position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 6; padding: 6px 14px; border-radius: 18px; background: rgba(20, 30, 40, .72); color: #fff; font-size: 14px; pointer-events: none; animation: fpHint 5s forwards; white-space: nowrap; }
-    .fp-exit { display: block; position: absolute; left: 12px; bottom: 16px; z-index: 7; min-width: 88px; min-height: 52px; border: 0; border-radius: 26px; background: #c62828; color: #fff; font-size: 18px; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+    .fp-exit { display: block; position: absolute; right: 12px; top: 12px; z-index: 30; touch-action: manipulation; min-width: 88px; min-height: 52px; border: 0; border-radius: 26px; background: #c62828; color: #fff; font-size: 18px; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,.3); }
   }
   @keyframes fpHint { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
   @media (max-width: 720px) {
