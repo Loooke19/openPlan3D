@@ -251,6 +251,11 @@
     walkSeek = Math.round(ratio * 1000) / 10;
     playbackPlaying = playing;
     if (playing && ratio < 1 && arrivedText) arrivedText = '';
+    // Last leg run out: arrive even if the viewer still reports playing (walk loop idling at the door).
+    if (ratio >= 0.999 && playing && !pendingLegAdvance && !arrivedText && routeLegs.length && activeLegIndex + 1 >= routeLegs.length && (simulating || walking)) {
+      arrive(walking);
+      return;
+    }
     if (!(ratio >= 1 && !playing) || pendingLegAdvance) return;
     if (!(simulating || walking) || activeLegIndex + 1 >= routeLegs.length) {
       arrive(walking);
@@ -281,10 +286,13 @@
       if (target) viewer?.faceNavPoint?.(target); else viewer?.faceNavArrival?.();
     }
     pendingLegAdvance = true;
+    // Remember first person NOW: on a stair/lift hop the viewer can drop walk mode before the
+    // timer fires (P3 出入口B→4F: it came back as free roam, never auto-walked, never arrived).
+    const fpAtTransfer = walking;
     if (transferTimer) clearTimeout(transferTimer);
     transferTimer = setTimeout(() => {
       transferTimer = null;
-      void advanceToLeg(activeLegIndex + 1);
+      void advanceToLeg(activeLegIndex + 1, fpAtTransfer || walking);
     }, walking ? Math.max(1500, 2500 / (Number(walkSpeed) || 1)) : Math.max(450, 1200 / (Number(walkSpeed) || 1)));
   }
 
@@ -823,10 +831,10 @@
     return routePolyline.length > 0;
   }
 
-  async function advanceToLeg(index: number) {
+  async function advanceToLeg(index: number, fp?: boolean) {
     const leg = routeLegs[index];
     // Switching floors exits first-person in the viewer, which clears `walking`.
-    const firstPerson = walking;
+    const firstPerson = fp ?? walking;
     if (!leg) {
       pendingLegAdvance = false;
       arrive(firstPerson);
