@@ -22,9 +22,11 @@
   const toiletRow = (t: (typeof toilets)[number]) => {
     const peers = toilets.filter(o => o.kind === t.kind && o.p.floorId === t.p.floorId).map(o => o.p);
     // A person-set landmark in the name (卫生间（靠楼梯B）/（走廊尽头）) beats the computed side.
-    const mark = /（([^）]{1,6})）$/.exec(t.p.name)?.[1];
-    const landmark = mark && !/^(男|女|无障碍)$/.test(mark) ? mark : '';
-    const side = landmark || (peers.length > 1 ? relativeSide(t.p, places, peers) : '');
+    const landmarkOf = (n: string) => { const m = /（([^）]{1,6})）$/.exec(n)?.[1]; return m && !/^(男|女|无障碍)$/.test(m) ? m : ''; };
+    const landmark = landmarkOf(t.p.name);
+    // Only rows that would still read the same need a computed side (a plain 卫生间 next to 卫生间（靠楼梯B） doesn't).
+    const unmarked = peers.filter(o => !landmarkOf(o.name));
+    const side = landmark || (unmarked.length > 1 ? relativeSide(t.p, places, unmarked) : '');
     const base = toiletLabel(t.kind);
     const lab = side ? (base.endsWith('）') ? base.replace(/）$/, `·${side}）`) : `${base}（${side}）`) : base;
     return `${lab} · ${floorShort(t.p.floorLabel)}${t.m !== null ? ` · 约 ${t.m} 米` : ''}`;
