@@ -92,10 +92,10 @@
   function endLabel() { const e = placeByKey(endId); return e ? (displayNames.get(placeKey(e)) || e.name || '') : ''; }
   /** Final arrival in first person: frame the destination door and keep FP until the user exits. */
   function arrive(firstPerson: boolean) {
-    if (!firstPerson) { say('模拟导航已完成'); return; }
+    // Always announce arrival (overview simulation and first person alike).
     arrivedText = `已到达：${endLabel()}`;
     say(arrivedText);
-    viewer?.faceNavArrival?.();
+    if (firstPerson || viewer?.isNavWalking?.()) viewer?.faceNavArrival?.();
   }
   let legAdvanceToken = 0;
   let accessible = $state(false);
@@ -203,6 +203,7 @@
   function handleRouteProgress(ratio: number, playing: boolean) {
     walkSeek = Math.round(ratio * 1000) / 10;
     playbackPlaying = playing;
+    if (playing && ratio < 1 && arrivedText) arrivedText = '';
     if (!(ratio >= 1 && !playing) || pendingLegAdvance) return;
     if (!(simulating || walking) || activeLegIndex + 1 >= routeLegs.length) {
       arrive(walking);
@@ -943,8 +944,8 @@
           <div class="fp-touch-hint" aria-hidden="true">拖动看四周 · 点地面前进</div>
           <button type="button" class="fp-exit" onclick={() => { stopAll(); arrivedText = ''; say('已退出第一人称'); }}>退出</button>
         {/if}
-        {#if arrivedText && walking}
-          <div class="transfer-notice arrived" role="status">{arrivedText}<small>按 Esc 或点「结束」退出第一人称</small></div>
+        {#if arrivedText}
+          <div class="transfer-notice arrived" role="status">{arrivedText}{#if walking}<small>按 Esc 或点「结束」退出第一人称</small>{/if}</div>
         {/if}
       </div>
       <aside class="side" class:open={panelOpen}>

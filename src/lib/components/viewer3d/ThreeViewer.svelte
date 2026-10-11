@@ -2206,6 +2206,8 @@
     markSceneDirty();
   }
 
+  export function isNavWalking() { return navAutoWalking; }
+
   export function isSimulating() {
     return simPlaying;
   }
