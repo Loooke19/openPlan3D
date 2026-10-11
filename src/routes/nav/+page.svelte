@@ -278,11 +278,16 @@
     // Landmark: the nearest named, non-circulation place within 8 m (「护士站旁」).
     let mark = '', markD = 800;
     for (const p of allPlaces()) {
-      if ((t.fromFloorId && p.floorId !== t.fromFloorId) || !p.name || /楼梯|电梯|未命名|^房间\s*\d+$|过道|走廊|空调|管道/.test(p.name)) continue;
+      // Only places a patient can see and name (never 配电间/氧气瓶存放处).
+      if ((t.fromFloorId && p.floorId !== t.fromFloorId) || p.restricted || !/护士站|收费|挂号|大门|门厅|大厅|候诊|导医|服务台|药房/.test(p.name || '')) continue;
       const d = Math.hypot(p.x - t.from!.x, p.y - t.from!.y);
       if (d < markD) { markD = d; mark = displayNames.get(placeKey(p)) || p.name; }
     }
     if (mark) t = { ...t, landmark: mark };
+    // The importer names stairs for patients (「楼梯 A」/「楼梯（北）」): the link's own name wins,
+    // so marker, step text and map label always name the shaft the route really uses.
+    const own = (t as { name?: string }).name || '';
+    if (/^(楼梯|电梯|扶梯)(\s[A-Z]|（.+）)$/.test(own)) return { ...t, display: own };
     const stairs = t.kind === 'stairs' || /楼梯/.test(t.kindLabel || '');
     let best: Place | null = null, bestD = 450;
     for (const p of allPlaces()) {
@@ -597,7 +602,7 @@
           ? { at: transfer.from, text: pinText.transfer(transferPlace(withDisplay(transfer), view.bounds)) }
           : null,
         transfer.toFloorId === view.floorId && transfer.to
-          ? { at: transfer.to, text: `从${floorSpoken(transfer.fromFloorName)}到达` }
+          ? { at: transfer.to, text: `${transferPlace(withDisplay(transfer), view.bounds)} · 从${floorSpoken(transfer.fromFloorName)}到达` }
           : null,
       ];
       for (const end of ends) {

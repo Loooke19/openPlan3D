@@ -96,6 +96,8 @@ export type TransferLike = {
   from?: Pt; fromFloorName?: string; toFloorName?: string;
   /** Display name of the stair/lift (「楼梯（东）」), so steps match the map and dropdowns. */
   display?: string;
+  /** Floors only this stair/lift reaches (「只有这部楼梯能到 4 楼」). */
+  onlyTo?: string[];
 };
 
 /** 「楼梯（东）」 for a transfer: its display name, else kind + side. */
@@ -113,7 +115,8 @@ export function transferText(t: TransferLike, box?: Box | null): string {
   const way = t.direction === 'up' ? '上到' : t.direction === 'down' ? '下到' : '到';
   const span = (t as { floors?: number }).floors;
   const mark = (t as { landmark?: string }).landmark;
-  return `${stairs ? '走' : '乘'}${transferPlace(t, box)}${mark ? `（${mark}旁）` : ''}${way} ${to}${span && span >= 2 ? `（共 ${span} 层）` : ''}`;
+  const only = t.toFloorName && t.onlyTo?.includes(t.toFloorName) ? `（只有这部${stairs ? '楼梯' : '电梯'}能到 ${to}）` : '';
+  return `${stairs ? '走' : '乘'}${mark ? `${mark}旁的` : ''}${transferPlace(t, box)}${way} ${to}${only}${span && span >= 2 ? `（共 ${span} 层）` : ''}`;
 }
 
 export const pinText = {
