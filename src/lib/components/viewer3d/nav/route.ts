@@ -99,8 +99,6 @@ export class NavRouteVisual {
           gl_FragColor = vec4(col, 1.);
         }`,
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
-      // Direct path (Windows skips composer): keep coffee HDR values out of NeutralToneMapping.
-      toneMapped: false,
     });
     const rimMat = new THREE.ShaderMaterial({
       uniforms: u, vertexShader: VERT,
@@ -113,7 +111,6 @@ export class NavRouteVisual {
           gl_FragColor = vec4(vUv.x < uTraveled ? vec3(.82) : vec3(1.05), 1.);
         }`,
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
-      toneMapped: false,
     });
     const glowMat = new THREE.ShaderMaterial({
       uniforms: u, vertexShader: VERT,
@@ -130,7 +127,6 @@ export class NavRouteVisual {
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-      toneMapped: false,
     });
     const add = (g: THREE.BufferGeometry, m: THREE.Material, dy: number, order: number) => {
       const mesh = new THREE.Mesh(g, m);

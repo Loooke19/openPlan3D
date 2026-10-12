@@ -6,6 +6,10 @@
  * ultra = high + SMAA + 2048 shadows + pixel ratio up to 2.
  * low   = direct render with Neutral tone mapping (no post, no shadows).
  * Choose with `?quality=ultra|high|low` or localStorage `nav-render-quality`.
+ *
+ * Windows ANGLE: HalfFloat+MSAA and/or sampler3D LUT FinalShader can black the canvas. Default
+ * Windows stack = UnsignedByte RT, samples=0, UnrealBloom, Final without 3D LUT (neutral+sRGB+vignette)
+ * so coffee HDR route + bloom glow stays lit. Override with ?postProbe=… for isolation.
  */
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -34,7 +38,6 @@ function probeHdrMsaa(renderer: THREE.WebGLRenderer): { type: THREE.TextureDataT
     const maxSamples = gl.getParameter(gl.MAX_SAMPLES) as number;
     const samples = Math.min(4, maxSamples || 0);
     if (samples < 1) return { type: THREE.HalfFloatType, samples: 0 };
-    // Allocate a tiny multisampled half-float framebuffer; incomplete → don't use it live.
     const tex = gl.createTexture();
     const rb = gl.createRenderbuffer();
     const fb = gl.createFramebuffer();
@@ -57,7 +60,6 @@ function probeHdrMsaa(renderer: THREE.WebGLRenderer): { type: THREE.TextureDataT
 }
 
 type Grade = { lift: [number, number, number]; gain: [number, number, number]; contrast: number; saturation: number };
-/** Overview: clean, very slightly cool model look. Walk: warm highlights, cool shadows, a little more contrast. */
 const GRADES: Record<NavLook, Grade> = {
   overview: { lift: [0.0, 0.004, 0.012], gain: [0.995, 1.0, 1.01], contrast: 1.06, saturation: 1.06 },
   walk: { lift: [0.006, 0.01, 0.02], gain: [1.04, 1.0, 0.95], contrast: 1.14, saturation: 1.08 },
@@ -68,9 +70,7 @@ function buildLut(grade: Grade, size = 32): THREE.Data3DTexture {
   let i = 0;
   for (let b = 0; b < size; b++) for (let g = 0; g < size; g++) for (let r = 0; r < size; r++) {
     let c = [r / (size - 1), g / (size - 1), b / (size - 1)];
-    // lift (shadows) / gain (highlights)
     c = c.map((v, k) => grade.lift[k] * (1 - v) + v * grade.gain[k]);
-    // contrast around mid grey (in display space)
     c = c.map(v => Math.min(1, Math.max(0, (v - 0.5) * grade.contrast + 0.5)));
     const l = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
     c = c.map(v => Math.min(1, Math.max(0, l + (v - l) * grade.saturation)));
@@ -83,8 +83,9 @@ function buildLut(grade: Grade, size = 32): THREE.Data3DTexture {
   return tex;
 }
 
-const FinalShader = {
-  name: 'NavFinal',
+/** Coffee FinalShader: Neutral + sRGB + 3D LUT + vignette. */
+const FinalShaderLut = {
+  name: 'NavFinalLut',
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
     exposure: { value: 1 },
@@ -113,7 +114,6 @@ const FinalShader = {
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
       vec3 col = toSRGB(clamp(neutral(c.rgb * exposure), 0., 1.));
-      // GLSL1 ShaderMaterial: sampler3D must use texture3D (texture() is GLSL3-only and breaks some ANGLE paths).
       col = texture3D(lut, col * (31. / 32.) + .5 / 32.).rgb;
       vec2 d = (vUv - .5) * vec2(1.15, 1.);
       col *= 1. - vignette * smoothstep(.35, .95, length(d));
@@ -121,17 +121,76 @@ const FinalShader = {
     }`,
 };
 
+/** Windows-safe Final: same Neutral + sRGB + vignette, no sampler3D (ANGLE often blacks with 3D LUT). */
+const FinalShaderNoLut = {
+  name: 'NavFinalNoLut',
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    exposure: { value: 1 },
+    vignette: { value: 0.18 },
+  },
+  vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse; uniform float exposure, vignette;
+    varying vec2 vUv;
+    vec3 neutral(vec3 color) {
+      const float StartCompression = 0.8 - 0.04; const float Desaturation = 0.15;
+      float x = min(color.r, min(color.g, color.b));
+      float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+      color -= offset;
+      float peak = max(color.r, max(color.g, color.b));
+      if (peak < StartCompression) return color;
+      float d = 1. - StartCompression;
+      float newPeak = 1. - d * d / (peak + d - StartCompression);
+      color *= newPeak / max(peak, 1e-5);
+      float g = 1. - 1. / (Desaturation * (peak - newPeak) + 1.);
+      return mix(color, vec3(newPeak), g);
+    }
+    vec3 toSRGB(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1. / 2.4)) - 0.055, step(0.0031308, c)); }
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      vec3 col = toSRGB(clamp(neutral(c.rgb * exposure), 0., 1.));
+      // Mild cool lift approximating overview LUT without sampler3D.
+      col = mix(col, col * vec3(0.995, 1.0, 1.01) + vec3(0.0, 0.004, 0.012), 0.85);
+      vec2 d = (vUv - .5) * vec2(1.15, 1.);
+      col *= 1. - vignette * smoothstep(.35, .95, length(d));
+      gl_FragColor = vec4(col, 1.);
+    }`,
+};
+
+type ProbeMode =
+  | 'direct'
+  | 'rp'
+  | 'rp_final_nolut'
+  | 'rp_final'
+  | 'rp_bloom'
+  | 'rp_bloom_final'
+  | 'rp_bloom_final_hf'
+  | 'hf0_bloom_nolut'
+  | '';
+
+function detectProbe(): ProbeMode {
+  if (typeof window === 'undefined') return '';
+  const v = new URLSearchParams(window.location.search).get('postProbe') || '';
+  return (
+    v === 'direct' || v === 'rp' || v === 'rp_final_nolut' || v === 'rp_final' ||
+    v === 'rp_bloom' || v === 'rp_bloom_final' || v === 'rp_bloom_final_hf' ||
+    v === 'hf0_bloom_nolut'
+  ) ? v : '';
+}
+
 export class NavPipeline {
   readonly quality: NavQuality;
-  /** True when HalfFloat+MSAA probe succeeded (false → LDR UnsignedByte RT). */
   readonly hdrMsaa: boolean;
+  /** Active post configuration (for diagnostics). */
+  readonly postMode: string;
   private composer: EffectComposer | null = null;
   private bloom: UnrealBloomPass | null = null;
   private smaa: SMAAPass | null = null;
   private final: ShaderPass | null = null;
+  private useLut = false;
   private luts: Record<NavLook, THREE.Data3DTexture>;
   private envTarget: THREE.WebGLRenderTarget | null = null;
-  /** Orbit/drag: skip bloom (and SMAA) so Windows GPUs keep a stable non-black frame. */
   private interactive = false;
   look: NavLook = 'overview';
   exposure = 1;
@@ -147,45 +206,113 @@ export class NavPipeline {
     scene.environment = this.envTarget.texture;
     renderer.shadowMap.enabled = quality !== 'low';
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.NeutralToneMapping; // used only by the 'low' / Windows-direct path
+    renderer.toneMapping = THREE.NoToneMapping; // tone map in FinalShader (coffee path)
+
     const win = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
+    const probe = detectProbe();
     const qs = typeof window !== 'undefined' ? window.location.search : '';
-    const forcePost = new URLSearchParams(qs).get('post') === '1';
-    const forceBloom = new URLSearchParams(qs).get('bloom') === '1';
-    // Windows ANGLE: EffectComposer + FinalShader paints a solid black canvas even with LDR RTs
-    // and bloom off (verified on this machine). Keep coffee route materials unchanged; skip post
-    // unless ?post=1. Non-Windows matches coffee (composer + bloom).
-    if (quality === 'low' || (win && !forcePost)) {
+    const forceLut = new URLSearchParams(qs).get('lut') === '1';
+
+    if (quality === 'low' || probe === 'direct') {
       this.hdrMsaa = false;
+      this.postMode = 'direct';
+      renderer.toneMapping = THREE.NeutralToneMapping;
       this.setLook('overview');
+      if (typeof window !== 'undefined') (window as unknown as { __postProbeResult?: unknown }).__postProbeResult = { mode: this.postMode, win };
       return;
     }
-    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+
+    // Default (probe-proven on this Windows ANGLE box):
+    // - Root black cause = FinalShader 3D LUT (sampler3D/texture3D), NOT UnrealBloom.
+    // - HalfFloat+MSAA+LUT blacks; HalfFloat samples=0 + bloom + Final-no-LUT is lit with HDR glow.
+    // - Non-Windows: coffee tip (HF+MSAA when ok, bloom, 3D LUT final).
+    let wantHdr = true;
+    let wantBloom = true;
+    let wantFinal: 'lut' | 'nolut' | 'none' = win && !forceLut ? 'nolut' : 'lut';
+    let forceNoMsaa = win; // Windows: HF without MSAA (MSAA+HF still risky with other passes)
+
+    if (probe === 'rp') { wantBloom = false; wantFinal = 'none'; wantHdr = false; forceNoMsaa = true; }
+    else if (probe === 'rp_final_nolut') { wantBloom = false; wantFinal = 'nolut'; wantHdr = false; forceNoMsaa = true; }
+    else if (probe === 'rp_final') { wantBloom = false; wantFinal = 'lut'; wantHdr = false; forceNoMsaa = true; }
+    else if (probe === 'rp_bloom') { wantBloom = true; wantFinal = 'none'; wantHdr = false; forceNoMsaa = true; }
+    else if (probe === 'rp_bloom_final') { wantBloom = true; wantFinal = 'nolut'; wantHdr = false; forceNoMsaa = true; }
+    else if (probe === 'rp_bloom_final_hf') { wantBloom = true; wantFinal = 'lut'; wantHdr = true; forceNoMsaa = false; }
+    else if (probe === 'hf0_bloom_nolut') { wantBloom = true; wantFinal = 'nolut'; wantHdr = true; forceNoMsaa = true; }
+
     const fmt = probeHdrMsaa(renderer);
-    const useHdr = !win && fmt.type === THREE.HalfFloatType;
-    this.hdrMsaa = useHdr && fmt.samples > 0;
+    let samples = 0;
+    if (wantHdr && fmt.type === THREE.HalfFloatType) {
+      samples = forceNoMsaa ? 0 : (fmt.samples > 0 ? fmt.samples : 0);
+      this.hdrMsaa = samples > 0;
+    } else if (wantHdr) {
+      // Requested HF but probe failed → UnsignedByte, still try bloom.
+      wantHdr = false;
+      this.hdrMsaa = false;
+      samples = 0;
+    } else {
+      this.hdrMsaa = false;
+      samples = 0;
+    }
+
+    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     const target = new THREE.WebGLRenderTarget(size.x, size.y, {
-      type: useHdr ? THREE.HalfFloatType : THREE.UnsignedByteType,
-      samples: useHdr ? fmt.samples : 0,
+      type: wantHdr ? THREE.HalfFloatType : THREE.UnsignedByteType,
+      samples,
     });
+    // HalfFloat needs LinearSRGBColorSpace for HDR bloom path (three r152+).
+    if ('colorSpace' in target.texture) {
+      (target.texture as THREE.Texture).colorSpace = wantHdr ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace;
+    }
+
     const composer = this.composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
-    // Coffee always blooms on high; Windows ?post=1 still skips bloom unless ?bloom=1.
-    const wantBloom = !win || forceBloom;
+
     if (wantBloom) {
+      // Slightly lower threshold so LDR-clamped route HDR still blooms on UnsignedByte RTs.
+      // strength, radius, threshold — match coffee tip c072758 (0.55, 0.45, 1.0)
       this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.55, 0.45, 1.0);
       composer.addPass(this.bloom);
     }
-    this.final = new ShaderPass(FinalShader);
-    composer.addPass(this.final);
-    if (quality === 'ultra') {
+
+    if (wantFinal === 'lut') {
+      this.final = new ShaderPass(FinalShaderLut);
+      this.useLut = true;
+    } else if (wantFinal === 'nolut') {
+      this.final = new ShaderPass(FinalShaderNoLut);
+      this.useLut = false;
+    }
+
+    if (this.final) composer.addPass(this.final);
+
+    if (quality === 'ultra' && !win) {
       this.smaa = new SMAAPass();
       composer.addPass(this.smaa);
     }
+
+    this.postMode = [
+      wantHdr ? 'hf' : 'ub',
+      `s${samples}`,
+      wantBloom ? 'bloom' : 'nobloom',
+      wantFinal,
+      win ? 'win' : 'nowin',
+      probe || 'default',
+    ].join('_');
+
     this.setLook('overview');
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __postProbeResult?: unknown }).__postProbeResult = {
+        mode: this.postMode,
+        probe: probe || null,
+        win,
+        wantHdr,
+        wantBloom,
+        wantFinal,
+        samples,
+        hdrProbe: { type: fmt.type === THREE.HalfFloatType ? 'HalfFloat' : 'UnsignedByte', samples: fmt.samples },
+      };
+    }
   }
 
-  /** While the user orbits/pans: drop bloom/SMAA so frames stay lit and interactive. */
   setInteractive(on: boolean) {
     if (this.interactive === on) return;
     this.interactive = on;
@@ -196,8 +323,12 @@ export class NavPipeline {
   setLook(look: NavLook) {
     this.look = look;
     if (this.final) {
-      this.final.uniforms.lut.value = this.luts[look];
-      this.final.uniforms.vignette.value = look === 'walk' ? 0.32 : 0.14;
+      if (this.useLut && this.final.uniforms.lut) {
+        this.final.uniforms.lut.value = this.luts[look];
+      }
+      if (this.final.uniforms.vignette) {
+        this.final.uniforms.vignette.value = look === 'walk' ? 0.32 : 0.14;
+      }
     }
     if (this.bloom) {
       this.bloom.strength = look === 'walk' ? 0.3 : 0.6;
@@ -216,12 +347,14 @@ export class NavPipeline {
   }
 
   render(delta = 1 / 60) {
-    if (!this.composer || !this.final) { this.renderer.render(this.scene, this.camera); return; }
-    this.final.uniforms.exposure.value = this.exposure;
+    if (!this.composer) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    if (this.final?.uniforms?.exposure) this.final.uniforms.exposure.value = this.exposure;
     try {
       this.composer.render(delta);
-    } catch {
-      // Composer/RT or shader-link failure: permanently fall back so FP/walk stays usable.
+    } catch (err) {
       this.composer = null;
       this.final = null;
       this.bloom = null;
@@ -229,6 +362,14 @@ export class NavPipeline {
       this.renderer.toneMapping = THREE.NeutralToneMapping;
       this.renderer.toneMappingExposure = this.exposure;
       this.renderer.render(this.scene, this.camera);
+      if (typeof window !== 'undefined') {
+        (window as unknown as { __postProbeResult?: unknown }).__postProbeResult = {
+          ...(typeof (window as unknown as { __postProbeResult?: object }).__postProbeResult === 'object'
+            ? (window as unknown as { __postProbeResult: object }).__postProbeResult
+            : {}),
+          renderError: String(err),
+        };
+      }
     }
   }
 
