@@ -69,7 +69,9 @@ export function navDoors(
       wallId: host.id,
       position: t,
       width: room.doorWidth || 100,
-      height: 210,
+      // Full-height cut (clipped to wall top in buildWallSegments). A 210 cm door leaves a
+      // lintel slab; top-down nav reads that lintel as a solid black wall across the gap.
+      height: 999,
       // Plain opening (no wood leaf): doorAt marks the passage the planner uses; a closed
       // leaf would read as a solid wall from the overview camera.
       type: 'opening',

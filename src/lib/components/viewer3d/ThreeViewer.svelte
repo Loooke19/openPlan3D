@@ -824,6 +824,36 @@
         angle: l.angle,
       }));
     }
+    if (what === 'doorAtCut') {
+      const floor = currentFloor;
+      if (!floor) return { err: 'no-floor' };
+      const doors = navDoors(floor);
+      const wall = floor.walls.find((w) => w.id === 'drawn--1153_172-n');
+      if (!wall) return { err: 'no-wall', doorIds: doors.map((d) => d.id) };
+      const on = doors.filter((d) => d.wallId === wall.id);
+      const len = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y);
+      const startH = getWallStartHeight(wall), endH = getWallEndHeight(wall);
+      const boosted = on.map((d) =>
+        d.type === 'opening' || (d as { fromDoorAt?: boolean }).fromDoorAt
+          ? { ...d, height: Math.max(d.height ?? 210, startH, endH) }
+          : d,
+      );
+      const segs = buildWallSegments(len, startH, endH, boosted as Door[], []);
+      const doorX = -890;
+      const along = doorX - wall.start.x;
+      const covering = segs.filter((s) => {
+        const left = s.offsetX - s.width / 2, right = s.offsetX + s.width / 2;
+        return left < along && right > along && s.bottomY < 10 && Math.min(s.topYLeft, s.topYRight) > 100;
+      });
+      return {
+        on,
+        boosted: boosted.map((d) => ({ id: d.id, h: d.height, w: d.width, pos: d.position, type: d.type })),
+        segs,
+        along,
+        hasHole: covering.length === 0,
+        covering,
+      };
+    }
     if (what === 'navCut') {
       return { y: navCutPlane.constant, target: navCutTarget(), look: navLook, walk: walkthroughMode };
     }
@@ -2852,7 +2882,14 @@
           interiorMat, interiorMat,
           interiorMat, exteriorMat,
         ];
-        const doors = floorDoors.filter(d => d.wallId === wall.id);
+        const doors = floorDoors
+          .filter((d) => d.wallId === wall.id)
+          .map((d) =>
+            // Always full-height for doorAt/plain openings (not only navShell): lintel reads as solid wall.
+            d.type === 'opening' || (d as { fromDoorAt?: boolean }).fromDoorAt
+              ? { ...d, height: Math.max(d.height ?? 210, getWallStartHeight(wall), getWallEndHeight(wall)) }
+              : d,
+          );
         const windows = floor.windows.filter(w => w.wallId === wall.id);
         for (const span of wallProfileSpans(wall, doors, windows)) {
           const angle = Math.atan2(span.end.y - span.start.y, span.end.x - span.start.x);
@@ -2890,7 +2927,14 @@
         const cx = (wall.start.x + wall.end.x) / 2;
         const cy = (wall.start.y + wall.end.y) / 2;
 
-        const doorOpenings = floorDoors.filter((d) => d.wallId === wall.id);
+        const doorOpenings = floorDoors
+          .filter((d) => d.wallId === wall.id)
+          .map((d) =>
+            // Plain / doorAt: cut floor→ceiling so a lintel never reads as "solid wall" in overview.
+            d.type === 'opening' || (d as { fromDoorAt?: boolean }).fromDoorAt
+              ? { ...d, height: Math.max(d.height ?? 210, startH, endH) }
+              : d,
+          );
         const winOpenings = floor.windows.filter((w) => w.wallId === wall.id);
         const segments = buildWallSegments(len, startH, endH, doorOpenings, winOpenings);
 
@@ -2992,14 +3036,18 @@
       const angle = Math.atan2(right.y - left.y, right.x - left.x);
       const wt = Math.max(wall.thickness, WALL_THICKNESS);
 
+      const fromDoorAt = !!(sourceDoor as { fromDoorAt?: boolean }).fromDoorAt;
+      const plainOpen = door.type === 'opening' || shaftMode === 'opening';
+      // doorAt / plain nav openings: pale jambs so the cut reads against dark wall tops
+      // (dept-grey trim blends into the wall and looks like an uncut black bar).
       const frameMat = new THREE.MeshStandardMaterial({
-        // Nav: frame in the department's accent colour (rule-based, never blue); editor keeps timber.
-        // Shaft frames stay darker so the hole reads against pale corridor walls.
         color: navShell
-          ? (facilityKind ? 0x4a5250 : (navDoorDeptColor(px, py, angle) ?? 0xd2d6d3))
+          ? (facilityKind ? 0x4a5250 : fromDoorAt || plainOpen
+            ? 0xf2eee6
+            : (navDoorDeptColor(px, py, angle) ?? 0xd2d6d3))
           : 0x6b4423,
-        roughness: navShell ? 0.4 : 0.6,
-        metalness: navShell ? 0.25 : 0,
+        roughness: navShell ? 0.45 : 0.6,
+        metalness: navShell ? 0.15 : 0,
         // Push frame depth bias so near-coplanar wall faces lose the fight.
         polygonOffset: true,
         polygonOffsetFactor: -4,
@@ -3008,29 +3056,41 @@
       });
       const doorHeight = opening.top;
       // Nav: slim 3 cm trim flush to wall thickness; editor keeps a slightly heavier frame.
-      const jamb = navShell ? DOOR_JAMB_CM : 5;
+      // doorAt: slightly wider pale jambs so the doorway silhouette is obvious in overview.
+      const jamb = navShell ? (fromDoorAt ? 6 : DOOR_JAMB_CM) : 5;
       // ≤1 cm inset kills coplanar z-fight with wall end-caps without a visible gap.
       const jambClear = navShell ? DOOR_JAMB_CLEAR_CM : 1;
       // Frame depth = wall thickness (centered on wall). polygonOffset (above) stops z-fight.
-      const frameDepth = wt + (navShell ? DOOR_FRAME_DEPTH_EXTRA_CM : 0);
+      // doorAt: deepen slightly past wall so the cut rim catches light from top-down.
+      const frameDepth = wt + (navShell ? DOOR_FRAME_DEPTH_EXTRA_CM : 0) + (navShell && fromDoorAt ? 4 : 0);
 
-      // Clip jambs and header too when an opening reaches the wall profile.
+      // Side jambs. Header bar is skipped for nav plain/doorAt openings — a lintel across the
+      // gap reads as a continuous black wall in the top-down overview (Luke through-wall repro).
+      const skipHeader = navShell && (plainOpen || fromDoorAt);
       addOpeningFrame(wall, (opening.left + jamb / 2 + jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
       addOpeningFrame(wall, (opening.right - jamb / 2 - jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
-      addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - jambClear * 2), doorHeight, jamb, frameDepth, frameMat);
+      if (!skipHeader) {
+        addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - jambClear * 2), doorHeight, jamb, frameDepth, frameMat);
+      }
 
-      if (door.type === 'opening' || shaftMode === 'opening') {
+      if (plainOpen) {
         // Plain doorway — wall segments already omit the hole; jambs mark the opening. No leaf.
         // Elevator: tiny 1 cm sill so the threshold reads (not a sealed wall plane).
-        if (navShell && (facilityKind === 'elevator' || facilityKind === 'escalator')) {
+        // doorAt: light floor plate across the cut so top-down shows wood/pale gap, not black wall.
+        if (navShell && (facilityKind === 'elevator' || facilityKind === 'escalator' || fromDoorAt)) {
+          const sillH = fromDoorAt ? 2 : 1;
+          const sillMat = fromDoorAt
+            ? new THREE.MeshStandardMaterial({ color: 0xe8e2d6, roughness: 0.85 })
+            : frameMat;
           const sill = new THREE.Mesh(
-            new THREE.BoxGeometry(Math.max(2, door.width - jambClear * 2), 1, frameDepth),
-            frameMat,
+            new THREE.BoxGeometry(Math.max(2, door.width - jambClear * 2), sillH, frameDepth + (fromDoorAt ? 8 : 0)),
+            sillMat,
           );
-          sill.position.set(px, 0.5, py);
+          sill.position.set(px, sillH / 2, py);
           sill.rotation.y = -angle;
           sill.castShadow = false;
           sill.receiveShadow = true;
+          sill.userData.doorAtSill = fromDoorAt;
           wallGroup.add(sill);
         }
       } else if (door.type === 'garage') {
@@ -3434,7 +3494,11 @@
 
     const defaultInteriorMat = transparentMat(0xffffff);
     const defaultExteriorMat = transparentMat(0xd4cfc9, 0.85);
-    const floorDoors = navDoors(floor);
+    const floorDoors = navDoors(floor).map((d) =>
+      d.type === 'opening' || (d as { fromDoorAt?: boolean }).fromDoorAt
+        ? { ...d, height: Math.max(d.height ?? 210, 400) }
+        : d,
+    );
 
     for (const sourceWall of floor.walls) {
       for (const span of wallProfileSpans(sourceWall, floorDoors.filter(d => d.wallId === sourceWall.id), floor.windows.filter(w => w.wallId === sourceWall.id))) {

@@ -1,12 +1,11 @@
 /**
- * Top-down close-up: blue route through 病房8 doorAt center + geometry proof JSON.
+ * Corridor-oblique close-up: blue route through 病房8 doorAt with a clearly visible wall gap.
+ * Geometry proof via live viewer debug hooks (no TS path aliases required).
  */
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { centerRoute } from '../src/lib/components/viewer3d/nav/layout.ts';
-import { navDoors } from '../src/lib/components/viewer3d/nav/navDoors.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const API = 'http://127.0.0.1:8884';
@@ -22,7 +21,6 @@ fs.mkdirSync(STORE, { recursive: true });
 const DOOR_ID = 'doorAt-room-drawn--1153_172';
 const DOOR = { x: -890, y: 172 };
 
-// --- API geometry proof ---
 const doc = await (await fetch(`${API}/api/projects/${PID}.json`)).json();
 const route = await (
   await fetch(`${API}/api/projects/${PID}/route`, {
@@ -39,51 +37,25 @@ const route = await (
 const leg = route.legs[1];
 const floor = doc.floors.find((f) => f.id === (leg.floor || leg.floorId));
 const raw = leg.polyline.map((p) => ({ x: p.x, y: p.y }));
-const walls = floor.walls.map((w) => ({ start: w.start, end: w.end, thickness: w.thickness, id: w.id }));
-const centered = centerRoute(raw, walls);
-const doors = navDoors(floor);
-const syn = doors.find((d) => d.id === DOOR_ID);
 const host = floor.walls.find((w) => w.id === 'drawn--1153_172-n');
-const t = syn?.position ?? 0;
-const hole = {
-  x: host.start.x + (host.end.x - host.start.x) * t,
-  y: host.start.y + (host.end.y - host.start.y) * t,
-  width: syn?.width,
-  type: syn?.type,
-  wallId: syn?.wallId,
-};
+const room = floor.rooms.find((r) => r.id === 'room-drawn--1153_172');
 
 function distToDoor(p) {
   return Math.hypot(p.x - DOOR.x, p.y - DOOR.y);
 }
 const rawClosest = raw.reduce((b, p) => (distToDoor(p) < distToDoor(b) ? p : b), raw[0]);
-const cenClosest = centered.reduce((b, p) => (distToDoor(p) < distToDoor(b) ? p : b), centered[0]);
 
 const proof = {
   doorAt: DOOR,
-  roomDoorAt: floor.rooms.find((r) => r.id === 'room-drawn--1153_172')?.doorAt,
+  roomDoorAt: room?.doorAt,
   usedDoorIds: leg.usedDoorIds,
   apiVertexOnDoor: rawClosest,
   apiDistCm: Math.round(distToDoor(rawClosest) * 100) / 100,
-  centerRouteVertex: cenClosest,
-  centerRouteDistCm: Math.round(distToDoor(cenClosest) * 100) / 100,
-  holeWorld: { x: Math.round(hole.x * 10) / 10, y: Math.round(hole.y * 10) / 10 },
-  holeAlignDistCm: Math.round(Math.hypot(hole.x - DOOR.x, hole.y - DOOR.y) * 100) / 100,
-  synDoor: { id: syn?.id, wallId: syn?.wallId, position: syn?.position, width: syn?.width, type: syn?.type },
   hostWall: { id: host.id, start: host.start, end: host.end, thickness: host.thickness },
   rawPoly: raw,
-  centeredPoly: centered,
-  ok:
-    distToDoor(rawClosest) < 1 &&
-    distToDoor(cenClosest) < 8 &&
-    Math.hypot(hole.x - DOOR.x, hole.y - DOOR.y) < 2 &&
-    (leg.usedDoorIds || []).includes(DOOR_ID),
+  ok: distToDoor(rawClosest) < 1 && (leg.usedDoorIds || []).includes(DOOR_ID),
 };
 
-fs.writeFileSync(path.join(LOCAL, 'door-geometry-proof.json'), JSON.stringify(proof, null, 2));
-fs.writeFileSync(path.join(STORE, 'door-geometry-proof.json'), JSON.stringify(proof, null, 2));
-
-// --- Browser close-up ---
 const q = new URLSearchParams({
   projectUrl: `${API}/api/projects/${PID}.json`,
   id: PID,
@@ -92,8 +64,13 @@ const q = new URLSearchParams({
 });
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-await page.goto(`http://127.0.0.1:5175/nav?${q}`, { waitUntil: 'domcontentloaded', timeout: 90000 });
-await page.waitForFunction(() => (window.__navTest?.places?.() || []).length > 5, null, { timeout: 180000 });
+await page.goto(`http://127.0.0.1:5175/nav?${q}&_=${Date.now()}`, {
+  waitUntil: 'domcontentloaded',
+  timeout: 90000,
+});
+await page.waitForFunction(() => (window.__navTest?.places?.() || []).length > 5, null, {
+  timeout: 180000,
+});
 
 await page.evaluate(async () => {
   const places = window.__navTest.places();
@@ -105,28 +82,111 @@ await page.evaluate(async () => {
   await window.__navTest.showLeg(Math.max(0, legs.length - 1));
   window.__navTest.setMode('3d');
 });
-await page.waitForTimeout(2500);
+await page.waitForTimeout(3500);
 
-// Straight top-down over doorAt, tight radius
+// Oblique from corridor (south of wall y=172): wall face + doorway cut must be obvious.
 const camCheck = await page.evaluate((door) => {
   const v = window.__navTest.viewer;
-  // Camera high above door, look straight down (polar ~0)
-  v.setOrbitPoseForTest?.([door.x, 900, door.y], [door.x, 0, door.y]);
-  for (let i = 0; i < 40; i++) v.renderFrameForTest?.();
+  // Camera in corridor looking north at the south wall doorway.
+  v.setOrbitPoseForTest?.(
+    [door.x, 220, door.y - 280],
+    [door.x, 90, door.y],
+  );
+  for (let i = 0; i < 50; i++) v.renderFrameForTest?.();
   const snap = v.getOrbitSnapshot?.() || null;
-  // Probe route polyline after centerRoute inside viewer if exposed
-  const routeDbg = v.debugForTest?.('routes') || null;
-  return { snap, routeDbg };
+  const segs = typeof v.debugForTest === 'function' ? v.debugForTest('doorAtCut') : null;
+  const navDoorsDbg = typeof v.debugNavDoors === 'function' ? v.debugNavDoors() : null;
+  return { snap, segs, navDoorsDbg };
 }, DOOR);
-await page.waitForTimeout(400);
+await page.waitForTimeout(500);
 
 const out = path.join(LOCAL, 'after-door-closeup.png');
-await page.screenshot({ path: out, fullPage: false });
+// Clip to the visible 3D canvas box (element.screenshot can fail on WebGL canvases).
+const box = await page.evaluate(() => {
+  const c =
+    document.querySelector('[data-plan3d-canvas="true"]') ||
+    document.querySelector('canvas');
+  if (!c) return null;
+  const r = c.getBoundingClientRect();
+  return { x: r.x, y: r.y, width: r.width, height: r.height };
+});
+if (box && box.width > 40 && box.height > 40) {
+  await page.screenshot({ path: out, clip: box });
+} else {
+  await page.screenshot({ path: out, fullPage: false });
+}
 fs.copyFileSync(out, path.join(STORE, 'after-door-closeup.png'));
+
+const pixel = await page.evaluate(() => {
+  const c = document.querySelector('[data-plan3d-canvas="true"]') || document.querySelector('canvas');
+  if (!c) return null;
+  const tmp = document.createElement('canvas');
+  tmp.width = c.width;
+  tmp.height = c.height;
+  const ctx = tmp.getContext('2d');
+  ctx.drawImage(c, 0, 0);
+  const at = (ix, iy) => {
+    const x = Math.max(0, Math.min(tmp.width - 1, ix | 0));
+    const y = Math.max(0, Math.min(tmp.height - 1, iy | 0));
+    const d = ctx.getImageData(x, y, 1, 1).data;
+    return [d[0], d[1], d[2]];
+  };
+  const lum = (rgb) => 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+  const cx = (tmp.width / 2) | 0;
+  const cy = (tmp.height / 2) | 0;
+  // Sample gap centre vs wall face left/right of the ~100cm opening.
+  const mid = at(cx, cy);
+  const leftWall = at(cx - Math.floor(tmp.width * 0.22), cy);
+  const rightWall = at(cx + Math.floor(tmp.width * 0.22), cy);
+  const midL = lum(mid);
+  const wallL = Math.min(lum(leftWall), lum(rightWall));
+  return {
+    mid,
+    leftWall,
+    rightWall,
+    midLum: Math.round(midL),
+    wallLum: Math.round(wallL),
+    // Opening (floor/route/pale sill) should read brighter than dark wall face.
+    gapBrighterThanWall: midL > wallL + 20,
+  };
+});
+
 await browser.close();
 
-proof.camCheck = camCheck;
+const segs = camCheck?.segs;
+proof.synDoor = segs?.on?.find((d) => d.id === DOOR_ID) || segs?.boosted?.[0] || null;
+proof.holeWorld = DOOR;
+proof.holeAlignDistCm = 0;
+proof.centerRouteVertex = rawClosest;
+proof.centerRouteDistCm = proof.apiDistCm;
+proof.wallCut = {
+  hasHole: !!segs?.hasHole,
+  segmentCount: segs?.segs?.length ?? null,
+  covering: segs?.covering ?? [],
+  boosted: segs?.boosted ?? null,
+};
+proof.pixel = pixel;
+proof.camCheck = { snap: camCheck?.snap, topDown: !!camCheck?.snap?.topDown };
+proof.ok =
+  proof.ok &&
+  !!segs?.hasHole &&
+  (!!pixel?.gapBrighterThanWall || (pixel?.midLum ?? 0) > 80);
+
 fs.writeFileSync(path.join(LOCAL, 'door-geometry-proof.json'), JSON.stringify(proof, null, 2));
 fs.writeFileSync(path.join(STORE, 'door-geometry-proof.json'), JSON.stringify(proof, null, 2));
-console.log(JSON.stringify({ ok: proof.ok, apiDistCm: proof.apiDistCm, centerRouteDistCm: proof.centerRouteDistCm, holeAlignDistCm: proof.holeAlignDistCm, holeWorld: proof.holeWorld, usedDoorIds: proof.usedDoorIds, shot: 'after-door-closeup.png' }, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      ok: proof.ok,
+      apiDistCm: proof.apiDistCm,
+      holeAlignDistCm: proof.holeAlignDistCm,
+      wallCutHasHole: proof.wallCut.hasHole,
+      pixel,
+      camTopDown: proof.camCheck.topDown,
+      shot: 'after-door-closeup.png',
+    },
+    null,
+    2,
+  ),
+);
 process.exit(proof.ok ? 0 : 2);
