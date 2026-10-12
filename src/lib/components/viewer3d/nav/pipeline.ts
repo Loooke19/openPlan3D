@@ -147,19 +147,22 @@ export class NavPipeline {
     scene.environment = this.envTarget.texture;
     renderer.shadowMap.enabled = quality !== 'low';
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.NeutralToneMapping; // direct path (low / Windows)
+    renderer.toneMapping = THREE.NeutralToneMapping; // used only by the 'low' / Windows-direct path
     const win = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
-    // Windows ANGLE: EffectComposer/FinalShader still blacks the canvas. Stay on direct render;
-    // route ribbons use toneMapped:false + LDR blue underlay/stroke (see route.ts / addRouteStroke).
-    if (quality === 'low' || win) {
+    const qs = typeof window !== 'undefined' ? window.location.search : '';
+    const forcePost = new URLSearchParams(qs).get('post') === '1';
+    const forceBloom = new URLSearchParams(qs).get('bloom') === '1';
+    // Windows ANGLE: EffectComposer + FinalShader paints a solid black canvas even with LDR RTs
+    // and bloom off (verified on this machine). Keep coffee route materials unchanged; skip post
+    // unless ?post=1. Non-Windows matches coffee (composer + bloom).
+    if (quality === 'low' || (win && !forcePost)) {
       this.hdrMsaa = false;
       this.setLook('overview');
       return;
     }
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-    // Prefer LDR RTs; only ultra opts into bloom after a successful HDR probe.
     const fmt = probeHdrMsaa(renderer);
-    const useHdr = fmt.type === THREE.HalfFloatType;
+    const useHdr = !win && fmt.type === THREE.HalfFloatType;
     this.hdrMsaa = useHdr && fmt.samples > 0;
     const target = new THREE.WebGLRenderTarget(size.x, size.y, {
       type: useHdr ? THREE.HalfFloatType : THREE.UnsignedByteType,
@@ -167,9 +170,8 @@ export class NavPipeline {
     });
     const composer = this.composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
-    // Bloom on Windows high → black frames; keep for ultra on non-Windows, or ultra+?bloom=1.
-    const qs = typeof window !== 'undefined' ? window.location.search : '';
-    const wantBloom = quality === 'ultra' && (!win || new URLSearchParams(qs).get('bloom') === '1');
+    // Coffee always blooms on high; Windows ?post=1 still skips bloom unless ?bloom=1.
+    const wantBloom = !win || forceBloom;
     if (wantBloom) {
       this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.55, 0.45, 1.0);
       composer.addPass(this.bloom);
@@ -203,9 +205,6 @@ export class NavPipeline {
     }
     this.scene.environmentIntensity = look === 'walk' ? 0.22 : 0.3;
   }
-
-  /** False on Windows direct path (no EffectComposer) — callers may add an LDR stroke underlay. */
-  get usesPost() { return !!(this.composer && this.final); }
 
   setExposure(value: number) { this.exposure = value; this.renderer.toneMappingExposure = value; }
 
