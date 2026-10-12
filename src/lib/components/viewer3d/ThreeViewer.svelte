@@ -3554,7 +3554,21 @@
     const unsub = activeFloor.subscribe((f) => {
       if (currentFloor?.id !== f?.id) {
         closeCamera();
-        if (walkthroughMode) exitWalkthroughMode();
+        if (walkthroughMode) {
+          // Nav shell multi-leg: loadNav→setActiveFloor must not call exitWalkthroughMode
+          // (onNavWalkExit cleared walking; restoreNavView jumped to overview mid-transfer).
+          // Shell keeps fpAtTransfer and re-enters via enterWalkAlongRoute.
+          if (navShell) {
+            if (simRaf) cancelAnimationFrame(simRaf);
+            simRaf = 0;
+            simPlaying = false;
+            navAutoWalking = false;
+            walkthroughMode = false;
+            controls.enabled = true;
+          } else {
+            exitWalkthroughMode();
+          }
+        }
       }
       currentFloor = f;
       if (f) rebuildScene();
