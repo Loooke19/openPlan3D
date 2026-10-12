@@ -22,6 +22,15 @@
   import { roomHoles } from '$lib/utils/roomNesting';
   import { createSlopedBoxGeometry } from '$lib/utils/slopedWallGeometry';
   import { buildWallSegments, roomCeilingHeight, wallProfileSpans, wallPathProfile, pathOpening, doorPanelPose } from '$lib/utils/wallProfiles';
+  import {
+    DEFAULT_WALL_THICKNESS,
+    DOOR_FRAME_DEPTH_EXTRA_CM,
+    DOOR_JAMB_CLEAR_CM,
+    DOOR_JAMB_CM,
+    DOOR_LEAF_EDGE_CLEAR_CM,
+  } from '$lib/utils/doorWallFit';
+  import { addWallJointCaps } from '$lib/utils/wallJoints';
+  import { doorVerticalFacilityKind, navSuppressDoorLeaf } from '$lib/utils/verticalFacility';
   import { assembleFloorStack } from '$lib/utils/floorStack';
   import {
     applyOrbitRelativeToFloor,
@@ -692,7 +701,7 @@
     updateSkyGradient(p.skyTop, p.skyMid, p.skyHorizon);
   }
 
-  const WALL_THICKNESS = 15;
+  const WALL_THICKNESS = DEFAULT_WALL_THICKNESS;
   const BASEBOARD_HEIGHT = 8;
 
   // Create a canvas-based floor texture
@@ -804,6 +813,18 @@
     }
     if (what === 'stairClimb') {
       return { climbing: stairClimbing, samples: stairClimbSamples.slice(), y: camera?.position.y ?? null };
+    }
+    if (what === 'navDoors') {
+      return navDoorLeaves.map((l) => ({
+        id: l.doorId,
+        x: l.center.x,
+        z: l.center.y,
+        y: activeFloorElevation + 100,
+        angle: l.angle,
+      }));
+    }
+    if (what === 'navCut') {
+      return { y: navCutPlane.constant, target: navCutTarget(), look: navLook, walk: walkthroughMode };
     }
     if (what === 'redcaps' && navDressing) {
       const caps = navDressing.group.children[1].children[0] as THREE.InstancedMesh;
@@ -1322,7 +1343,12 @@
   const NAV_CUT_HEIGHT = 115;
   const navCutPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e6);
   let navCut = { y: 1e6, from: 1e6, to: 1e6, started: 0 };
-  function navCutTarget() { return navLook === 'walk' || walkthroughMode ? activeFloorElevation + 1000 : activeFloorElevation + NAV_CUT_HEIGHT; }
+  function navCutTarget() {
+    // FP: lift clip entirely (no intermediate 300 cm cut — that briefly “hid” shaft rooms).
+    return navLook === 'walk' || walkthroughMode
+      ? 1e6
+      : activeFloorElevation + NAV_CUT_HEIGHT;
+  }
   function applyNavCutMaterials() {
     if (!wallGroup) return;
     const top = activeFloorElevation + NAV_CUT_HEIGHT + 10;
@@ -1339,24 +1365,29 @@
       }
     });
     // Start from full height and ease down, so entering the 3D map animates the cut.
-    navCut = { y: activeFloorElevation + 300, from: activeFloorElevation + 300, to: activeFloorElevation + 300, started: 0 };
+    const startY = navCutTarget();
+    navCut = { y: startY, from: startY, to: startY, started: 0 };
     navCutPlane.constant = navCut.y;
     navDressing?.setCut(navCut.y);
   }
   /** Returns true while still animating. */
   function stepNavCut(timestamp: number) {
-    const walk = navCutTarget() > activeFloorElevation + 300;
-    // Animate between the cut height and the full wall height (~300); in first person the
-    // plane is then lifted out of the way entirely.
-    const goal = walk ? activeFloorElevation + 300 : activeFloorElevation + NAV_CUT_HEIGHT;
-    if (goal !== navCut.to) navCut = { y: Math.min(navCut.y, activeFloorElevation + 300), from: Math.min(navCut.y, activeFloorElevation + 300), to: goal, started: 0 };
+    const goal = navCutTarget();
+    if (goal !== navCut.to) {
+      navCut = { y: navCut.y, from: navCut.y, to: goal, started: 0 };
+    }
     if (navCut.y === navCut.to) {
-      const want = walk ? 1e6 : navCut.y;
-      if (navCutPlane.constant !== want) { navCutPlane.constant = want; navDressing?.setCut(want); return true; }
+      if (navCutPlane.constant !== navCut.y) {
+        navCutPlane.constant = navCut.y;
+        navDressing?.setCut(navCut.y);
+        return true;
+      }
       return false;
     }
     navCut.started ||= timestamp;
-    const k = Math.min(1, (timestamp - navCut.started) / 450);
+    // FP lift: snap quickly so shaft walls never sit at diorama height while walking in.
+    const dur = goal >= 1e5 ? 180 : 450;
+    const k = Math.min(1, (timestamp - navCut.started) / dur);
     const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
     navCut.y = k >= 1 ? navCut.to : navCut.from + (navCut.to - navCut.from) * e;
     navCutPlane.constant = navCut.y;
@@ -2672,8 +2703,8 @@
     pivot.position.copy(closedPos);
     pivot.rotation.y = closedYaw;
 
-    // Inset past in-opening jambs so leaf side faces are not coplanar with jambs.
-    const edgeClear = 7;
+    // Inset past flush jambs (+ tiny clear) so leaf sides are not coplanar with jambs.
+    const edgeClear = DOOR_JAMB_CLEAR_CM + DOOR_JAMB_CM + DOOR_LEAF_EDGE_CLEAR_CM;
     const panelWidth = Math.max(2, width - edgeClear * 2);
     const panelGeo = new THREE.BoxGeometry(panelWidth, height - 4, panelDepth);
     panelGeo.translate(edgeClear + panelWidth / 2, 0, 0);
@@ -2914,6 +2945,9 @@
       }
     }
 
+    // Seal L / coincident-endpoint T joints (same grouping as 2D drawWallJoints).
+    addWallJointCaps(floor, wallGroup, defaultExteriorMat);
+
     // Doors
     for (const sourceDoor of floor.doors) {
       const wall = floor.walls.find((w) => w.id === sourceDoor.wallId);
@@ -2924,6 +2958,10 @@
       const left = path.sample(opening.left).point, right = path.sample(opening.right).point;
       const door = { ...sourceDoor, width: Math.hypot(right.x - left.x, right.y - left.y), position: (opening.left + opening.right) / 2 / length };
       if (door.width <= 2) continue;
+      // Nav: elevator/escalator shafts have no cabin-door model — drop the wood leaf (and frame)
+      // so FP can enter; stairs keep an open doorway (jambs only). Editor preview unchanged.
+      const shaftMode = navShell ? navSuppressDoorLeaf(doorVerticalFacilityKind(floor, sourceDoor)) : null;
+      if (shaftMode === 'remove') continue;
       const t = door.position;
       const px = (left.x + right.x) / 2, py = (left.y + right.y) / 2;
       const angle = Math.atan2(right.y - left.y, right.x - left.x);
@@ -2941,21 +2979,19 @@
         depthWrite: true,
       });
       const doorHeight = opening.top;
-      const jamb = navShell ? 3 : 5; // jamb thickness (nav: slim 3 cm trim, read as slabs at 5)
-      // Pull jambs into the opening so their faces are not coplanar with wall end-caps
-      // (that coplanar pair showed as fine vertical stripes in first-person).
-      const jambClear = 3;
-      // Nav: make the frame slightly thicker than the wall so front/back faces sit
-      // proud of the wall slab (coplanar wt-depth frames still shimmered at FPS).
-      // Editor preview keeps flush depth.
-      const frameDepth = navShell ? wt + 2 : wt; // trim 1 cm proud per side: no z-fight, reads flush
+      // Nav: slim 3 cm trim flush to wall thickness; editor keeps a slightly heavier frame.
+      const jamb = navShell ? DOOR_JAMB_CM : 5;
+      // ≤1 cm inset kills coplanar z-fight with wall end-caps without a visible gap.
+      const jambClear = navShell ? DOOR_JAMB_CLEAR_CM : 1;
+      // Frame depth = wall thickness (centered on wall). polygonOffset (above) stops z-fight.
+      const frameDepth = wt + (navShell ? DOOR_FRAME_DEPTH_EXTRA_CM : 0);
 
       // Clip jambs and header too when an opening reaches the wall profile.
       addOpeningFrame(wall, (opening.left + jamb / 2 + jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
       addOpeningFrame(wall, (opening.right - jamb / 2 - jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
       addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - jambClear * 2), doorHeight, jamb, frameDepth, frameMat);
 
-      if (door.type === 'opening') {
+      if (door.type === 'opening' || shaftMode === 'opening') {
         // Plain doorway — jambs and header only, no door leaf
       } else if (door.type === 'garage') {
         // Sectional overhead door: stacked horizontal panels filling the opening
@@ -3399,6 +3435,14 @@
         }
     }
 
+    }
+    addWallJointCaps(floor, group, defaultExteriorMat);
+    if (yOffset !== 0) {
+      group.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh && (obj as THREE.Mesh).userData?.wallJoint) {
+          obj.position.y += yOffset;
+        }
+      });
     }
     // Match active-floor footprints instead of bridging recesses and separate rooms.
     const rooms = roomFaces(floor);
