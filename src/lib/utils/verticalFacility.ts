@@ -58,9 +58,12 @@ export function doorVerticalFacilityKind(floor: Floor, door: Door): VerticalKind
   return found;
 }
 
-/** Nav shell: no swinging wood leaf for shafts (elevator/escalator: no door mesh; stairs: opening). */
-export function navSuppressDoorLeaf(kind: VerticalKind | null): 'remove' | 'opening' | null {
-  if (kind === 'elevator' || kind === 'escalator') return 'remove';
-  if (kind === 'stairs') return 'opening';
+/**
+ * Nav shell: keep the wall opening (hole from buildWallSegments + jamb/header),
+ * but never put a full-height wood leaf on shafts. Elevator/escalator/stairs all
+ * render as plain openings — do NOT skip the door entirely (that looked like a sealed wall).
+ */
+export function navSuppressDoorLeaf(kind: VerticalKind | null): 'opening' | null {
+  if (kind === 'elevator' || kind === 'escalator' || kind === 'stairs') return 'opening';
   return null;
 }

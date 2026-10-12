@@ -2406,6 +2406,28 @@
 
   export function isNavWalking() { return navAutoWalking || stairClimbing; }
 
+  /** Dev/nav test: freeze auto-walk, keep FP look (full-height walls), aim camera at a doorway. */
+  export function setWalkCameraForTest(
+    position: [number, number, number],
+    lookAt: [number, number, number],
+  ) {
+    if (!camera) return;
+    if (simRaf) { cancelAnimationFrame(simRaf); simRaf = 0; }
+    simPlaying = false;
+    navAutoWalking = false;
+    walkthroughMode = true;
+    controls.enabled = false;
+    applyNavLook('walk', true);
+    // Snap cut plane away so shaft openings are not diorama-clipped in the test shot.
+    navCut = { y: 1e6, from: 1e6, to: 1e6, started: 0 };
+    navCutPlane.constant = 1e6;
+    navDressing?.setCut(1e6);
+    camera.position.set(...position);
+    camera.lookAt(lookAt[0], lookAt[1], lookAt[2]);
+    markSceneDirty();
+    renderFrameForTest();
+  }
+
   /** Storey height used for FP stair climb (matches buildStairs totalHeight). */
   const STAIR_STOREY_CM = 280;
 
@@ -2958,10 +2980,10 @@
       const left = path.sample(opening.left).point, right = path.sample(opening.right).point;
       const door = { ...sourceDoor, width: Math.hypot(right.x - left.x, right.y - left.y), position: (opening.left + opening.right) / 2 / length };
       if (door.width <= 2) continue;
-      // Nav: elevator/escalator shafts have no cabin-door model — drop the wood leaf (and frame)
-      // so FP can enter; stairs keep an open doorway (jambs only). Editor preview unchanged.
-      const shaftMode = navShell ? navSuppressDoorLeaf(doorVerticalFacilityKind(floor, sourceDoor)) : null;
-      if (shaftMode === 'remove') continue;
+      // Nav: elevator/stair shafts have no cabin-door model — keep the wall hole + jamb/header,
+      // suppress only the swinging wood leaf (never skip the door or the opening disappears visually).
+      const facilityKind = navShell ? doorVerticalFacilityKind(floor, sourceDoor) : null;
+      const shaftMode = navSuppressDoorLeaf(facilityKind);
       const t = door.position;
       const px = (left.x + right.x) / 2, py = (left.y + right.y) / 2;
       const angle = Math.atan2(right.y - left.y, right.x - left.x);
@@ -2969,7 +2991,10 @@
 
       const frameMat = new THREE.MeshStandardMaterial({
         // Nav: frame in the department's accent colour (rule-based, never blue); editor keeps timber.
-        color: navShell ? (navDoorDeptColor(px, py, angle) ?? 0xd2d6d3) : 0x6b4423,
+        // Shaft frames stay darker so the hole reads against pale corridor walls.
+        color: navShell
+          ? (facilityKind ? 0x4a5250 : (navDoorDeptColor(px, py, angle) ?? 0xd2d6d3))
+          : 0x6b4423,
         roughness: navShell ? 0.4 : 0.6,
         metalness: navShell ? 0.25 : 0,
         // Push frame depth bias so near-coplanar wall faces lose the fight.
@@ -2992,7 +3017,19 @@
       addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - jambClear * 2), doorHeight, jamb, frameDepth, frameMat);
 
       if (door.type === 'opening' || shaftMode === 'opening') {
-        // Plain doorway — jambs and header only, no door leaf
+        // Plain doorway — wall segments already omit the hole; jambs mark the opening. No leaf.
+        // Elevator: tiny 1 cm sill so the threshold reads (not a sealed wall plane).
+        if (navShell && (facilityKind === 'elevator' || facilityKind === 'escalator')) {
+          const sill = new THREE.Mesh(
+            new THREE.BoxGeometry(Math.max(2, door.width - jambClear * 2), 1, frameDepth),
+            frameMat,
+          );
+          sill.position.set(px, 0.5, py);
+          sill.rotation.y = -angle;
+          sill.castShadow = false;
+          sill.receiveShadow = true;
+          wallGroup.add(sill);
+        }
       } else if (door.type === 'garage') {
         // Sectional overhead door: stacked horizontal panels filling the opening
         const secMat = new THREE.MeshStandardMaterial({ color: 0xd8d4cc, roughness: 0.7 });

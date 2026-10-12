@@ -31,13 +31,13 @@ describe('roomVerticalKind', () => {
 });
 
 describe('doorVerticalFacilityKind / navSuppressDoorLeaf', () => {
-  it('removes elevator leaves and opens stair doorways', () => {
+  it('keeps shaft openings (no wood leaf) for elevator and stairs', () => {
     const w = wall('w1');
     const elev = room('r1', '电梯', ['w1']);
     const stair = room('r2', '楼梯', ['w1']);
     const rest = room('r3', '卫生间（靠电梯）', ['w1']);
     const d = door('d1', 'w1');
-    expect(navSuppressDoorLeaf(doorVerticalFacilityKind(floor([elev], [d], [w]), d))).toBe('remove');
+    expect(navSuppressDoorLeaf(doorVerticalFacilityKind(floor([elev], [d], [w]), d))).toBe('opening');
     expect(navSuppressDoorLeaf(doorVerticalFacilityKind(floor([stair], [d], [w]), d))).toBe('opening');
     expect(navSuppressDoorLeaf(doorVerticalFacilityKind(floor([rest], [d], [w]), d))).toBeNull();
   });
