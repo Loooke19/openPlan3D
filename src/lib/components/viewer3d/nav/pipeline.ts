@@ -147,19 +147,19 @@ export class NavPipeline {
     scene.environment = this.envTarget.texture;
     renderer.shadowMap.enabled = quality !== 'low';
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.NeutralToneMapping; // used only by the 'low' direct path
-    if (quality === 'low') {
+    renderer.toneMapping = THREE.NeutralToneMapping; // direct path (low / Windows)
+    const win = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
+    // Windows ANGLE: EffectComposer/FinalShader still blacks the canvas. Stay on direct render;
+    // route ribbons use toneMapped:false + LDR blue underlay/stroke (see route.ts / addRouteStroke).
+    if (quality === 'low' || win) {
       this.hdrMsaa = false;
+      this.setLook('overview');
       return;
     }
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-    // Windows ANGLE + HalfFloat MSAA / UnrealBloom frequently paints a solid black canvas (RTX
-    // included). Prefer LDR RTs; only ultra opts into bloom after a successful HDR probe.
-    // Do NOT skip the whole composer on Windows — the blue route ribbon is HDR and needs the
-    // FinalShader path (or toneMapped:false materials) to stay visible without bloom.
+    // Prefer LDR RTs; only ultra opts into bloom after a successful HDR probe.
     const fmt = probeHdrMsaa(renderer);
-    const win = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
-    const useHdr = !win && fmt.type === THREE.HalfFloatType;
+    const useHdr = fmt.type === THREE.HalfFloatType;
     this.hdrMsaa = useHdr && fmt.samples > 0;
     const target = new THREE.WebGLRenderTarget(size.x, size.y, {
       type: useHdr ? THREE.HalfFloatType : THREE.UnsignedByteType,
@@ -203,6 +203,9 @@ export class NavPipeline {
     }
     this.scene.environmentIntensity = look === 'walk' ? 0.22 : 0.3;
   }
+
+  /** False on Windows direct path (no EffectComposer) — callers may add an LDR stroke underlay. */
+  get usesPost() { return !!(this.composer && this.final); }
 
   setExposure(value: number) { this.exposure = value; this.renderer.toneMappingExposure = value; }
 

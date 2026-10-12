@@ -795,12 +795,46 @@
           }
         }
       });
-      return { bad, types, pipeline: !!navPipeline, quality: navPipeline?.quality ?? null };
+      return {
+        bad,
+        types,
+        pipeline: !!navPipeline,
+        usesPost: !!navPipeline?.usesPost,
+        quality: navPipeline?.quality ?? null,
+      };
     }
     if (what === 'routes') {
       const out: unknown[] = [];
-      scene.traverse(o => { if (o.userData.navRoute) { let vis = true; o.traverseAncestors(a => { if (!a.visible) vis = false; }); const b = new THREE.Box3().setFromObject(o); out.push({ vis: vis && o.visible, kids: o.children.map(c => c.visible), min: b.min.toArray().map(Math.round), max: b.max.toArray().map(Math.round) }); } });
-      return { out, simRoute: simRoute.length };
+      let underlays = 0;
+      let strokes = 0;
+      scene.traverse(o => {
+        if (o.userData.navRoute) {
+          let vis = true;
+          o.traverseAncestors(a => { if (!a.visible) vis = false; });
+          const b = new THREE.Box3().setFromObject(o);
+          out.push({
+            vis: vis && o.visible,
+            kids: o.children.map(c => ({
+              vis: c.visible,
+              view: c.userData.view,
+              y: Math.round(c.position.y * 10) / 10,
+              type: (c as THREE.Mesh).material?.type,
+            })),
+            min: b.min.toArray().map(Math.round),
+            max: b.max.toArray().map(Math.round),
+          });
+        }
+        const m = o as THREE.Mesh;
+        const mat = m.material as THREE.MeshBasicMaterial | undefined;
+        if (m.isMesh && mat?.type === 'MeshBasicMaterial' && mat.toneMapped === false) {
+          const hex = mat.color?.getHexString?.() || '';
+          if (hex === '1a7af8' || hex === '2f8cff') {
+            if (o.parent?.userData?.navRoute) underlays += 1;
+            else strokes += 1;
+          }
+        }
+      });
+      return { out, simRoute: simRoute.length, underlays, strokes, usesPost: !!navPipeline?.usesPost };
     }
     if (what === 'redcaps' && navDressing) {
       const caps = navDressing.group.children[1].children[0] as THREE.InstancedMesh;
@@ -1895,10 +1929,12 @@
     const mat = new THREE.MeshBasicMaterial({
       color,
       side: THREE.DoubleSide,
-      depthTest: true,
+      // depthTest false: Windows direct path must keep the continuous blue belt above floor slabs.
+      depthTest: false,
       depthWrite: false,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.96,
+      toneMapped: false,
     });
     for (let i = 0; i + 1 < points.length; i++) {
       const a = points[i];
@@ -1909,19 +1945,19 @@
       mesh.position.set((a.x + b.x) / 2, ROUTE_STROKE_Y, (a.y + b.y) / 2);
       mesh.rotation.x = -Math.PI / 2;
       mesh.rotation.z = -Math.atan2(b.y - a.y, b.x - a.x);
-      mesh.renderOrder = 2;
+      mesh.renderOrder = 6;
       routeGroup.add(mesh);
       const joint = new THREE.Mesh(new THREE.CircleGeometry(radius, 16), mat);
       joint.position.set(a.x, ROUTE_STROKE_Y, a.y);
       joint.rotation.x = -Math.PI / 2;
-      joint.renderOrder = 2;
+      joint.renderOrder = 6;
       routeGroup.add(joint);
     }
     const end = points[points.length - 1];
     const endJoint = new THREE.Mesh(new THREE.CircleGeometry(radius, 16), mat);
     endJoint.position.set(end.x, ROUTE_STROKE_Y, end.y);
     endJoint.rotation.x = -Math.PI / 2;
-    endJoint.renderOrder = 2;
+    endJoint.renderOrder = 6;
     routeGroup.add(endJoint);
   }
 
@@ -1963,6 +1999,10 @@
         navRouteVisual = new NavRouteVisual(simRoute, { y: 4.6 });
         navRouteVisual.setWalk(navLook === 'walk');
         routeGroup.add(navRouteVisual.group);
+        // Windows direct path has no bloom: classic LDR stroke under the chevron ribbon.
+        if (!navPipeline.usesPost) {
+          addRouteStroke(simRoute, '#1a7af8', 22);
+        }
       }
       navRouteVisual?.setTraveled(simulating && traveledRatio > 0.001 ? traveledRatio * simTotalLen : -1);
       markSceneDirty();
