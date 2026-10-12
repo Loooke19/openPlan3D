@@ -24,6 +24,38 @@ export function detectNavQuality(): NavQuality {
   return q === 'ultra' || q === 'low' || q === 'high' ? q : 'high';
 }
 
+/** Half-float + MSAA render targets black-out on some Windows ANGLE/GPU combos (esp. virtual adapters). */
+function probeHdrMsaa(renderer: THREE.WebGLRenderer): { type: THREE.TextureDataType; samples: number } {
+  const gl = renderer.getContext() as WebGL2RenderingContext | WebGLRenderingContext;
+  const fallback = { type: THREE.UnsignedByteType, samples: 0 };
+  try {
+    if (!(gl instanceof WebGL2RenderingContext)) return fallback;
+    if (!gl.getExtension('EXT_color_buffer_float')) return fallback;
+    const maxSamples = gl.getParameter(gl.MAX_SAMPLES) as number;
+    const samples = Math.min(4, maxSamples || 0);
+    if (samples < 1) return { type: THREE.HalfFloatType, samples: 0 };
+    // Allocate a tiny multisampled half-float framebuffer; incomplete → don't use it live.
+    const tex = gl.createTexture();
+    const rb = gl.createRenderbuffer();
+    const fb = gl.createFramebuffer();
+    if (!tex || !rb || !fb) return fallback;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA16F, 4, 4);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.RGBA16F, 4, 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, rb);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(fb);
+    gl.deleteRenderbuffer(rb);
+    gl.deleteTexture(tex);
+    return ok ? { type: THREE.HalfFloatType, samples } : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 type Grade = { lift: [number, number, number]; gain: [number, number, number]; contrast: number; saturation: number };
 /** Overview: clean, very slightly cool model look. Walk: warm highlights, cool shadows, a little more contrast. */
 const GRADES: Record<NavLook, Grade> = {
@@ -73,7 +105,7 @@ const FinalShader = {
       if (peak < StartCompression) return color;
       float d = 1. - StartCompression;
       float newPeak = 1. - d * d / (peak + d - StartCompression);
-      color *= newPeak / peak;
+      color *= newPeak / max(peak, 1e-5);
       float g = 1. - 1. / (Desaturation * (peak - newPeak) + 1.);
       return mix(color, vec3(newPeak), g);
     }
@@ -90,11 +122,16 @@ const FinalShader = {
 
 export class NavPipeline {
   readonly quality: NavQuality;
+  /** True when HalfFloat+MSAA probe succeeded (false → LDR UnsignedByte RT). */
+  readonly hdrMsaa: boolean;
   private composer: EffectComposer | null = null;
   private bloom: UnrealBloomPass | null = null;
+  private smaa: SMAAPass | null = null;
   private final: ShaderPass | null = null;
   private luts: Record<NavLook, THREE.Data3DTexture>;
   private envTarget: THREE.WebGLRenderTarget | null = null;
+  /** Orbit/drag: skip bloom (and SMAA) so Windows GPUs keep a stable non-black frame. */
+  private interactive = false;
   look: NavLook = 'overview';
   exposure = 1;
 
@@ -110,17 +147,45 @@ export class NavPipeline {
     renderer.shadowMap.enabled = quality !== 'low';
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.NeutralToneMapping; // used only by the 'low' direct path
-    if (quality === 'low') return;
+    if (quality === 'low') {
+      this.hdrMsaa = false;
+      return;
+    }
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-    const target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 });
+    // Windows ANGLE + HalfFloat MSAA / UnrealBloom frequently paints a solid black canvas (RTX
+    // included). Prefer LDR RTs; only ultra opts into bloom after a successful HDR probe.
+    const fmt = probeHdrMsaa(renderer);
+    const win = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
+    const useHdr = !win && fmt.type === THREE.HalfFloatType;
+    this.hdrMsaa = useHdr && fmt.samples > 0;
+    const target = new THREE.WebGLRenderTarget(size.x, size.y, {
+      type: useHdr ? THREE.HalfFloatType : THREE.UnsignedByteType,
+      samples: useHdr ? fmt.samples : 0,
+    });
     const composer = this.composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.55, 0.45, 1.0);
-    composer.addPass(this.bloom);
+    // Bloom on Windows high → black frames; keep for ultra on non-Windows, or ultra+?bloom=1.
+    const qs = typeof window !== 'undefined' ? window.location.search : '';
+    const wantBloom = quality === 'ultra' && (!win || new URLSearchParams(qs).get('bloom') === '1');
+    if (wantBloom) {
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.55, 0.45, 1.0);
+      composer.addPass(this.bloom);
+    }
     this.final = new ShaderPass(FinalShader);
     composer.addPass(this.final);
-    if (quality === 'ultra') composer.addPass(new SMAAPass());
+    if (quality === 'ultra') {
+      this.smaa = new SMAAPass();
+      composer.addPass(this.smaa);
+    }
     this.setLook('overview');
+  }
+
+  /** While the user orbits/pans: drop bloom/SMAA so frames stay lit and interactive. */
+  setInteractive(on: boolean) {
+    if (this.interactive === on) return;
+    this.interactive = on;
+    if (this.bloom) this.bloom.enabled = !on;
+    if (this.smaa) this.smaa.enabled = !on;
   }
 
   setLook(look: NavLook) {
@@ -148,7 +213,14 @@ export class NavPipeline {
   render(delta = 1 / 60) {
     if (!this.composer || !this.final) { this.renderer.render(this.scene, this.camera); return; }
     this.final.uniforms.exposure.value = this.exposure;
-    this.composer.render(delta);
+    try {
+      this.composer.render(delta);
+    } catch {
+      // Composer/RT failure (common after context pressure): fall back to a direct lit frame.
+      this.renderer.toneMapping = THREE.NeutralToneMapping;
+      this.renderer.toneMappingExposure = this.exposure;
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   dispose() {

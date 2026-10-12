@@ -6,8 +6,8 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  /* Latin stays on the system UI stack. CJK falls through to IBM Plex Sans SC (Zeoseven 389). */
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "IBM Plex Sans SC", sans-serif;
+  /* System CJK stack — avoid remote fontsapi.zeoseven.com (blocked by content blockers). */
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
 }
 
 /* ── Dark mode transitions ──────────────────────────────────── */

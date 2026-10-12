@@ -967,7 +967,12 @@
     camera = new THREE.PerspectiveCamera(50, Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight), 1, 20000);
     camera.position.set(800, 600, 800);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, logarithmicDepthBuffer: true });
+    renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      preserveDrawingBuffer: true,
+      logarithmicDepthBuffer: true,
+      powerPreference: 'high-performance',
+    });
     renderer.localClippingEnabled = true; // nav overview cut-away walls
     renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
     // Glass/Electron often reports DPR=1 on 200% OS scale; floor at measured default 2.
@@ -991,6 +996,11 @@
       const far = camera.position.distanceTo(controls.target) > 2600;
       if (far !== navLabelFar) updateNavLabelVisibility();
     });
+    // Nav shell: while dragging, lower DPR and skip bloom so Windows GPUs don't black out / stutter.
+    if (navShell) {
+      controls.addEventListener('start', () => setNavOrbitInteractive(true));
+      controls.addEventListener('end', () => setNavOrbitInteractive(false));
+    }
 
     // Click-to-select walls via raycasting
     let pointerDownPos = { x: 0, y: 0 };
@@ -1188,12 +1198,35 @@
     if (routePolyline?.length) drawNavRoute(routePolyline);
   }
 
+  let navOrbitPixelRatio = 1;
+  let navOrbitInteractive = false;
+  function navShellPixelRatio() {
+    if (!navPipeline) return effectivePixelRatio();
+    return Math.min(effectivePixelRatio(), navPipeline.quality === 'ultra' ? 2 : navPipeline.quality === 'high' ? 1.5 : 1.25);
+  }
+  /** Drag/orbit adaptive quality: DPR→1, bloom/SMAA off until the pointer releases. */
+  function setNavOrbitInteractive(on: boolean) {
+    if (!navShell || !navPipeline || !renderer || !container) return;
+    if (navOrbitInteractive === on) return;
+    navOrbitInteractive = on;
+    navPipeline.setInteractive(on);
+    if (on) {
+      navOrbitPixelRatio = renderer.getPixelRatio();
+      renderer.setPixelRatio(1);
+    } else {
+      renderer.setPixelRatio(navOrbitPixelRatio || navShellPixelRatio());
+      renderer.shadowMap.needsUpdate = true;
+    }
+    navPipeline.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
+    markSceneDirty();
+  }
+
   function initNavLook() {
     enableHospitalPbr(`${appBase}/nav-textures`);
     void navFontReady(appBase); // start early; textures wait for it
     navPipeline = new NavPipeline(renderer, scene, camera);
     // Post passes scale with pixels: cap high at 1.5x, ultra at 2x.
-    renderer.setPixelRatio(Math.min(effectivePixelRatio(), navPipeline.quality === 'ultra' ? 2 : navPipeline.quality === 'high' ? 1.5 : 1.25));
+    renderer.setPixelRatio(navShellPixelRatio());
     navPipeline.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
