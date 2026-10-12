@@ -149,8 +149,12 @@ export function orthogonalize(points: P2[], walls: WallSeg[], corridorMax = 700)
       }
       if (best) {
         const c = best.c;
-        if (horiz) out.push({ x: a.x, y: c }, { x: b.x, y: c });
-        else out.push({ x: c, y: a.y }, { x: c, y: b.y });
+        const via = horiz
+          ? [{ x: a.x, y: c }, { x: b.x, y: c }]
+          : [{ x: c, y: a.y }, { x: c, y: b.y }];
+        // Only the new centreline run is gated — elbows often start on a door jamb / wall face
+        // where segment samples read as a clip even though the planner already committed to that door.
+        if (!segmentClipsWall(via[0], via[1], walls)) out.push(...via);
       }
     }
     out.push(b);
@@ -158,14 +162,13 @@ export function orthogonalize(points: P2[], walls: WallSeg[], corridorMax = 700)
   return out.filter((p, i) => i === 0 || Math.hypot(p.x - out[i - 1].x, p.y - out[i - 1].y) > 1);
 }
 
-/** True when the open segment samples into a wall band (doors appear as gaps in ray hits). */
+/** True when the open segment samples into a wall band (doors appear as gaps in wall data). */
 function segmentClipsWall(a: P2, b: P2, walls: WallSeg[]): boolean {
   const len = Math.hypot(b.x - a.x, b.y - a.y);
-  const steps = Math.max(2, Math.floor(len / 8));
+  const steps = Math.max(2, Math.floor(len / 4));
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
     const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-    // Inside a wall band: both opposite rays are shorter than half-thickness + slop.
     for (const w of walls) {
       const ux = w.end.x - w.start.x, uy = w.end.y - w.start.y, wlen = Math.hypot(ux, uy);
       if (wlen < 1) continue;

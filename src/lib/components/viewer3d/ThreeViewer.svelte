@@ -63,6 +63,7 @@
   import { deptCategory, deptAccent } from '$lib/utils/deptAccent';
   import { hospitalFloorY } from '$lib/utils/hospitalMaterials';
   import { centerRoute, enclosedRooms, inside as layoutInside } from './nav/layout';
+  import { navDoors } from './nav/navDoors';
   import { pinText, mapLabels, nearRoute } from '$lib/utils/navCopy';
   import { enableHospitalPbr } from '$lib/utils/hospitalMaterials';
   import { base as appBase } from '$app/paths';
@@ -2788,6 +2789,8 @@
     clearGroup(wallGroup);
     cameraHelper = null;
     wallMeshMap.clear();
+    // Include room.doorAt jambs so nav paths through authored doors aren't hidden behind solid walls.
+    const floorDoors = navDoors(floor);
 
     const defaultInteriorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const defaultExteriorMat = new THREE.MeshStandardMaterial({ color: 0xd4cfc9, roughness: 0.85 });
@@ -2849,7 +2852,7 @@
           interiorMat, interiorMat,
           interiorMat, exteriorMat,
         ];
-        const doors = floor.doors.filter(d => d.wallId === wall.id);
+        const doors = floorDoors.filter(d => d.wallId === wall.id);
         const windows = floor.windows.filter(w => w.wallId === wall.id);
         for (const span of wallProfileSpans(wall, doors, windows)) {
           const angle = Math.atan2(span.end.y - span.start.y, span.end.x - span.start.x);
@@ -2887,7 +2890,7 @@
         const cx = (wall.start.x + wall.end.x) / 2;
         const cy = (wall.start.y + wall.end.y) / 2;
 
-        const doorOpenings = floor.doors.filter((d) => d.wallId === wall.id);
+        const doorOpenings = floorDoors.filter((d) => d.wallId === wall.id);
         const winOpenings = floor.windows.filter((w) => w.wallId === wall.id);
         const segments = buildWallSegments(len, startH, endH, doorOpenings, winOpenings);
 
@@ -2918,7 +2921,7 @@
 
         // Baseboard — with gaps at door openings
         if (Math.min(startH, endH) >= BASEBOARD_HEIGHT) {
-        const doorOpeningsForBB = floor.doors.filter((d) => d.wallId === wall.id);
+        const doorOpeningsForBB = floorDoors.filter((d) => d.wallId === wall.id);
         if (doorOpeningsForBB.length === 0) {
           const bbGeo = new THREE.BoxGeometry(len, BASEBOARD_HEIGHT, t + 2);
           const bbMesh = new THREE.Mesh(bbGeo, baseboardMat);
@@ -2970,8 +2973,8 @@
     // Seal L / coincident-endpoint T joints (same grouping as 2D drawWallJoints).
     addWallJointCaps(floor, wallGroup, defaultExteriorMat);
 
-    // Doors
-    for (const sourceDoor of floor.doors) {
+    // Doors (doors[] + room.doorAt)
+    for (const sourceDoor of floorDoors) {
       const wall = floor.walls.find((w) => w.id === sourceDoor.wallId);
       if (!wall) continue;
       const path = wallPathProfile(wall), length = path.length;
@@ -3431,9 +3434,10 @@
 
     const defaultInteriorMat = transparentMat(0xffffff);
     const defaultExteriorMat = transparentMat(0xd4cfc9, 0.85);
+    const floorDoors = navDoors(floor);
 
     for (const sourceWall of floor.walls) {
-      for (const span of wallProfileSpans(sourceWall, floor.doors.filter(d => d.wallId === sourceWall.id), floor.windows.filter(w => w.wallId === sourceWall.id))) {
+      for (const span of wallProfileSpans(sourceWall, floorDoors.filter(d => d.wallId === sourceWall.id), floor.windows.filter(w => w.wallId === sourceWall.id))) {
         const wall = { ...sourceWall, ...span };
         const dx = wall.end.x - wall.start.x;
         const dy = wall.end.y - wall.start.y;
