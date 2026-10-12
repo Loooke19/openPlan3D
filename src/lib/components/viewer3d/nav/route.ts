@@ -90,8 +90,8 @@ export class NavRouteVisual {
         void main() {
           #include <logdepthbuf_fragment>
           float along = vUv.x, across = abs(vUv.y);
-          // Chevrons pointing along the route, flowing forward.
-          float v = fract((along - across * uHalf * 1.1) / (uHalf * 7.) - uTime * 80. / (uHalf * 7.));
+          // Chevrons tip forward (+along): peak along shrinks as |across| grows (was `-`, tip pointed back).
+          float v = fract((along + across * uHalf * 1.1) / (uHalf * 7.) - uTime * 80. / (uHalf * 7.));
           float chev = smoothstep(.0, .06, v) * (1. - smoothstep(.18, .24, v)) * (1. - smoothstep(.72, .86, across));
           vec3 base = uAccent * (1.25 - .25 * uWalk);
           vec3 col = mix(base, mix(vec3(2.2, 2.4, 2.6), vec3(1.25, 1.35, 1.45), uWalk), chev * .9);

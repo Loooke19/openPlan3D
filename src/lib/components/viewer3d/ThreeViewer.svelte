@@ -1431,8 +1431,8 @@
     const here = levelOf(currentFloor.id);
     const box = new THREE.Box3().setFromObject(wallGroup);
     const size = box.getSize(new THREE.Vector3());
-    // Tighter stack (user 10-11): more floors per screen; slabs still clear each other at the ≥38° orbit.
-    const rise = Math.max(650, Math.min(size.x, size.z) * 0.46);
+    // Vertical connectors were visually ~2× too tall (1F↔4F); halve floor-to-floor rise.
+    const rise = Math.max(325, Math.min(size.x, size.z) * 0.23);
     const group = new THREE.Group();
     group.userData.navDressing = true;
     scene.add(group);
@@ -2317,9 +2317,17 @@
 
   export function enterWalkAlongRoute(speed = 1) {
     if (simRoute.length < 2) return;
-    if (walkthroughMode) exitWalkthroughMode();
-    stopRouteSimulation();
-    navSavedView = { position: camera.position.clone(), target: controls.target.clone() };
+    // Quiet teardown of a prior auto-walk / free roam. Must NOT call exitWalkthroughMode():
+    // that fires onNavWalkExit → shell clears `walking`, so the next leg-end reports arrive early
+    // on cross-floor transfers (登记室→护士办公室).
+    if (simRaf) cancelAnimationFrame(simRaf);
+    simRaf = 0;
+    simPlaying = false;
+    simLastTs = 0;
+    navAutoWalking = false;
+    walkthroughMode = false;
+    controls.enabled = true;
+    if (!navSavedView) navSavedView = { position: camera.position.clone(), target: controls.target.clone() };
     cancelAIRender();
     walkthroughMotion.reset();
     walkthroughMouseUnavailable = false;

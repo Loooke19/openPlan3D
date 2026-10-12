@@ -158,9 +158,37 @@ export function orthogonalize(points: P2[], walls: WallSeg[], corridorMax = 700)
   return out.filter((p, i) => i === 0 || Math.hypot(p.x - out[i - 1].x, p.y - out[i - 1].y) > 1);
 }
 
+/** True when the open segment samples into a wall band (doors appear as gaps in ray hits). */
+function segmentClipsWall(a: P2, b: P2, walls: WallSeg[]): boolean {
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  const steps = Math.max(2, Math.floor(len / 8));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    // Inside a wall band: both opposite rays are shorter than half-thickness + slop.
+    for (const w of walls) {
+      const ux = w.end.x - w.start.x, uy = w.end.y - w.start.y, wlen = Math.hypot(ux, uy);
+      if (wlen < 1) continue;
+      const half = (w.thickness ?? 15) / 2 + 2;
+      const tx = ux / wlen, ty = uy / wlen;
+      const along = (p.x - w.start.x) * tx + (p.y - w.start.y) * ty;
+      if (along < -2 || along > wlen + 2) continue;
+      const across = (p.x - w.start.x) * -ty + (p.y - w.start.y) * tx;
+      if (Math.abs(across) <= half) return true;
+    }
+  }
+  return false;
+}
+
+function pathClipsWall(pts: P2[], walls: WallSeg[]): boolean {
+  for (let i = 0; i + 1 < pts.length; i++) if (segmentClipsWall(pts[i], pts[i + 1], walls)) return true;
+  return false;
+}
+
 export function centerRoute(points: P2[], walls: WallSeg[], opts: { maxWidth?: number; radius?: number } = {}): P2[] {
+  const raw = points.slice();
   if (points.length >= 2 && walls.length) points = orthogonalize(points, walls);
-  if (points.length < 4 || !walls.length) return points.slice();
+  if (points.length < 4 || !walls.length) return pathClipsWall(points, walls) ? raw : points.slice();
   // Wide halls are centred too (route must not hug a wall); door gaps give outlier widths.
   const maxWidth = opts.maxWidth ?? 1600;
   const n = points.length - 1;
@@ -194,7 +222,10 @@ export function centerRoute(points: P2[], walls: WallSeg[], opts: { maxWidth?: n
     else out.push(orig);
   }
   out.push(points[n]);
-  return roundCorners(out, opts.radius ?? 70);
+  // Rounding / centering must never invent a wall clip the planner did not have.
+  if (pathClipsWall(out, walls)) return raw;
+  const rounded = roundCorners(out, opts.radius ?? 70);
+  return pathClipsWall(rounded, walls) ? out : rounded;
 }
 
 export function roundCorners(points: P2[], radius: number, steps = 6): P2[] {

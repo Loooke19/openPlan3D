@@ -101,7 +101,8 @@
   function endLabel() { const e = placeByKey(endId); return e ? (displayNames.get(placeKey(e)) || e.name || '') : ''; }
   /** Final arrival in first person: frame the destination door and keep FP until the user exits. */
   function arrive(firstPerson: boolean) {
-    // Always announce arrival (overview simulation and first person alike).
+    // Never announce on an intermediate transfer leg (cross-floor FP used to flash 已到达 after 1F).
+    if (routeLegs.length && activeLegIndex + 1 < routeLegs.length) return;
     arrivedText = `已到达：${endLabel()}`;
     say(arrivedText);
     if (firstPerson || viewer?.isNavWalking?.()) viewer?.faceNavArrival?.();
@@ -283,7 +284,8 @@
       const a = pts[pts.length - 2], b = pts[pts.length - 1];
       const fwd = a && b ? { x: b.x + (b.x - a.x) / (Math.hypot(b.x - a.x, b.y - a.y) || 1) * 150, y: b.y + (b.y - a.y) / (Math.hypot(b.x - a.x, b.y - a.y) || 1) * 150 } : null;
       const target = best && bestD < 500 ? { x: best.x, y: best.y } : fwd;
-      if (target) viewer?.faceNavPoint?.(target); else viewer?.faceNavArrival?.();
+      // Never faceNavArrival at a transfer — that frames the final door and looks like early arrival.
+      if (target) viewer?.faceNavPoint?.(target);
     }
     pendingLegAdvance = true;
     // Remember first person NOW: on a stair/lift hop the viewer can drop walk mode before the
