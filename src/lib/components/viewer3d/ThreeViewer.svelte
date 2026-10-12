@@ -776,6 +776,27 @@
     if (what === 'noshadow') { sunLight.castShadow = false; renderer.shadowMap.needsUpdate = true; }
     if (what === 'nodressing' && navDressing) navDressing.group.visible = false;
     if (what === 'nopost') navPipeline = null;
+    if (what === 'shaders') {
+      const bad: unknown[] = [];
+      const types: Record<string, number> = {};
+      scene?.traverse((o) => {
+        const mats = (o as THREE.Mesh).material
+          ? (Array.isArray((o as THREE.Mesh).material) ? (o as THREE.Mesh).material as THREE.Material[] : [(o as THREE.Mesh).material as THREE.Material])
+          : [];
+        for (const m of mats) {
+          if (!m) continue;
+          const t = m.type || m.constructor?.name || '?';
+          types[t] = (types[t] || 0) + 1;
+          const sm = m as THREE.ShaderMaterial;
+          if (sm.isShaderMaterial) {
+            if (typeof sm.vertexShader !== 'string' || typeof sm.fragmentShader !== 'string') {
+              bad.push({ t, name: sm.name, vs: typeof sm.vertexShader, fs: typeof sm.fragmentShader, ud: o.userData });
+            }
+          }
+        }
+      });
+      return { bad, types, pipeline: !!navPipeline, quality: navPipeline?.quality ?? null };
+    }
     if (what === 'routes') {
       const out: unknown[] = [];
       scene.traverse(o => { if (o.userData.navRoute) { let vis = true; o.traverseAncestors(a => { if (!a.visible) vis = false; }); const b = new THREE.Box3().setFromObject(o); out.push({ vis: vis && o.visible, kids: o.children.map(c => c.visible), min: b.min.toArray().map(Math.round), max: b.max.toArray().map(Math.round) }); } });
@@ -3558,13 +3579,17 @@
           // Nav shell multi-leg: loadNav→setActiveFloor must not call exitWalkthroughMode
           // (onNavWalkExit cleared walking; restoreNavView jumped to overview mid-transfer).
           // Shell keeps fpAtTransfer and re-enters via enterWalkAlongRoute.
+          // Skip teardown on the cold first subscribe (currentFloor still null) so it cannot
+          // race enterWalkAlongRoute and leave the shell with walking=true but no FP camera.
           if (navShell) {
-            if (simRaf) cancelAnimationFrame(simRaf);
-            simRaf = 0;
-            simPlaying = false;
-            navAutoWalking = false;
-            walkthroughMode = false;
-            controls.enabled = true;
+            if (currentFloor != null) {
+              if (simRaf) cancelAnimationFrame(simRaf);
+              simRaf = 0;
+              simPlaying = false;
+              navAutoWalking = false;
+              walkthroughMode = false;
+              controls.enabled = true;
+            }
           } else {
             exitWalkthroughMode();
           }

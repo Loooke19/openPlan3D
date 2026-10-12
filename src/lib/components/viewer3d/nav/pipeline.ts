@@ -113,7 +113,8 @@ const FinalShader = {
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
       vec3 col = toSRGB(clamp(neutral(c.rgb * exposure), 0., 1.));
-      col = texture(lut, col * (31. / 32.) + .5 / 32.).rgb;
+      // GLSL1 ShaderMaterial: sampler3D must use texture3D (texture() is GLSL3-only and breaks some ANGLE paths).
+      col = texture3D(lut, col * (31. / 32.) + .5 / 32.).rgb;
       vec2 d = (vUv - .5) * vec2(1.15, 1.);
       col *= 1. - vignette * smoothstep(.35, .95, length(d));
       gl_FragColor = vec4(col, 1.);
@@ -146,16 +147,22 @@ export class NavPipeline {
     scene.environment = this.envTarget.texture;
     renderer.shadowMap.enabled = quality !== 'low';
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.NeutralToneMapping; // used only by the 'low' direct path
-    if (quality === 'low') {
+    renderer.toneMapping = THREE.NeutralToneMapping; // direct path (low / Windows-safe)
+    const win = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
+    const qs = typeof window !== 'undefined' ? window.location.search : '';
+    const forcePost = new URLSearchParams(qs).get('post') === '1';
+    // Windows ANGLE: EffectComposer + FinalShader was throwing TypeError string.replace in
+    // WebGLProgram (hundreds/frame) so FP looked broken even when walk state was true.
+    // Keep shadows for high/ultra; skip post unless ?post=1.
+    if (quality === 'low' || (win && !forcePost)) {
       this.hdrMsaa = false;
+      this.setLook('overview');
       return;
     }
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-    // Windows ANGLE + HalfFloat MSAA / UnrealBloom frequently paints a solid black canvas (RTX
-    // included). Prefer LDR RTs; only ultra opts into bloom after a successful HDR probe.
+    // HalfFloat MSAA / UnrealBloom frequently paints a solid black canvas on some GPUs.
+    // Prefer LDR RTs; only ultra opts into bloom after a successful HDR probe.
     const fmt = probeHdrMsaa(renderer);
-    const win = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
     const useHdr = !win && fmt.type === THREE.HalfFloatType;
     this.hdrMsaa = useHdr && fmt.samples > 0;
     const target = new THREE.WebGLRenderTarget(size.x, size.y, {
@@ -164,8 +171,7 @@ export class NavPipeline {
     });
     const composer = this.composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
-    // Bloom on Windows high → black frames; keep for ultra on non-Windows, or ultra+?bloom=1.
-    const qs = typeof window !== 'undefined' ? window.location.search : '';
+    // Bloom on Windows → black frames; keep for ultra on non-Windows, or ultra+?bloom=1.
     const wantBloom = quality === 'ultra' && (!win || new URLSearchParams(qs).get('bloom') === '1');
     if (wantBloom) {
       this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.55, 0.45, 1.0);
@@ -216,7 +222,11 @@ export class NavPipeline {
     try {
       this.composer.render(delta);
     } catch {
-      // Composer/RT failure (common after context pressure): fall back to a direct lit frame.
+      // Composer/RT or shader-link failure: permanently fall back so FP/walk stays usable.
+      this.composer = null;
+      this.final = null;
+      this.bloom = null;
+      this.smaa = null;
       this.renderer.toneMapping = THREE.NeutralToneMapping;
       this.renderer.toneMappingExposure = this.exposure;
       this.renderer.render(this.scene, this.camera);

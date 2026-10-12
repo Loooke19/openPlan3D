@@ -39,14 +39,13 @@ export function ribbonGeometry(points: P2[], halfWidth: number): THREE.BufferGeo
   return geometry;
 }
 
+// No ShaderChunk #include — on some Windows ANGLE + three r182 stacks, WebGLProgram
+// resolveIncludes throws TypeError (string.replace) and spams the console during FP.
 const VERT = /* glsl */`
   varying vec2 vUv;
-  #include <common>
-  #include <logdepthbuf_pars_vertex>
   void main() {
     vUv = uv;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    #include <logdepthbuf_vertex>
   }`;
 
 export class NavRouteVisual {
@@ -85,12 +84,9 @@ export class NavRouteVisual {
       fragmentShader: /* glsl */`
         uniform float uTime, uTraveled, uHalf, uWalk; uniform vec3 uAccent;
         varying vec2 vUv;
-        #include <common>
-        #include <logdepthbuf_pars_fragment>
         void main() {
-          #include <logdepthbuf_fragment>
           float along = vUv.x, across = abs(vUv.y);
-          // Chevrons tip forward (+along): peak along shrinks as |across| grows (was `-`, tip pointed back).
+          // Chevrons tip forward (+along): peak along shrinks as |across| grows (was minus-across, tip pointed back).
           float v = fract((along + across * uHalf * 1.1) / (uHalf * 7.) - uTime * 80. / (uHalf * 7.));
           float chev = smoothstep(.0, .06, v) * (1. - smoothstep(.18, .24, v)) * (1. - smoothstep(.72, .86, across));
           vec3 base = uAccent * (1.25 - .25 * uWalk);
@@ -104,10 +100,7 @@ export class NavRouteVisual {
       uniforms: u, vertexShader: VERT,
       fragmentShader: /* glsl */`
         uniform float uTraveled; varying vec2 vUv;
-        #include <common>
-        #include <logdepthbuf_pars_fragment>
         void main() {
-          #include <logdepthbuf_fragment>
           gl_FragColor = vec4(vUv.x < uTraveled ? vec3(.82) : vec3(1.05), 1.);
         }`,
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
@@ -116,10 +109,7 @@ export class NavRouteVisual {
       uniforms: u, vertexShader: VERT,
       fragmentShader: /* glsl */`
         uniform float uTime, uTraveled, uWalk; uniform vec3 uGlowColor; varying vec2 vUv;
-        #include <common>
-        #include <logdepthbuf_pars_fragment>
         void main() {
-          #include <logdepthbuf_fragment>
           float a = pow(1. - abs(vUv.y), 2.2) * (.5 - .42 * uWalk);
           a *= .8 + .2 * sin(vUv.x / 60. - uTime * 3.);
           if (vUv.x < uTraveled) a *= .15;
@@ -162,16 +152,9 @@ export class NavRouteVisual {
     const column = new THREE.Mesh(new THREE.CylinderGeometry(10, 26, 220, 32, 1, true).translate(0, 110, 0), new THREE.ShaderMaterial({
       uniforms: { uTime: this.uniforms.uTime, uColor: { value: hot.clone().multiplyScalar(1.6) } },
       vertexShader: /* glsl */`varying vec2 vUv;
-        #include <common>
-        #include <logdepthbuf_pars_vertex>
-        void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.);
-        #include <logdepthbuf_vertex>
-        }`,
+        void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
       fragmentShader: /* glsl */`uniform float uTime; uniform vec3 uColor; varying vec2 vUv;
-        #include <common>
-        #include <logdepthbuf_pars_fragment>
         void main(){
-          #include <logdepthbuf_fragment>
           float a = pow(1. - vUv.y, 1.6) * (.5 + .15 * sin(uTime * 3.));
           gl_FragColor = vec4(uColor * a, 1.); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
