@@ -109,6 +109,8 @@
   }
   let legAdvanceToken = 0;
   let accessible = $state(false);
+  /** Prefer stairs / disable elevators (mutually exclusive with accessible). */
+  let stairsOnly = $state(false);
 
   type Place = {
     id: string;
@@ -140,6 +142,7 @@
     fromFloorName?: string;
     toFloorName?: string;
     direction?: 'up' | 'down';
+    storeys?: number;
     from?: { x: number; y: number };
     to?: { x: number; y: number };
   };
@@ -291,6 +294,21 @@
     // Remember first person NOW: on a stair/lift hop the viewer can drop walk mode before the
     // timer fires (P3 出入口B→4F: it came back as free roam, never auto-walked, never arrived).
     const fpAtTransfer = walking;
+    const isStairs = !!(transfer && (transfer.kind === 'stairs' || /楼梯/.test(transfer.kindLabel || '')));
+    // Stairs FP: continuous Y climb (no instant floor snap). Elevator keeps the short look+hop.
+    if (walking && isStairs && transfer?.from && viewer?.playStairClimb) {
+      const toPt = transfer.to || transfer.from;
+      void viewer.playStairClimb({
+        from: transfer.from,
+        to: toPt,
+        direction: transfer.direction,
+        storeys: transfer.storeys || 1,
+        speed: Number(walkSpeed) || 1,
+      }).then(() => {
+        void advanceToLeg(activeLegIndex + 1, true);
+      });
+      return;
+    }
     if (transferTimer) clearTimeout(transferTimer);
     transferTimer = setTimeout(() => {
       transferTimer = null;
@@ -347,6 +365,8 @@
   });
   /** Data-driven: any elevator among this building's places. */
   const hasLift = () => allPlaces().some((p) => /电梯/.test(p.name || ''));
+  const hasStairs = () => allPlaces().some((p) => /楼梯/.test(p.name || ''))
+    || (view?.verticalLinks || []).some((l) => /楼梯/.test(l.name || ''));
   const floorIndex = (id: string) => (view?.floors || []).findIndex((f) => f.id === id);
 
   /** The stair/lift a transfer uses, under the same display name as the dropdown (「楼梯（东）」). */
@@ -894,6 +914,7 @@
           to: stopPoint(end),
           via: vias.map(stopPoint),
           accessible,
+          stairsOnly,
         }),
       });
       const result = await response.json();
@@ -906,6 +927,11 @@
         };
         // 只乘电梯 on a building without lifts: say so plainly instead of a bare failure.
         const noLift = accessible && result.reason === 'no-link' && !allPlaces().some(p => /电梯/.test(p.name || ''));
+        if (stairsOnly && result.reason === 'no-link') {
+          say('没有可用楼梯连通这两层');
+          routeMessage = '没有可用楼梯连通这两层';
+          return;
+        }
         let msg = reasons[result.reason] || '走不过去';
         if (noLift) {
           const fl = (view?.floors || []).map(f => f.id);
@@ -1017,7 +1043,28 @@
       places: () => allPlaces().map((p) => ({ key: placeKey(p), label: placeLabel(p) })),
       route: async (from: string, to: string) => { startId = from; endId = to; await planRoute(); return routeMessage; },
       showLeg: async (i: number) => showLeg(Math.min(i, routeLegs.length - 1)),
-      transfers: () => routeTransfers.map((t) => { const st = allPlaces().filter((p) => p.floorId === t.fromFloorId && /楼梯|电梯/.test(p.name || '')).sort((a, b) => Math.hypot(a.x - t.from!.x, a.y - t.from!.y) - Math.hypot(b.x - t.from!.x, b.y - t.from!.y))[0]; return { from: st ? { x: st.x, y: st.y } : t.from, name: (t as any).name }; }),
+      transfers: () => routeTransfers.map((t) => ({
+        kind: t.kind,
+        kindLabel: t.kindLabel,
+        name: t.name,
+        direction: t.direction,
+        storeys: t.storeys,
+        from: t.from,
+        to: t.to,
+        text: transferText(withDisplay(t), view?.bounds),
+      })),
+      setStairsOnly: (v: boolean) => { stairsOnly = !!v; if (stairsOnly) accessible = false; },
+      setAccessible: (v: boolean) => { accessible = !!v; if (accessible) stairsOnly = false; },
+      startWalk: async () => {
+        if (!(await ensureRouteFloor())) return false;
+        mode = '3d';
+        walking = true;
+        simulating = false;
+        playbackPlaying = true;
+        pendingModeAction = 'walk';
+        return true;
+      },
+      legs: () => routeLegs.map((l) => ({ floorId: l.floorId, floorName: l.floorName, len: l.lengthCm })),
       setMode: (m: '2d' | '3d') => { mode = m; },
     };
     void (async () => {
@@ -1162,8 +1209,17 @@
             <PlacePicker bind:value={endId} places={pickerPlaces} label="终点" origin={pickerOrigin} {floorIndex} {accessible} hasLift={hasLift()} onchange={() => planRoute()} />
           </label>
           {#if multiFloor()}
+            <label class="accessible" class:off={!hasStairs()}>
+              <input type="checkbox" bind:checked={stairsOnly} disabled={!hasStairs()} onchange={() => {
+                if (stairsOnly) accessible = false;
+                void planRoute();
+              }} />
+              只走楼梯
+            {#if !hasStairs()}<span class="nolift-note">本楼未标注楼梯</span>{/if}
+            </label>
             <label class="accessible" class:off={!hasLift()}>
               <input type="checkbox" bind:checked={accessible} disabled={!hasLift()} onchange={() => {
+                if (accessible) stairsOnly = false;
                 // Route already rides the lift: nothing to change, just say so.
                 if (accessible && routeTransfers.length && routeTransfers.every((t) => t.kind !== 'stairs')) { routeMessage = '当前路线已全程乘电梯，无需走楼梯'; say(routeMessage); return; }
                 void planRoute();

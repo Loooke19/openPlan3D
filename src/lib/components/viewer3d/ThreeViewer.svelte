@@ -802,6 +802,9 @@
       scene.traverse(o => { if (o.userData.navRoute) { let vis = true; o.traverseAncestors(a => { if (!a.visible) vis = false; }); const b = new THREE.Box3().setFromObject(o); out.push({ vis: vis && o.visible, kids: o.children.map(c => c.visible), min: b.min.toArray().map(Math.round), max: b.max.toArray().map(Math.round) }); } });
       return { out, simRoute: simRoute.length };
     }
+    if (what === 'stairClimb') {
+      return { climbing: stairClimbing, samples: stairClimbSamples.slice(), y: camera?.position.y ?? null };
+    }
     if (what === 'redcaps' && navDressing) {
       const caps = navDressing.group.children[1].children[0] as THREE.InstancedMesh;
       (caps.material as THREE.MeshStandardMaterial).color.set('#ff0000');
@@ -1443,7 +1446,7 @@
    * route leg, joined by a glowing vertical connector at each transfer. Floors ease apart on entry.
    */
   export function setNavFloorStack(legs: { floorId: string; floorName?: string; polyline: { x: number; y: number }[] }[],
-    transfers: { afterLeg: number; kindLabel?: string; from?: { x: number; y: number } }[] = [], endLabel = '') {
+    transfers: { afterLeg: number; kind?: string; kindLabel?: string; from?: { x: number; y: number } }[] = [], endLabel = '') {
     clearNavStack();
     const project = get(currentProject);
     if (!navPipeline || !project || !currentFloor || legs.length < 2 || walkthroughMode) return;
@@ -1544,7 +1547,8 @@
         ring.userData.ringEnd = end;
         column.add(ring);
       }
-      const label = transfers.find(tr => tr.afterLeg === i)?.kindLabel || '电梯';
+      const trConn = transfers.find(tr => tr.afterLeg === i);
+      const label = trConn?.kindLabel || (trConn?.kind === 'stairs' ? '楼梯' : trConn?.kind === 'elevator' ? '电梯' : '换乘');
       const tag = navTextSprite(pinText.transfer(label), { bg: '#ff7a2f', fg: '#ffffff', size: 36 });
       tag.userData.connectorTag = true;
       column.add(tag);
@@ -2341,6 +2345,8 @@
     // Quiet teardown of a prior auto-walk / free roam. Must NOT call exitWalkthroughMode():
     // that fires onNavWalkExit → shell clears `walking`, so the next leg-end reports arrive early
     // on cross-floor transfers (登记室→护士办公室).
+    if (stairClimbRaf) { cancelAnimationFrame(stairClimbRaf); stairClimbRaf = 0; }
+    stairClimbing = false;
     if (simRaf) cancelAnimationFrame(simRaf);
     simRaf = 0;
     simPlaying = false;
@@ -2367,7 +2373,132 @@
     markSceneDirty();
   }
 
-  export function isNavWalking() { return navAutoWalking; }
+  export function isNavWalking() { return navAutoWalking || stairClimbing; }
+
+  /** Storey height used for FP stair climb (matches buildStairs totalHeight). */
+  const STAIR_STOREY_CM = 280;
+
+  let stairClimbing = false;
+  let stairClimbRaf = 0;
+  let stairClimbSamples: number[] = [];
+
+  /**
+   * First-person continuous stair climb between floors. Keeps walk mode; Y is monotonic
+   * (no floor-hop snap). Path: run → landing turn → run (U-shape in plan).
+   */
+  export function playStairClimb(opts: {
+    from: { x: number; y: number };
+    to: { x: number; y: number };
+    direction?: 'up' | 'down' | string;
+    storeys?: number;
+    speed?: number;
+  }): Promise<{ samples: number[]; maxJump: number; ok: boolean; durationMs: number }> {
+    return new Promise((resolve) => {
+      if (!camera || !navShell) {
+        resolve({ samples: [], maxJump: 0, ok: false, durationMs: 0 });
+        return;
+      }
+      if (simRaf) { cancelAnimationFrame(simRaf); simRaf = 0; }
+      simPlaying = false;
+      if (stairClimbRaf) cancelAnimationFrame(stairClimbRaf);
+      const storeys = Math.max(1, Math.round(opts.storeys || 1));
+      const sign = opts.direction === 'down' ? -1 : 1;
+      const deltaY = STAIR_STOREY_CM * storeys * sign;
+      const speed = Math.max(0.35, Math.min(3, opts.speed || 1));
+      const durationMs = Math.max(2400, (4000 * storeys) / speed);
+      const from = opts.from;
+      const to = opts.to || opts.from;
+      const dx = to.x - from.x;
+      const dz = to.y - from.y;
+      const len = Math.hypot(dx, dz) || 1;
+      const fx = dx / len;
+      const fz = dz / len;
+      // Perpendicular for landing turn (stay inside shaft, ~1.2 m).
+      const px = -fz;
+      const pz = fx;
+      const approach = 90;
+      const land = 120;
+      const baseY = activeFloorElevation + eyeHeight;
+      const startTs = performance.now();
+      stairClimbSamples = [];
+      stairClimbing = true;
+      navAutoWalking = true;
+      walkthroughMode = true;
+      controls.enabled = false;
+      // Exactly 30 Y samples; fill skipped indices when headless RAF coalesces frames.
+      const SAMPLE_N = 30;
+      let lastEmit = -1;
+
+      const sampleAt = (t: number) => {
+        // t in [0,1]: 0–0.42 run1, 0.42–0.58 landing, 0.58–1 run2
+        let x: number;
+        let z: number;
+        let yFrac: number;
+        if (t < 0.42) {
+          const u = t / 0.42;
+          x = from.x + fx * approach * u;
+          z = from.y + fz * approach * u;
+          yFrac = 0.5 * u;
+        } else if (t < 0.58) {
+          const u = (t - 0.42) / 0.16;
+          x = from.x + fx * approach + px * land * u;
+          z = from.y + fz * approach + pz * land * u;
+          yFrac = 0.5;
+        } else {
+          const u = (t - 0.58) / 0.42;
+          x = from.x + fx * approach + px * land + (to.x - (from.x + fx * approach + px * land)) * u;
+          z = from.y + fz * approach + pz * land + (to.y - (from.y + fz * approach + pz * land)) * u;
+          yFrac = 0.5 + 0.5 * u;
+        }
+        const y = baseY + deltaY * yFrac;
+        const lookX = x + fx * 60;
+        const lookZ = z + fz * 60;
+        camera.position.set(x, y, z);
+        camera.lookAt(lookX, y - 3, lookZ);
+        return y;
+      };
+
+      const flushEmit = (emit: number) => {
+        const capped = Math.max(0, Math.min(SAMPLE_N - 1, emit));
+        while (lastEmit < capped) {
+          lastEmit++;
+          stairClimbSamples.push(sampleAt(lastEmit / (SAMPLE_N - 1)));
+        }
+      };
+
+      const step = (now: number) => {
+        const t = Math.min(1, (now - startTs) / durationMs);
+        const emit = t >= 1 ? SAMPLE_N - 1 : Math.floor(t * (SAMPLE_N - 1));
+        flushEmit(emit);
+        if (t < 1) {
+          // Keep camera on true clock position between discrete sample ticks.
+          if (lastEmit === emit) sampleAt(t);
+          markSceneDirty();
+          stairClimbRaf = requestAnimationFrame(step);
+          return;
+        }
+        markSceneDirty();
+        stairClimbRaf = 0;
+        stairClimbing = false;
+        let maxJump = 0;
+        for (let i = 1; i < stairClimbSamples.length; i++) {
+          maxJump = Math.max(maxJump, Math.abs(stairClimbSamples[i] - stairClimbSamples[i - 1]));
+        }
+        const monoUp = sign > 0 && stairClimbSamples.every((v, i, a) => i === 0 || v >= a[i - 1] - 0.05);
+        const monoDown = sign < 0 && stairClimbSamples.every((v, i, a) => i === 0 || v <= a[i - 1] + 0.05);
+        // Uniform 30 samples → ~280/29 ≈ 9.7 cm/step; maxJump gate catches residual snaps.
+        resolve({
+          samples: stairClimbSamples.slice(),
+          maxJump,
+          ok: (monoUp || monoDown) && maxJump < 100 && stairClimbSamples.length >= SAMPLE_N,
+          durationMs,
+        });
+      };
+      stairClimbRaf = requestAnimationFrame(step);
+    });
+  }
+
+  export function getStairClimbSamples() { return stairClimbSamples.slice(); }
 
   export function isSimulating() {
     return simPlaying;
