@@ -3,6 +3,9 @@
  * soft additive glow, a start puck and a pulsing destination beacon. Progress (walked part greys out)
  * and animation are uniforms, so simulation never rebuilds geometry. Core colour is HDR so the
  * selective bloom picks the route up and nothing else.
+ *
+ * Materials use toneMapped:false so the blue ribbon stays visible when the Windows path runs
+ * without bloom (composer FinalShader / NeutralToneMapping would otherwise crush HDR blues).
  */
 import * as THREE from 'three';
 
@@ -39,13 +42,14 @@ export function ribbonGeometry(points: P2[], halfWidth: number): THREE.BufferGeo
   return geometry;
 }
 
-// No ShaderChunk #include — on some Windows ANGLE + three r182 stacks, WebGLProgram
-// resolveIncludes throws TypeError (string.replace) and spams the console during FP.
 const VERT = /* glsl */`
   varying vec2 vUv;
+  #include <common>
+  #include <logdepthbuf_pars_vertex>
   void main() {
     vUv = uv;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    #include <logdepthbuf_vertex>
   }`;
 
 export class NavRouteVisual {
@@ -73,20 +77,24 @@ export class NavRouteVisual {
     if (opts.end !== false) this.addBeacon(points[points.length - 1], y);
   }
 
-
   private buildSet(points: P2[], y: number, view: 'walk' | 'overview', halfCore: number, halfRim: number, halfGlow: number) {
     const u = { ...this.uniforms, uHalf: { value: halfCore } };
     const core = ribbonGeometry(points, halfCore);
     const rim = ribbonGeometry(points, halfRim);
     const glow = ribbonGeometry(points, halfGlow);
+    // Do not put backticks inside these GLSL template strings — they truncate the source and
+    // leave fragmentShader as a number (Windows then loses the blue ribbon + chevrons).
     const coreMat = new THREE.ShaderMaterial({
       uniforms: u, vertexShader: VERT,
       fragmentShader: /* glsl */`
         uniform float uTime, uTraveled, uHalf, uWalk; uniform vec3 uAccent;
         varying vec2 vUv;
+        #include <common>
+        #include <logdepthbuf_pars_fragment>
         void main() {
+          #include <logdepthbuf_fragment>
           float along = vUv.x, across = abs(vUv.y);
-          // Chevrons tip forward (+along): peak along shrinks as |across| grows (was minus-across, tip pointed back).
+          // Chevrons tip forward (+along): peak along shrinks as |across| grows (was minus-across).
           float v = fract((along + across * uHalf * 1.1) / (uHalf * 7.) - uTime * 80. / (uHalf * 7.));
           float chev = smoothstep(.0, .06, v) * (1. - smoothstep(.18, .24, v)) * (1. - smoothstep(.72, .86, across));
           vec3 base = uAccent * (1.25 - .25 * uWalk);
@@ -95,21 +103,29 @@ export class NavRouteVisual {
           gl_FragColor = vec4(col, 1.);
         }`,
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+      toneMapped: false,
     });
     const rimMat = new THREE.ShaderMaterial({
       uniforms: u, vertexShader: VERT,
       fragmentShader: /* glsl */`
         uniform float uTraveled; varying vec2 vUv;
+        #include <common>
+        #include <logdepthbuf_pars_fragment>
         void main() {
+          #include <logdepthbuf_fragment>
           gl_FragColor = vec4(vUv.x < uTraveled ? vec3(.82) : vec3(1.05), 1.);
         }`,
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
+      toneMapped: false,
     });
     const glowMat = new THREE.ShaderMaterial({
       uniforms: u, vertexShader: VERT,
       fragmentShader: /* glsl */`
         uniform float uTime, uTraveled, uWalk; uniform vec3 uGlowColor; varying vec2 vUv;
+        #include <common>
+        #include <logdepthbuf_pars_fragment>
         void main() {
+          #include <logdepthbuf_fragment>
           float a = pow(1. - abs(vUv.y), 2.2) * (.5 - .42 * uWalk);
           a *= .8 + .2 * sin(vUv.x / 60. - uTime * 3.);
           if (vUv.x < uTraveled) a *= .15;
@@ -117,6 +133,7 @@ export class NavRouteVisual {
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      toneMapped: false,
     });
     const add = (g: THREE.BufferGeometry, m: THREE.Material, dy: number, order: number) => {
       const mesh = new THREE.Mesh(g, m);
@@ -132,9 +149,9 @@ export class NavRouteVisual {
   }
 
   private addStart(p: P2, y: number) {
-    const puck = new THREE.Mesh(new THREE.CylinderGeometry(30, 30, 3, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color('#2fbf71').multiplyScalar(1.3) }));
+    const puck = new THREE.Mesh(new THREE.CylinderGeometry(30, 30, 3, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color('#2fbf71').multiplyScalar(1.3), toneMapped: false }));
     puck.position.set(p.x, y + 1, p.y);
-    const ring = new THREE.Mesh(new THREE.CylinderGeometry(38, 38, 2, 40), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(38, 38, 2, 40), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }));
     ring.position.set(p.x, y + 0.2, p.y);
     this.group.add(ring, puck);
   }
@@ -143,21 +160,29 @@ export class NavRouteVisual {
     const g = this.beacon = new THREE.Group();
     g.position.set(p.x, y, p.y);
     const hot = new THREE.Color('#ff8a3d');
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(32, 32, 3, 48), new THREE.MeshBasicMaterial({ color: hot.clone().multiplyScalar(1.4) }));
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(32, 32, 3, 48), new THREE.MeshBasicMaterial({ color: hot.clone().multiplyScalar(1.4), toneMapped: false }));
     disc.position.y = 1;
-    const rim = new THREE.Mesh(new THREE.CylinderGeometry(40, 40, 2, 48), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(40, 40, 2, 48), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }));
     const ring = new THREE.Mesh(new THREE.RingGeometry(44, 52, 64).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({
-      color: hot.clone().multiplyScalar(2.2), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+      color: hot.clone().multiplyScalar(2.2), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }));
     ring.position.y = 2; ring.userData.pulse = true;
     const column = new THREE.Mesh(new THREE.CylinderGeometry(10, 26, 220, 32, 1, true).translate(0, 110, 0), new THREE.ShaderMaterial({
       uniforms: { uTime: this.uniforms.uTime, uColor: { value: hot.clone().multiplyScalar(1.6) } },
       vertexShader: /* glsl */`varying vec2 vUv;
-        void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
+        #include <common>
+        #include <logdepthbuf_pars_vertex>
+        void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.);
+        #include <logdepthbuf_vertex>
+        }`,
       fragmentShader: /* glsl */`uniform float uTime; uniform vec3 uColor; varying vec2 vUv;
+        #include <common>
+        #include <logdepthbuf_pars_fragment>
         void main(){
+          #include <logdepthbuf_fragment>
           float a = pow(1. - vUv.y, 1.6) * (.5 + .15 * sin(uTime * 3.));
           gl_FragColor = vec4(uColor * a, 1.); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      toneMapped: false,
     }));
     column.userData.beaconColumn = true;
     g.add(rim, disc, ring, column);
@@ -187,12 +212,12 @@ export class NavRouteVisual {
   }
 
   dispose() {
-    this.group.traverse(o => {
+    this.group.traverse((o) => {
       const m = o as THREE.Mesh;
-      m.geometry?.dispose();
-      const mat = m.material as THREE.Material | THREE.Material[] | undefined;
-      if (Array.isArray(mat)) mat.forEach(x => x.dispose()); else mat?.dispose();
+      if (m.geometry) m.geometry.dispose();
+      const mat = m.material;
+      if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+      else mat?.dispose?.();
     });
-    this.group.removeFromParent();
   }
 }

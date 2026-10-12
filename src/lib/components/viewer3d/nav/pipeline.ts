@@ -147,22 +147,18 @@ export class NavPipeline {
     scene.environment = this.envTarget.texture;
     renderer.shadowMap.enabled = quality !== 'low';
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.NeutralToneMapping; // direct path (low / Windows-safe)
-    const win = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
-    const qs = typeof window !== 'undefined' ? window.location.search : '';
-    const forcePost = new URLSearchParams(qs).get('post') === '1';
-    // Windows ANGLE: EffectComposer + FinalShader was throwing TypeError string.replace in
-    // WebGLProgram (hundreds/frame) so FP looked broken even when walk state was true.
-    // Keep shadows for high/ultra; skip post unless ?post=1.
-    if (quality === 'low' || (win && !forcePost)) {
+    renderer.toneMapping = THREE.NeutralToneMapping; // used only by the 'low' direct path
+    if (quality === 'low') {
       this.hdrMsaa = false;
-      this.setLook('overview');
       return;
     }
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-    // HalfFloat MSAA / UnrealBloom frequently paints a solid black canvas on some GPUs.
-    // Prefer LDR RTs; only ultra opts into bloom after a successful HDR probe.
+    // Windows ANGLE + HalfFloat MSAA / UnrealBloom frequently paints a solid black canvas (RTX
+    // included). Prefer LDR RTs; only ultra opts into bloom after a successful HDR probe.
+    // Do NOT skip the whole composer on Windows — the blue route ribbon is HDR and needs the
+    // FinalShader path (or toneMapped:false materials) to stay visible without bloom.
     const fmt = probeHdrMsaa(renderer);
+    const win = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
     const useHdr = !win && fmt.type === THREE.HalfFloatType;
     this.hdrMsaa = useHdr && fmt.samples > 0;
     const target = new THREE.WebGLRenderTarget(size.x, size.y, {
@@ -171,7 +167,8 @@ export class NavPipeline {
     });
     const composer = this.composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
-    // Bloom on Windows → black frames; keep for ultra on non-Windows, or ultra+?bloom=1.
+    // Bloom on Windows high → black frames; keep for ultra on non-Windows, or ultra+?bloom=1.
+    const qs = typeof window !== 'undefined' ? window.location.search : '';
     const wantBloom = quality === 'ultra' && (!win || new URLSearchParams(qs).get('bloom') === '1');
     if (wantBloom) {
       this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.55, 0.45, 1.0);
