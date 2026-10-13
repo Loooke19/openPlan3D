@@ -10,6 +10,48 @@ export const HOSPITAL_FLOOR_ID = 'hospital-floor';
 export const HOSPITAL_WALL_COLOR = '#e2e6e3';
 export const HOSPITAL_FLOOR_COLOR = '#fbfcfa';
 
+/** Nav door leaf: cool blue-grey HPL / bakelite (matte), no wood grain. */
+export const HOSPITAL_DOOR_LEAF_COLOR = '#d2d9e2';
+/** Nav door frame / jamb: light grey in the same cool family (never dept green). */
+export const HOSPITAL_DOOR_FRAME_COLOR = '#c4cad2';
+/** Leaf edge / stile (slightly darker than face). */
+export const HOSPITAL_DOOR_EDGE_COLOR = '#b0b7c0';
+
+/** Shared nav door materials — one set for all buildings (not per-door / per-dept). */
+export function createHospitalDoorLeafMaterial(
+  own?: (mat: THREE.MeshStandardMaterial) => THREE.MeshStandardMaterial,
+): THREE.MeshStandardMaterial {
+  const material = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(HOSPITAL_DOOR_LEAF_COLOR),
+    roughness: 0.82,
+    metalness: 0.02,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  return own ? own(material) : material;
+}
+
+export function createHospitalDoorEdgeMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: new THREE.Color(HOSPITAL_DOOR_EDGE_COLOR),
+    roughness: 0.88,
+    metalness: 0.02,
+  });
+}
+
+export function createHospitalDoorFrameMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: new THREE.Color(HOSPITAL_DOOR_FRAME_COLOR),
+    roughness: 0.72,
+    metalness: 0.08,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+    depthWrite: true,
+  });
+}
+
 /** World-space cm (openPlan). Matches Maker skirt ratio ≈ 7/19 of wall height. */
 const BASEBOARD_CM = 12;
 const SKIRT_CM = 120; // 1.2 m wainscot (CN outpatient practice: 木纹抗菌板 lower, 鸽白 upper)

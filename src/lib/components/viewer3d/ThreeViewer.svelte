@@ -79,16 +79,18 @@
   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
   import { NavSigns, type SignDoor } from './nav/signs';
   import { NAV_FONT, navFontLoaded, navFontReady } from '$lib/utils/navFonts';
-  import { deptCategory, deptAccent } from '$lib/utils/deptAccent';
   import { hospitalFloorY } from '$lib/utils/hospitalMaterials';
   import { centerRoute, enclosedRooms, inside as layoutInside } from './nav/layout';
   import { navDoors } from './nav/navDoors';
   import { pinText, mapLabels, nearRoute } from '$lib/utils/navCopy';
-  import { enableHospitalPbr } from '$lib/utils/hospitalMaterials';
   import { base as appBase } from '$app/paths';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
   import {
+    enableHospitalPbr,
     createHospitalSurfaceMaterial,
+    createHospitalDoorLeafMaterial,
+    createHospitalDoorEdgeMaterial,
+    createHospitalDoorFrameMaterial,
     isHospitalFloorTexture,
     isHospitalWallTexture,
   } from '$lib/utils/hospitalMaterials';
@@ -171,7 +173,6 @@
   let navPipeline: NavPipeline | null = null;
   let navDressing: NavDressing | null = null;
   let navSigns: NavSigns | null = null;
-  let navVeneer: THREE.Texture | null = null;
   let navRouteVisual: NavRouteVisual | null = null;
   let navLook: NavLook = 'overview';
   let navBackdrops: Partial<Record<NavLook, THREE.Texture>> = {};
@@ -2646,20 +2647,6 @@
   }
 
   let navDestDoorId = '';
-  /** Accent for a door frame: the named room on either side of the door (rule-based palette). */
-  function navDoorDeptColor(x: number, y: number, angle: number): string | null {
-    if (!currentFloor) return null;
-    const n = { x: -Math.sin(angle), y: Math.cos(angle) };
-    const rooms = enclosedRooms(roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2));
-    for (const k of [1, -1]) {
-      const q = { x: x + n.x * 60 * k, y: y + n.y * 60 * k };
-      const r = rooms.find(rr => layoutInside(q, rr.polygon));
-      // Lifts/stairs/toilets: neutral brushed-metal frame (accent colours are for departments).
-      if (r?.room.name && deptCategory(r.room.name) === 'circulation') return null;
-      if (r?.room.name) return deptAccent(r.room.name);
-    }
-    return null;
-  }
   /** 0..1 open amount per leaf, eased toward its target each frame. */
   function updateNavDoors(dtMs: number) {
     if (!navShell || !navDoorLeaves.length) return false;
@@ -2756,29 +2743,6 @@
     return Math.max(0.6, Math.min(base * narrow, (0.92 * fit) / Math.max(1, sx)));
   }
 
-  function navVeneerTexture() {
-    if (navVeneer) return navVeneer;
-    const c = document.createElement('canvas'); c.width = 256; c.height = 512;
-    const g = c.getContext('2d')!;
-    g.fillStyle = '#b88a5c'; g.fillRect(0, 0, 256, 512);
-    // Quarter-cut grain: long soft streaks with a few darker figure lines.
-    for (let i = 0; i < 140; i++) {
-      const x = Math.random() * 256, w = 1 + Math.random() * 3, l = 0.04 + Math.random() * 0.1;
-      g.fillStyle = Math.random() < 0.5 ? `rgba(90,55,25,${l})` : `rgba(235,200,150,${l})`;
-      g.fillRect(x, 0, w, 512);
-    }
-    for (let i = 0; i < 10; i++) {
-      g.strokeStyle = 'rgba(80,48,20,.12)'; g.lineWidth = 1.5; g.beginPath();
-      const x0 = Math.random() * 256; g.moveTo(x0, 0);
-      for (let y = 0; y <= 512; y += 32) g.lineTo(x0 + Math.sin(y / 70 + i) * 6, y);
-      g.stroke();
-    }
-    navVeneer = new THREE.CanvasTexture(c);
-    navVeneer.colorSpace = THREE.SRGBColorSpace;
-    navVeneer.anisotropy = 4;
-    return navVeneer;
-  }
-
   function addNavDoorLeaf(doorId: string, hinge: Point, width: number, height: number, angle: number, hingeSide: number, face: number, wallThickness: number) {
     const pivot = new THREE.Group();
     // Park the slab just outside the swing-side wall face so thickness faces
@@ -2802,11 +2766,9 @@
     const panelWidth = Math.max(2, width - edgeClear * 2);
     const panelGeo = new THREE.BoxGeometry(panelWidth, height - 4, panelDepth);
     panelGeo.translate(edgeClear + panelWidth / 2, 0, 0);
-    // Wood-veneer leaf with a brushed-steel kick plate and a lever handle on both faces.
-    const veneer = navVeneerTexture();
-    const leafMat = new THREE.MeshStandardMaterial({ map: veneer, color: 0xffffff, roughness: 0.48,
-      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    const edgeMat = new THREE.MeshStandardMaterial({ color: 0x8f6a45, roughness: 0.6 });
+    // Hospital HPL leaf (cool blue-grey, matte) — no wood grain; global mats for all buildings.
+    const leafMat = createHospitalDoorLeafMaterial();
+    const edgeMat = createHospitalDoorEdgeMaterial();
     const panel = new THREE.Mesh(panelGeo, [edgeMat, edgeMat, edgeMat, edgeMat, leafMat, leafMat]);
     panel.position.y = height / 2 - 2;
     // Shadows on thin door edges read as fine vertical stripes in first-person.
@@ -3088,22 +3050,18 @@
 
       const fromDoorAt = !!(sourceDoor as { fromDoorAt?: boolean }).fromDoorAt;
       const plainOpen = door.type === 'opening' || shaftMode === 'opening';
-      // doorAt / plain nav openings: pale jambs so the cut reads against dark wall tops
-      // (dept-grey trim blends into the wall and looks like an uncut black bar).
-      const frameMat = new THREE.MeshStandardMaterial({
-        color: navShell
-          ? (facilityKind ? 0x4a5250 : fromDoorAt || plainOpen
-            ? 0xf2eee6
-            : (navDoorDeptColor(px, py, angle) ?? 0xd2d6d3))
-          : 0x6b4423,
-        roughness: navShell ? 0.45 : 0.6,
-        metalness: navShell ? 0.15 : 0,
-        // Push frame depth bias so near-coplanar wall faces lose the fight.
-        polygonOffset: true,
-        polygonOffsetFactor: -4,
-        polygonOffsetUnits: -4,
-        depthWrite: true,
-      });
+      // Nav: one hospital-grey frame for every door (no dept green / wood). Editor keeps brown trim.
+      const frameMat = navShell
+        ? createHospitalDoorFrameMaterial()
+        : new THREE.MeshStandardMaterial({
+            color: 0x6b4423,
+            roughness: 0.6,
+            metalness: 0,
+            polygonOffset: true,
+            polygonOffsetFactor: -4,
+            polygonOffsetUnits: -4,
+            depthWrite: true,
+          });
       const doorHeight = opening.top;
       // Nav: slim 3 cm trim flush to wall thickness; editor keeps a slightly heavier frame.
       // doorAt: slightly wider pale jambs so the doorway silhouette is obvious in overview
@@ -3966,7 +3924,6 @@
       navRouteVisual?.dispose();
       navDressing?.dispose();
       navSigns?.dispose();
-      navVeneer?.dispose();
       navPipeline?.dispose();
       for (const t of Object.values(navBackdrops)) t?.dispose();
       sunLight.shadow.dispose();
