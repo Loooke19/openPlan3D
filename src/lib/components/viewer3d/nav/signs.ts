@@ -1,8 +1,8 @@
 import { NAV_FONT } from '$lib/utils/navFonts';
 /**
  * First-person wayfinding signage for the nav preview: for every door between a named room and a
- * corridor, a projecting double-sided blade sign above the door (read from down the corridor) and a
- * flat plate on the corridor wall beside it. Teal plate, white pictogram tile, large white name.
+ * corridor, one projecting double-sided blade above the door (readable looking up/down the corridor).
+ * Flat wall plates were removed — they duplicated the blade text and read as stacked signs.
  */
 import * as THREE from 'three';
 import { toiletKind } from '$lib/utils/placeSearch';
@@ -18,6 +18,45 @@ function inside(p: P, poly: P[]) {
     if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) c = !c;
   }
   return c;
+}
+
+/**
+ * Corridor-outward normal for a door into exactly one named room.
+ * Returns null when both/neither sides are named rooms (skip sign).
+ */
+export function corridorOutward(door: SignDoor, rooms: SignRoom[]): { room: SignRoom; outward: P } | null {
+  const probe = (k: number) => ({ x: door.center.x + door.normal.x * k * 70, y: door.center.y + door.normal.y * k * 70 });
+  const sideRoom = (k: number) => rooms.find((r) => inside(probe(k), r.polygon));
+  const a = sideRoom(1), b = sideRoom(-1);
+  const room = a && !b ? a : b && !a ? b : null;
+  if (!room) return null;
+  const k = room === a ? -1 : 1;
+  return { room, outward: { x: door.normal.x * k, y: door.normal.y * k } };
+}
+
+/**
+ * Right-handed basis for a projecting blade: X = into corridor, Y = up, Z = x×y (along wall).
+ * Textured ±Z faces look up/down the corridor. Z is derived from X×Y — never from wall
+ * winding — so a left-handed (n, up, along) triple cannot flatten the blade onto the wall.
+ * `along` is unused for orientation (kept for call-site compatibility / door-side offsets).
+ */
+export function bladeBasis(outward: P, _along?: P): { x: THREE.Vector3; y: THREE.Vector3; z: THREE.Vector3 } {
+  const x = new THREE.Vector3(outward.x, 0, outward.y);
+  if (x.lengthSq() < 1e-8) x.set(1, 0, 0);
+  else x.normalize();
+  const y = new THREE.Vector3(0, 1, 0);
+  const z = new THREE.Vector3().crossVectors(x, y).normalize();
+  return { x, y, z };
+}
+
+/** Keep one door per opening cluster (twin walls / stacked doors → one blade). */
+export function dedupeSignDoors(doors: SignDoor[], pad = 45): SignDoor[] {
+  const out: SignDoor[] = [];
+  for (const d of doors) {
+    if (out.some((o) => Math.hypot(o.center.x - d.center.x, o.center.y - d.center.y) <= pad)) continue;
+    out.push(d);
+  }
+  return out;
 }
 
 function drawIcon(g: CanvasRenderingContext2D, name: string, x: number, y: number, s: number) {
@@ -123,35 +162,28 @@ export class NavSigns {
       const [front, back] = textures.get(name)!;
       return [edge, edge, edge, edge, front, back];
     };
-    for (const d of doors) {
-      const probe = (k: number) => ({ x: d.center.x + d.normal.x * k * 70, y: d.center.y + d.normal.y * k * 70 });
-      const sideRoom = (k: number) => rooms.find(r => inside(probe(k), r.polygon));
-      const a = sideRoom(1), b = sideRoom(-1);
-      // Signs go on the corridor side of a door into one named room.
-      const room = a && !b ? a : b && !a ? b : null;
-      if (!room) continue;
-      const k = room === a ? -1 : 1; // corridor side
-      const n = new THREE.Vector3(d.normal.x * k, 0, d.normal.y * k);
-      const along = new THREE.Vector3(d.along.x, 0, d.along.y);
+    for (const d of dedupeSignDoors(doors)) {
+      const hit = corridorOutward(d, rooms);
+      if (!hit) continue;
+      const { room, outward } = hit;
+      const { x: n, y: up, z: faceDir } = bladeBasis(outward, d.along);
+      // Door-side offset keeps the authored wall tangent (which jamb the blade hangs on).
+      const jamb = new THREE.Vector3(d.along.x, 0, d.along.y);
+      if (jamb.lengthSq() > 1e-8) jamb.normalize();
+      else jamb.copy(faceDir);
       const base = new THREE.Vector3(d.center.x, floorY, d.center.y);
-      // Blade sign: projects from the wall above the door's edge, faces up/down the corridor.
-      const blade = new THREE.Mesh(this.box(64, 20, 2.5), faceMats(room.displayName || room.name));
-      blade.position.copy(base).addScaledVector(along, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 38);
-      // Low enough to stay in frame from eye height a few metres back, still above the door head.
+      const label = room.displayName || room.name;
+      // Blade: projects into the corridor; ±Z faces read when looking along the hall.
+      const blade = new THREE.Mesh(this.box(64, 20, 2.5), faceMats(label));
+      blade.position.copy(base).addScaledVector(jamb, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 38);
       blade.position.y = floorY + Math.max(d.height + 10, 218);
-      blade.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(n, new THREE.Vector3(0, 1, 0), along));
+      blade.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(n, up, faceDir));
+      blade.userData.navSign = { kind: 'blade', name: label };
       const arm = new THREE.Mesh(this.box(42, 2, 2), bracketMat);
-      arm.position.copy(base).addScaledVector(along, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 20);
+      arm.position.copy(base).addScaledVector(jamb, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 20);
       arm.position.y = blade.position.y + 11;
       arm.quaternion.copy(blade.quaternion);
-      // Flat plate on the wall next to the door, at eye height.
-      // Eye-height plate, large enough to read from the corridor centreline (~80 × 25 cm).
-      const plate = new THREE.Mesh(this.box(80, 25, 1.6), faceMats(room.displayName || room.name));
-      plate.position.copy(base).addScaledVector(along, -(d.width / 2 + 52)).addScaledVector(n, d.wallThickness / 2 + 1.2);
-      plate.position.y = floorY + 160;
-      const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), n);
-      plate.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(side, new THREE.Vector3(0, 1, 0), n));
-      for (const m of [blade, arm, plate]) { m.userData.navDressing = true; this.group.add(m); }
+      for (const m of [blade, arm]) { m.userData.navDressing = true; this.group.add(m); }
     }
     this.hangLinks(links, floorY, faceMats, bracketMat);
   }

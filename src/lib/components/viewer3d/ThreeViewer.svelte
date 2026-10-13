@@ -824,6 +824,28 @@
         angle: l.angle,
       }));
     }
+    if (what === 'navSigns') {
+      const blades: { name: string; x: number; y: number; z: number; extX: number; extZ: number }[] = [];
+      let plates = 0;
+      navSigns?.group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const s = m.userData?.navSign as { kind?: string; name?: string } | undefined;
+        if (s?.kind === 'plate') plates += 1;
+        if (s?.kind !== 'blade') return;
+        // Local +X of the blade should extend into the corridor (world XZ).
+        const axis = new THREE.Vector3(1, 0, 0).applyQuaternion(m.quaternion);
+        blades.push({
+          name: s.name || '',
+          x: +m.position.x.toFixed(1),
+          y: +m.position.y.toFixed(1),
+          z: +m.position.z.toFixed(1),
+          extX: +axis.x.toFixed(3),
+          extZ: +axis.z.toFixed(3),
+        });
+      });
+      return { visible: !!navSigns?.group.visible, bladeCount: blades.length, plateCount: plates, blades };
+    }
     if (what === 'doorAtCut') {
       const floor = currentFloor;
       if (!floor) return { err: 'no-floor' };
