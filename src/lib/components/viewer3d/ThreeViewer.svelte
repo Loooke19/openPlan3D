@@ -3078,13 +3078,13 @@
       });
       const doorHeight = opening.top;
       // Nav: slim 3 cm trim flush to wall thickness; editor keeps a slightly heavier frame.
-      // doorAt: slightly wider pale jambs so the doorway silhouette is obvious in overview.
+      // doorAt: slightly wider pale jambs so the doorway silhouette is obvious in overview
+      // (still ≤ opening; frame depth stays wall-flush — fit check fails proud/inset >1 cm).
       const jamb = navShell ? (fromDoorAt ? 6 : DOOR_JAMB_CM) : 5;
       // ≤1 cm inset kills coplanar z-fight with wall end-caps without a visible gap.
       const jambClear = navShell ? DOOR_JAMB_CLEAR_CM : 1;
       // Frame depth = wall thickness (centered on wall). polygonOffset (above) stops z-fight.
-      // doorAt: deepen slightly past wall so the cut rim catches light from top-down.
-      const frameDepth = wt + (navShell ? DOOR_FRAME_DEPTH_EXTRA_CM : 0) + (navShell && fromDoorAt ? 4 : 0);
+      const frameDepth = wt + (navShell ? DOOR_FRAME_DEPTH_EXTRA_CM : 0);
 
       // Side jambs. Header bar is skipped for nav plain/doorAt openings — a lintel across the
       // gap reads as a continuous black wall in the top-down overview (Luke through-wall repro).
