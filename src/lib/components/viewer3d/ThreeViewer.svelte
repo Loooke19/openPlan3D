@@ -2825,16 +2825,9 @@
     // Include room.doorAt jambs so nav paths through authored doors aren't hidden behind solid walls.
     const floorDoors = navDoors(floor);
 
-    // Nav: hospital PBR (CC0 1K detail under static/nav-textures) so plain walls read as plaster,
-    // not flat Lambert grey. Editor keeps untextured defaults.
-    const defaultInteriorMat = navShell
-      ? createHospitalSurfaceMaterial('wall', '#f1eee7', (m) => {
-          m.polygonOffset = true; m.polygonOffsetFactor = 1; m.polygonOffsetUnits = 1; return m;
-        })
-      : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-    const defaultExteriorMat = navShell
-      ? createHospitalSurfaceMaterial('wall', '#e8e4dc')
-      : new THREE.MeshStandardMaterial({ color: 0xd4cfc9, roughness: 0.85 });
+    // Wall fill colours / wall-top trim: Luke owns — do not retint defaults here.
+    const defaultInteriorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    const defaultExteriorMat = new THREE.MeshStandardMaterial({ color: 0xd4cfc9, roughness: 0.85 });
     const baseboardMat = new THREE.MeshStandardMaterial({ color: 0xe8e0d4, roughness: 0.7 });
 
     for (const wall of floor.walls) {
