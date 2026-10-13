@@ -28,8 +28,27 @@
     DOOR_JAMB_CLEAR_CM,
     DOOR_JAMB_CM,
     DOOR_LEAF_EDGE_CLEAR_CM,
+    LEGACY_NAV_FIT,
   } from '$lib/utils/doorWallFit';
   import { addWallJointCaps } from '$lib/utils/wallJoints';
+  /** Shot-only: `?fitLegacy=1` restores pre-flush jamb/frame/joints for before/after pairs. */
+  function navFitParams() {
+    const legacy =
+      typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('fitLegacy') === '1';
+    if (!legacy) {
+      return {
+        jambClear: DOOR_JAMB_CLEAR_CM,
+        frameDepthExtra: DOOR_FRAME_DEPTH_EXTRA_CM,
+        jointSealed: true,
+      };
+    }
+    return {
+      jambClear: LEGACY_NAV_FIT.jambClear,
+      frameDepthExtra: LEGACY_NAV_FIT.frameDepthExtra,
+      jointSealed: false,
+    };
+  }
   import { doorVerticalFacilityKind, navSuppressDoorLeaf } from '$lib/utils/verticalFacility';
   import { assembleFloorStack } from '$lib/utils/floorStack';
   import {
@@ -3037,7 +3056,8 @@
     }
 
     // Seal L / coincident-endpoint T joints (same grouping as 2D drawWallJoints).
-    addWallJointCaps(floor, wallGroup, defaultExteriorMat);
+    const fit = navFitParams();
+    if (fit.jointSealed) addWallJointCaps(floor, wallGroup, defaultExteriorMat);
 
     // Doors (doors[] + room.doorAt)
     for (const sourceDoor of floorDoors) {
@@ -3082,9 +3102,9 @@
       // (still ≤ opening; frame depth stays wall-flush — fit check fails proud/inset >1 cm).
       const jamb = navShell ? (fromDoorAt ? 6 : DOOR_JAMB_CM) : 5;
       // ≤1 cm inset kills coplanar z-fight with wall end-caps without a visible gap.
-      const jambClear = navShell ? DOOR_JAMB_CLEAR_CM : 1;
+      const jambClear = navShell ? fit.jambClear : 1;
       // Frame depth = wall thickness (centered on wall). polygonOffset (above) stops z-fight.
-      const frameDepth = wt + (navShell ? DOOR_FRAME_DEPTH_EXTRA_CM : 0);
+      const frameDepth = wt + (navShell ? fit.frameDepthExtra : 0);
 
       // Side jambs. Header bar is skipped for nav plain/doorAt openings — a lintel across the
       // gap reads as a continuous black wall in the top-down overview (Luke through-wall repro).
