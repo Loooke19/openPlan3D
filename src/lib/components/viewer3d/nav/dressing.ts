@@ -282,9 +282,10 @@ export function applyNavLightRig(rig: LightRig, look: NavLook, bounds: THREE.Box
   cam.updateProjectionMatrix();
   sun.shadow.mapSize.set(quality === 'ultra' ? 4096 : 2048, quality === 'ultra' ? 4096 : 2048);
   sun.shadow.map?.dispose(); (sun.shadow as any).map = null;
-  sun.shadow.radius = 4;
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 2;
+  // Soft PCF: larger radius reads as soft contact shade without a second area light.
+  sun.shadow.radius = quality === 'ultra' ? 6 : 5;
+  sun.shadow.bias = -0.00035;
+  sun.shadow.normalBias = 1.5;
   if (!sun.target.parent && sun.parent) sun.parent.add(sun.target);
 }
 

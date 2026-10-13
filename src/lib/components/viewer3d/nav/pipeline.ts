@@ -1,15 +1,16 @@
 /**
  * Navigation preview render pipeline (nav shell only; the editor keeps its own renderer path).
  *
- * high  = HDR render (MSAA) → half-res selective bloom → one final pass (Khronos Neutral tone map,
- *         sRGB, 32³ LUT grade, vignette).
+ * high  = HDR render (MSAA) → light SSAO (non-Windows) → half-res selective bloom → final
+ *         (Khronos Neutral + sRGB + 32³ LUT / Windows no-LUT grade + vignette).
  * ultra = high + SMAA + 2048 shadows + pixel ratio up to 2.
  * low   = direct render with Neutral tone mapping (no post, no shadows).
  * Choose with `?quality=ultra|high|low` or localStorage `nav-render-quality`.
  *
  * Windows ANGLE: HalfFloat+MSAA and/or sampler3D LUT FinalShader can black the canvas. Default
- * Windows stack = UnsignedByte RT, samples=0, UnrealBloom, Final without 3D LUT (neutral+sRGB+vignette)
- * so coffee HDR route + bloom glow stays lit. Override with ?postProbe=… for isolation.
+ * Windows stack = HF samples=0, UnrealBloom, Final without 3D LUT (neutral+sRGB+shader grade+vignette);
+ * skip SSAO (use a touch more vignette) so coffee HDR route + bloom glow stays lit.
+ * Override with ?postProbe=… for isolation.
  */
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -17,6 +18,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 export type NavQuality = 'ultra' | 'high' | 'low';
@@ -121,17 +123,22 @@ const FinalShaderLut = {
     }`,
 };
 
-/** Windows-safe Final: same Neutral + sRGB + vignette, no sampler3D (ANGLE often blacks with 3D LUT). */
+/** Windows-safe Final: Neutral + sRGB + vignette + look grade (no sampler3D — ANGLE blacks with 3D LUT). */
 const FinalShaderNoLut = {
   name: 'NavFinalNoLut',
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
     exposure: { value: 1 },
     vignette: { value: 0.18 },
+    lift: { value: new THREE.Vector3(...GRADES.overview.lift) },
+    gain: { value: new THREE.Vector3(...GRADES.overview.gain) },
+    contrast: { value: GRADES.overview.contrast },
+    saturation: { value: GRADES.overview.saturation },
   },
   vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */`
-    uniform sampler2D tDiffuse; uniform float exposure, vignette;
+    uniform sampler2D tDiffuse; uniform float exposure, vignette, contrast, saturation;
+    uniform vec3 lift, gain;
     varying vec2 vUv;
     vec3 neutral(vec3 color) {
       const float StartCompression = 0.8 - 0.04; const float Desaturation = 0.15;
@@ -150,8 +157,11 @@ const FinalShaderNoLut = {
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
       vec3 col = toSRGB(clamp(neutral(c.rgb * exposure), 0., 1.));
-      // Mild cool lift approximating overview LUT without sampler3D.
-      col = mix(col, col * vec3(0.995, 1.0, 1.01) + vec3(0.0, 0.004, 0.012), 0.85);
+      // Match 32³ LUT grade without sampler3D (Windows path).
+      col = lift * (1. - col) + col * gain;
+      col = clamp((col - 0.5) * contrast + 0.5, 0., 1.);
+      float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      col = clamp(luma + (col - luma) * saturation, 0., 1.);
       vec2 d = (vUv - .5) * vec2(1.15, 1.);
       col *= 1. - vignette * smoothstep(.35, .95, length(d));
       gl_FragColor = vec4(col, 1.);
@@ -186,9 +196,12 @@ export class NavPipeline {
   readonly postMode: string;
   private composer: EffectComposer | null = null;
   private bloom: UnrealBloomPass | null = null;
+  private ssao: SSAOPass | null = null;
   private smaa: SMAAPass | null = null;
   private final: ShaderPass | null = null;
   private useLut = false;
+  /** Windows skips SSAO; bump vignette slightly so contact shade still reads. */
+  private vignetteBoost = 0;
   private luts: Record<NavLook, THREE.Data3DTexture>;
   private envTarget: THREE.WebGLRenderTarget | null = null;
   private interactive = false;
@@ -267,6 +280,25 @@ export class NavPipeline {
     const composer = this.composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
 
+    // Light SSAO on non-Windows only — ANGLE + depth AO often blacks the canvas.
+    // Windows keeps bloom and leans on Final vignette instead (never disable bloom for AO).
+    // quality is already high|ultra here (low returned above).
+    const wantSsao = !win;
+    if (wantSsao) {
+      try {
+        const ssao = new SSAOPass(scene, camera as THREE.Camera, size.x, size.y, 16);
+        ssao.kernelRadius = 8;
+        ssao.minDistance = 0.002;
+        ssao.maxDistance = 0.08;
+        ssao.output = SSAOPass.OUTPUT.Default;
+        composer.addPass(ssao);
+        this.ssao = ssao;
+      } catch {
+        this.ssao = null;
+      }
+    }
+    this.vignetteBoost = win && !this.ssao ? 0.06 : 0;
+
     if (wantBloom) {
       // Slightly lower threshold so LDR-clamped route HDR still blooms on UnsignedByte RTs.
       // strength, radius, threshold — match coffee tip c072758 (0.55, 0.45, 1.0)
@@ -292,6 +324,7 @@ export class NavPipeline {
     this.postMode = [
       wantHdr ? 'hf' : 'ub',
       `s${samples}`,
+      this.ssao ? 'ssao' : 'nossao',
       wantBloom ? 'bloom' : 'nobloom',
       wantFinal,
       win ? 'win' : 'nowin',
@@ -307,6 +340,8 @@ export class NavPipeline {
         wantHdr,
         wantBloom,
         wantFinal,
+        ssao: !!this.ssao,
+        vignetteBoost: this.vignetteBoost,
         samples,
         hdrProbe: { type: fmt.type === THREE.HalfFloatType ? 'HalfFloat' : 'UnsignedByte', samples: fmt.samples },
       };
@@ -316,6 +351,8 @@ export class NavPipeline {
   setInteractive(on: boolean) {
     if (this.interactive === on) return;
     this.interactive = on;
+    // Drag: drop SSAO/SMAA cost; keep bloom off only while interacting (coffee behaviour).
+    if (this.ssao) this.ssao.enabled = !on;
     if (this.bloom) this.bloom.enabled = !on;
     if (this.smaa) this.smaa.enabled = !on;
   }
@@ -327,14 +364,23 @@ export class NavPipeline {
         this.final.uniforms.lut.value = this.luts[look];
       }
       if (this.final.uniforms.vignette) {
-        this.final.uniforms.vignette.value = look === 'walk' ? 0.32 : 0.14;
+        const base = look === 'walk' ? 0.32 : 0.14;
+        this.final.uniforms.vignette.value = base + this.vignetteBoost;
       }
+      // Windows no-LUT: push the same Grade as the 3D LUT path.
+      const g = GRADES[look];
+      if (this.final.uniforms.lift) this.final.uniforms.lift.value.set(...g.lift);
+      if (this.final.uniforms.gain) this.final.uniforms.gain.value.set(...g.gain);
+      if (this.final.uniforms.contrast) this.final.uniforms.contrast.value = g.contrast;
+      if (this.final.uniforms.saturation) this.final.uniforms.saturation.value = g.saturation;
     }
     if (this.bloom) {
-      this.bloom.strength = look === 'walk' ? 0.3 : 0.6;
-      this.bloom.radius = look === 'walk' ? 0.55 : 0.4;
+      // Keep overview bloom strong so the blue route HDR still glows on LDR Windows RTs.
+      this.bloom.strength = look === 'walk' ? 0.35 : 0.65;
+      this.bloom.radius = look === 'walk' ? 0.55 : 0.45;
+      this.bloom.threshold = look === 'walk' ? 0.95 : 0.85;
     }
-    this.scene.environmentIntensity = look === 'walk' ? 0.22 : 0.3;
+    this.scene.environmentIntensity = look === 'walk' ? 0.24 : 0.34;
   }
 
   setExposure(value: number) { this.exposure = value; this.renderer.toneMappingExposure = value; }
@@ -343,7 +389,9 @@ export class NavPipeline {
     if (!this.composer) return;
     this.composer.setPixelRatio(this.renderer.getPixelRatio());
     this.composer.setSize(w, h);
-    this.bloom?.setSize(Math.ceil((w * this.renderer.getPixelRatio()) / 2), Math.ceil((h * this.renderer.getPixelRatio()) / 2));
+    const pr = this.renderer.getPixelRatio();
+    this.ssao?.setSize(Math.ceil(w * pr), Math.ceil(h * pr));
+    this.bloom?.setSize(Math.ceil((w * pr) / 2), Math.ceil((h * pr) / 2));
   }
 
   render(delta = 1 / 60) {
@@ -355,9 +403,32 @@ export class NavPipeline {
     try {
       this.composer.render(delta);
     } catch (err) {
+      // If SSAO/composer blows up (common on some ANGLE builds), drop AO only first —
+      // keep bloom+final when possible; last resort falls back to direct Neutral.
+      if (this.ssao) {
+        this.ssao.enabled = false;
+        this.ssao = null;
+        this.vignetteBoost = 0.08;
+        this.setLook(this.look);
+        try {
+          this.composer.render(delta);
+          if (typeof window !== 'undefined') {
+            (window as unknown as { __postProbeResult?: unknown }).__postProbeResult = {
+              mode: `${this.postMode}_ssao_fallback`,
+              renderError: String(err),
+              ssao: false,
+              vignetteBoost: this.vignetteBoost,
+            };
+          }
+          return;
+        } catch {
+          /* fall through to direct */
+        }
+      }
       this.composer = null;
       this.final = null;
       this.bloom = null;
+      this.ssao = null;
       this.smaa = null;
       this.renderer.toneMapping = THREE.NeutralToneMapping;
       this.renderer.toneMappingExposure = this.exposure;
@@ -375,6 +446,7 @@ export class NavPipeline {
 
   dispose() {
     this.composer?.dispose();
+    this.ssao?.dispose();
     this.envTarget?.dispose();
     this.luts.overview.dispose(); this.luts.walk.dispose();
     if (this.scene.environment === this.envTarget?.texture) this.scene.environment = null;
