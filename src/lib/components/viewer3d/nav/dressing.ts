@@ -1,9 +1,10 @@
 /**
  * Scene dressing for the nav preview, built from whatever the shared floor builder produced:
  * capped wall tops (architectural-model read), a baked floor AO mask from the wall footprints,
- * first-person ceiling light panels with soft light pools, and the per-view light rig.
+ * first-person emissive ceiling panels, and the per-view light rig.
  */
 import * as THREE from 'three';
+import { NAV_WALL_PAINT, createHospitalSurfaceMaterial } from '$lib/utils/hospitalMaterials';
 import { lightSpots, corridorLightSpots, enclosedRooms } from './layout';
 import type { NavLook } from './pipeline';
 
@@ -86,7 +87,7 @@ export class NavDressing {
    * face (+x, -x, +y, -y, +z, -z); the +y slot is the top, so swap only that slot.
    */
   private buildCaps(walls: THREE.Mesh[]) {
-    const cap = this.track(new THREE.MeshStandardMaterial({ color: '#34403c', roughness: 0.8 }));
+    const cap = this.track(createHospitalSurfaceMaterial('wall', NAV_WALL_PAINT));
     for (const w of walls) {
       if (w.geometry.type !== 'BoxGeometry') continue;
       const mats = Array.isArray(w.material) ? w.material.slice() : [0, 1, 2, 3, 4, 5].map(() => w.material as THREE.Material);
@@ -119,7 +120,7 @@ export class NavDressing {
     const g = this.track(new THREE.BufferGeometry());
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.computeVertexNormals();
-    const m = this.track(new THREE.MeshStandardMaterial({ color: '#34403c', roughness: 0.8, side: THREE.DoubleSide }));
+    const m = this.track(createHospitalSurfaceMaterial('wall', NAV_WALL_PAINT));
     const mesh = new THREE.Mesh(g, m);
     mesh.userData.navDressing = true;
     mesh.userData.navCutCap = true;
@@ -163,6 +164,8 @@ export class NavDressing {
     o.globalAlpha = 0.55; o.filter = `blur(${Math.max(2, 22 * sx)}px)`; o.drawImage(mask, 0, 0);
     o.globalCompositeOperation = 'multiply';
     o.globalAlpha = 0.5; o.filter = `blur(${Math.max(4, 70 * sx)}px)`; o.drawImage(mask, 0, 0);
+    // tight contact shadow along wall bases (~25 cm), clearly readable but soft
+    o.globalAlpha = 0.45; o.filter = `blur(${Math.max(1.5, 9 * sx)}px)`; o.drawImage(mask, 0, 0);
     o.restore();
     const tex = this.track(new THREE.CanvasTexture(out));
     tex.colorSpace = THREE.NoColorSpace;
@@ -181,7 +184,9 @@ export class NavDressing {
 
   private buildCeilings(ceilings: { polygon: { x: number; y: number }[]; height: number }[], floorY: number) {
     if (!ceilings.length) return;
-    const mat = this.track(new THREE.MeshStandardMaterial({ color: '#b9bcb6', roughness: 0.95, side: THREE.DoubleSide }));
+    const mat = this.track(createHospitalSurfaceMaterial('wall', NAV_WALL_PAINT));
+    mat.roughness = 0.95;
+    mat.metalness = 0;
     for (const c of ceilings) {
       const shape = new THREE.Shape(c.polygon.map(p => new THREE.Vector2(p.x, -p.y)));
       const geo = this.track(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2));
@@ -192,7 +197,7 @@ export class NavDressing {
     }
   }
 
-  /** First person: emissive panels on a grid inside every ceiling, each with a soft pool below. */
+  /** First person: emissive panels on a grid inside every ceiling. */
   private buildCeilingLights(opts: DressingOptions) {
     // Panels follow the room/corridor layout (centred row on corridors, grid in halls), not the
     // building bounding box, so they sit on the corridor's centreline.
@@ -200,34 +205,17 @@ export class NavDressing {
     const real = enclosedRooms(opts.rooms);
     const spots = [...lightSpots(real), ...corridorLightSpots(real, opts.walls ?? [])].map(sp => ({ ...sp, h }));
     if (!spots.length) return;
-    const panelMat = this.track(new THREE.MeshBasicMaterial({ color: new THREE.Color('#fff4e2').multiplyScalar(1.5) }));
+    const panelMat = this.track(new THREE.MeshBasicMaterial({ color: new THREE.Color('#f5f7fa').multiplyScalar(1.5) }));
     const panels = new THREE.InstancedMesh(box, panelMat, spots.length);
     const frameMat = this.track(new THREE.MeshStandardMaterial({ color: '#9aa09c', roughness: 0.5, metalness: 0.3 }));
     const frames = new THREE.InstancedMesh(box, frameMat, spots.length);
-    const m = new THREE.Matrix4(), dummy = new THREE.Object3D();
+    const dummy = new THREE.Object3D();
     spots.forEach((s, i) => {
       dummy.position.set(s.x, opts.floorY + s.h - 4, s.z);
       dummy.scale.set(s.long ? 120 : 30, 1.5, s.long ? 30 : 120); dummy.updateMatrix(); panels.setMatrixAt(i, dummy.matrix);
       dummy.position.y = opts.floorY + s.h - 3; dummy.scale.set(s.long ? 128 : 38, 1.2, s.long ? 38 : 128); dummy.updateMatrix(); frames.setMatrixAt(i, dummy.matrix);
     });
-    void m;
-    // Light pools: additive radial gradient on the floor below each panel.
-    const c = document.createElement('canvas'); c.width = c.height = 128;
-    const g = c.getContext('2d')!;
-    const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-    grad.addColorStop(0, 'rgba(255,240,215,1)'); grad.addColorStop(0.45, 'rgba(255,236,205,.45)'); grad.addColorStop(1, 'rgba(255,230,200,0)');
-    g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
-    const poolTex = this.track(new THREE.CanvasTexture(c));
-    const poolMat = this.track(new THREE.MeshBasicMaterial({ map: poolTex, color: new THREE.Color(0.2, 0.18, 0.15), transparent: true, depthWrite: false,
-      blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-    const poolGeo = this.track(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
-    const pools = new THREE.InstancedMesh(poolGeo, poolMat, spots.length);
-    spots.forEach((s, i) => {
-      dummy.position.set(s.x, opts.floorY + 3.8, s.z);
-      dummy.scale.set(s.long ? 330 : 240, 1, s.long ? 240 : 330); dummy.updateMatrix(); pools.setMatrixAt(i, dummy.matrix);
-    });
-    pools.renderOrder = 2;
-    for (const o of [panels, frames, pools]) { o.userData.navDressing = true; o.frustumCulled = false; this.walkOnly.add(o); }
+    for (const o of [panels, frames]) { o.userData.navDressing = true; o.frustumCulled = false; this.walkOnly.add(o); }
   }
 
   setLook(look: NavLook) {
@@ -270,9 +258,10 @@ export function applyNavLightRig(rig: LightRig, look: NavLook, bounds: THREE.Box
     rim.intensity = 0.0;
   } else {
     ambient.intensity = 0.04;
-    hemi.color.set('#f1ece2'); hemi.groundColor.set('#8c8a84'); hemi.intensity = 0.36;
+    // neutral / slightly cool white (~5300 K look), no warm cast
+    hemi.color.set('#f3f5f8'); hemi.groundColor.set('#8a8c8e'); hemi.intensity = 0.42;
     sun.intensity = 0.0;
-    fill.color.set('#f3e7d6'); fill.intensity = 0.1;
+    fill.color.set('#eef2f7'); fill.intensity = 0.12;
     rim.intensity = 0.0;
   }
   sun.castShadow = quality !== 'low' && look === 'overview';

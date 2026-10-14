@@ -154,6 +154,7 @@ export const zh = {
   "library.untitled": "未命名项目",
   "library.actions": "{name} 的项目操作",
   "library.open": "打开",
+  "library.edit": "编辑项目",
   "library.rename": "重命名",
   "library.duplicate": "复制",
   "library.delete": "删除",

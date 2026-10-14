@@ -9,20 +9,23 @@ export function projectLibraryUrl(): string {
   return root ? `${root}/` : '/';
 }
 
-/**
- * Resolve a back-to-library href from nav query params.
- * Accepts `libraryUrl`, or a same-origin `filesUrl` that is not API `/files`.
- * Anything else (including `http://127.0.0.1:888x/files`) falls back to this app's `/`.
- */
+/** Resolve a project's own library before considering a generic return URL. */
 export function resolveProjectLibraryUrl(search: URLSearchParams, appOrigin: string): string {
+  const projectUrl = search.get('projectUrl');
+  const source = projectUrl || search.get('apiOrigin');
+  if (source) {
+    try {
+      const url = new URL(source, appOrigin);
+      const id = search.get('id') || (projectUrl && url.pathname.match(/\/api\/projects\/([^/]+)\.json$/)?.[1]);
+      return projectHomeUrl(id, url.origin);
+    } catch {
+      /* use the supplied return URL */
+    }
+  }
   const library = search.get('libraryUrl');
   if (library) {
     try {
-      const url = new URL(library, appOrigin);
-      if (url.origin === appOrigin || url.pathname === '/' || url.pathname.endsWith('/')) {
-        return url.href;
-      }
-      return url.href;
+      return new URL(library, appOrigin).href;
     } catch {
       /* fall through */
     }

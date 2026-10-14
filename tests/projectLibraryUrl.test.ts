@@ -20,11 +20,17 @@ describe('projectLibraryUrl', () => {
     expect(projectHomeUrl('abc', null)).toBe('/');
   });
 
-  it('honors an explicit libraryUrl', () => {
+  it('uses the imported project source even when an old libraryUrl points to the local library', () => {
     const params = new URLSearchParams({
       libraryUrl: 'http://127.0.0.1:5175/',
-      filesUrl: 'http://127.0.0.1:8884/files',
+      filesUrl: 'http://127.0.0.1:5175/',
+      projectUrl: 'http://127.0.0.1:8884/api/projects/abc.json',
     });
-    expect(resolveProjectLibraryUrl(params, 'http://127.0.0.1:5175')).toBe('http://127.0.0.1:5175/');
+    expect(resolveProjectLibraryUrl(params, 'http://127.0.0.1:5175')).toBe('http://127.0.0.1:8884/files#p-abc');
+  });
+
+  it('honors an explicit libraryUrl for a local project', () => {
+    const params = new URLSearchParams({ libraryUrl: 'http://127.0.0.1:5175/projects' });
+    expect(resolveProjectLibraryUrl(params, 'http://127.0.0.1:5175')).toBe('http://127.0.0.1:5175/projects');
   });
 });

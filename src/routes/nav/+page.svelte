@@ -3,7 +3,7 @@
   import { centerRoute } from '$lib/components/viewer3d/nav/layout';
   import { indexPlaces, withToiletDisplay, toiletDisplay } from '$lib/utils/placeSearch';
   import { setNavNorth } from '$lib/utils/navCopy';
-  import { onMount, untrack } from 'svelte';
+  import { onMount, untrack, tick } from 'svelte';
   import { replaceState as kitReplaceState } from '$app/navigation';
   import { page } from '$app/state';
   import { get } from 'svelte/store';
@@ -95,7 +95,7 @@
   let pendingLegAdvance = $state(false);
   let restoredViewer: any = null;
   let planCanvas: HTMLCanvasElement | undefined = $state();
-  let transferTimer: ReturnType<typeof setTimeout> | null = null;
+  let transferFaded = $state(false);
   let transferNotice = $state('');
   let arrivedText = $state('');
   function endLabel() { const e = placeByKey(endId); return e ? (displayNames.get(placeKey(e)) || e.name || '') : ''; }
@@ -163,7 +163,7 @@
     openings?: any[];
     bounds?: { minX: number; minY: number; maxX: number; maxY: number };
     empty?: boolean;
-    verticalLinks?: { name?: string; stops: { floorId: string; x: number; y: number }[] }[];
+    verticalLinks?: { name?: string; kind?: string; stops: { floorId: string; x: number; y: number }[] }[];
   };
 
   let view = $state<NavView | null>(null);
@@ -228,8 +228,11 @@
   $effect(() => {
     const links = view?.verticalLinks || [];
     if (!viewer) return;
-    const list = links.flatMap((l) => l.name ? l.stops.map((st) => ({ floorId: st.floorId, x: st.x, y: st.y, name: l.name! })) : []);
+    const list = links.flatMap((l) => l.name ? l.stops.map((st) => ({ floorId: st.floorId, x: st.x, y: st.y, name: l.name!, kind: l.kind })) : []);
     untrack(() => viewer?.setNavLinkSigns?.(list));
+    // Route end points (destinations, landings) stay clear of placed props.
+    const keep = [...allPlaces().map((p) => ({ floorId: p.floorId || view?.floorId || '', x: p.x, y: p.y })), ...list];
+    untrack(() => viewer?.setNavKitKeepout?.(keep));
   });
 
   // The 3D viewer mounts lazily; rebuild the floor stack once it exists.
@@ -255,6 +258,10 @@
     walkSeek = Math.round(ratio * 1000) / 10;
     playbackPlaying = playing;
     if (playing && ratio < 1 && arrivedText) arrivedText = '';
+    if (playing && (simulating || walking) && !pendingLegAdvance && ratio >= 0.35) {
+      const next = routeLegs[activeLegIndex + 1];
+      if (next) void warmFloor(next.floorId);
+    }
     // Last leg run out: arrive even if the viewer still reports playing (walk loop idling at the door).
     if (ratio >= 0.999 && playing && !pendingLegAdvance && !arrivedText && routeLegs.length && activeLegIndex + 1 >= routeLegs.length && (simulating || walking)) {
       arrive(walking);
@@ -272,53 +279,50 @@
       : `换到 ${floorSpoken(next?.floorName) || '下一层'}`;
     say(tip);
     transferNotice = tip;
-    if (walking && transfer?.from) {
-      // QA r7: at the transfer, look at the stair/lift itself (nearest 楼梯/电梯 place on this floor).
-      const stairs = transfer.kind === 'stairs' || /楼梯/.test(transfer.kindLabel || '');
-      let best: Place | null = null, bestD = 500;
-      for (const p of allPlaces()) {
-        if (p.floorId !== routeLegs[activeLegIndex]?.floorId || !(stairs ? /楼梯/ : /电梯/).test(p.name || '')) continue;
-        const d = Math.hypot(p.x - transfer.from.x, p.y - transfer.from.y);
-        if (d < bestD) { bestD = d; best = p; }
-      }
-      // No named stair room (e.g. P3 楼梯 A): the landing is where the route meets the shaft,
-      // so look on along the final approach direction, into the stairs.
-      const pts = routePolyline;
-      const a = pts[pts.length - 2], b = pts[pts.length - 1];
-      const fwd = a && b ? { x: b.x + (b.x - a.x) / (Math.hypot(b.x - a.x, b.y - a.y) || 1) * 150, y: b.y + (b.y - a.y) / (Math.hypot(b.x - a.x, b.y - a.y) || 1) * 150 } : null;
-      const target = best && bestD < 500 ? { x: best.x, y: best.y } : fwd;
-      // Never faceNavArrival at a transfer — that frames the final door and looks like early arrival.
-      if (target) viewer?.faceNavPoint?.(target);
-    }
     pendingLegAdvance = true;
-    // Remember first person NOW: on a stair/lift hop the viewer can drop walk mode before the
-    // timer fires (P3 出入口B→4F: it came back as free roam, never auto-walked, never arrived).
-    const fpAtTransfer = walking;
-    const isStairs = !!(transfer && (transfer.kind === 'stairs' || /楼梯/.test(transfer.kindLabel || '')));
-    // Stairs FP: continuous Y climb (no instant floor snap). Elevator keeps the short look+hop.
-    if (walking && isStairs && transfer?.from && viewer?.playStairClimb) {
-      const toPt = transfer.to || transfer.from;
-      void viewer.playStairClimb({
-        from: transfer.from,
-        to: toPt,
-        direction: transfer.direction,
-        storeys: transfer.storeys || 1,
-        speed: Number(walkSpeed) || 1,
-      }).then(() => {
-        void advanceToLeg(activeLegIndex + 1, true);
-      });
-      return;
+    void switchRouteFloor(transfer, activeLegIndex + 1, walking);
+  }
+
+  async function switchRouteFloor(transfer: RouteTransfer | undefined, index: number, firstPerson: boolean) {
+    const token = legAdvanceToken;
+    const warm = warmFloor(routeLegs[index].floorId);
+    const from = transfer?.from || routePolyline[routePolyline.length - 1];
+    const completed = await viewer.playFloorTransfer({
+      from,
+      direction: transfer?.direction,
+      stairs: transfer?.kind === 'stairs' || /楼梯/.test(transfer?.kindLabel || ''),
+      speed: Number(walkSpeed) || 1,
+    });
+    if (!completed || token !== legAdvanceToken) return;
+    transferFaded = true;
+    viewer.setNavFloorFaded(true);
+    await tick();
+    await new Promise(requestAnimationFrame);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (token !== legAdvanceToken) return;
+    await warm;
+    if (token !== legAdvanceToken) return;
+    await advanceToLeg(index, firstPerson);
+    await tick();
+    while (pendingModeAction && token === legAdvanceToken) {
+      await new Promise(requestAnimationFrame);
     }
-    if (transferTimer) clearTimeout(transferTimer);
-    transferTimer = setTimeout(() => {
-      transferTimer = null;
-      void advanceToLeg(activeLegIndex + 1, fpAtTransfer || walking);
-    }, walking ? Math.max(1500, 2500 / (Number(walkSpeed) || 1)) : Math.max(450, 1200 / (Number(walkSpeed) || 1)));
+    if (token === legAdvanceToken) {
+      viewer.renderNavFloor();
+      transferFaded = false;
+      await tick();
+      await new Promise(requestAnimationFrame);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      if (token === legAdvanceToken) viewer.setNavFloorFaded(false);
+    }
   }
 
   function handleNavWalkExit() {
-    walking = false;
-    playbackPlaying = false;
+    if (pendingLegAdvance) stopAll();
+    else {
+      walking = false;
+      playbackPlaying = false;
+    }
   }
 
   function metersLabel(cm: number) {
@@ -742,10 +746,10 @@
 
   function stopAll() {
     legAdvanceToken += 1;
-    if (transferTimer) {
-      clearTimeout(transferTimer);
-      transferTimer = null;
-    }
+    navLoadSeq += 1;
+    pendingFloorId = '';
+    transferFaded = false;
+    viewer?.setNavFloorFaded?.(false);
     pendingModeAction = null;
     pendingLegAdvance = false;
     transferNotice = '';
@@ -754,6 +758,7 @@
     playbackPlaying = false;
     walkSeek = 0;
     activeLegIndex = 0;
+    floorWarmPromises.clear();
     viewer?.pauseRouteSimulation?.();
     viewer?.stopRouteSimulation?.();
     viewer?.exitNavWalk?.();
@@ -783,6 +788,32 @@
   let navLoadSeq = 0;
   let pendingFloorId = $state('');
   const navCache = new Map<string, any>();
+  const navRequests = new Map<string, Promise<any>>();
+  const floorWarmPromises = new Map<string, Promise<unknown>>();
+
+  function requestNav(floorId: string): Promise<any> {
+    if (navCache.has(floorId)) return Promise.resolve(navCache.get(floorId));
+    const pending = navRequests.get(floorId);
+    if (pending) return pending;
+    const query = new URLSearchParams({ floor: floorId });
+    const request = fetch(`${apiOrigin}/api/projects/${projectId}/nav.json?${query}`).then(async response => {
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (data?.floorId) navCache.set(data.floorId, data);
+      return data;
+    }).finally(() => navRequests.delete(floorId));
+    navRequests.set(floorId, request);
+    return request;
+  }
+
+  function warmFloor(floorId: string) {
+    const pending = floorWarmPromises.get(floorId);
+    if (pending) return pending;
+    const warm = Promise.all([requestNav(floorId), viewer.prefetchNavFloor(floorId)])
+      .catch(() => { floorWarmPromises.delete(floorId); });
+    floorWarmPromises.set(floorId, warm);
+    return warm;
+  }
 
   async function loadNav(floorId: string, opts: { keepRoute?: boolean } = {}) {
     if (!opts.keepRoute) {
@@ -801,25 +832,20 @@
     // the first floor click look ignored (and an older response could land after a newer one).
     const seq = ++navLoadSeq;
     pendingFloorId = floorId || '';
-    let data: any = floorId ? navCache.get(floorId) : null;
-    if (!data) {
-      const query = new URLSearchParams({ floor: floorId || '' });
-      let response: Response;
+    let data: any;
+    {
       try {
-        response = await fetch(`${apiOrigin}/api/projects/${projectId}/nav.json?${query}`);
+        data = await requestNav(floorId || '');
       } catch {
         if (seq === navLoadSeq) { pendingFloorId = ''; say('服务连不上，请重试'); }
         return;
       }
       if (seq !== navLoadSeq) return;
-      if (!response.ok) {
+      if (!data) {
         pendingFloorId = '';
         say('这一层没有打开');
         return;
       }
-      data = await response.json();
-      if (seq !== navLoadSeq) return;
-      if (data?.floorId) navCache.set(data.floorId, data);
     }
     pendingFloorId = '';
     view = data;
@@ -1074,7 +1100,6 @@
         const projectHint = url.searchParams.get('id') || url.searchParams.get('projectUrl')?.match(/\/projects\/([0-9a-f]{32})/i)?.[1];
         apiOrigin = (url.searchParams.get('apiOrigin') || originOf(url.searchParams.get('projectUrl')) || projectImportOrigin(projectHint) || importOrigin()).replace(/\/$/, '');
         libraryUrl = resolveProjectLibraryUrl(url.searchParams, url.origin);
-        if (libraryUrl === '/' && apiOrigin) libraryUrl = projectHomeUrl(projectHint, apiOrigin);
         projectId = url.searchParams.get('id') || '';
         const projectUrl = url.searchParams.get('projectUrl');
         if (!projectUrl && !projectId) {
@@ -1164,6 +1189,7 @@
             <ThreeViewer bind:this={viewer} navShell={true} routePolyline={routePolyline} routeDoorIds={routeDoorIds} onRouteProgress={handleRouteProgress} onNavWalkExit={handleNavWalkExit} />
           {/if}
         </div>
+        <div class="floor-fade" class:opaque={transferFaded} aria-hidden="true"></div>
         {#if tapHint}
           <div class="tap-hint" role="status">{tapHint}</div>
         {/if}
@@ -1233,7 +1259,7 @@
           <button
             type="button"
             class="primary"
-            disabled={!routeLegs.length || busy}
+            disabled={!routeLegs.length || busy || pendingLegAdvance}
             onclick={async () => {
               if (!(await ensureRouteFloor())) return;
               mode = '3d';
@@ -1246,7 +1272,7 @@
           >模拟导航</button>
           <button
             type="button"
-            disabled={!routeLegs.length || busy}
+            disabled={!routeLegs.length || busy || pendingLegAdvance}
             onclick={async () => {
               if (!(await ensureRouteFloor())) return;
               mode = '3d';
@@ -1265,7 +1291,7 @@
               playbackPlaying = false;
               say('已暂停');
             }}
-            disabled={!playbackPlaying}
+            disabled={!playbackPlaying || pendingLegAdvance}
           >暂停</button>
           <button
             type="button"
@@ -1304,6 +1330,7 @@
               step="0.1"
               value={tripSeek}
               aria-label="进度"
+              disabled={pendingLegAdvance}
               oninput={(e) => {
                 // Seek within the current floor's stretch of the trip.
                 const { from, width } = tripSpan(activeLegIndex);
@@ -1430,6 +1457,8 @@
   }
   .mode-switch button.is-active { background: #fff; color: #111; box-shadow: 0 0 0 1px #d9d9d9; }
   .stage { flex: 1; min-height: 0; display: flex; position: relative; z-index: 2; }
+  .floor-fade { position: absolute; inset: 0; z-index: 40; background: #000; opacity: 0; pointer-events: none; transition: opacity 300ms linear; }
+  .floor-fade.opaque { opacity: 1; pointer-events: auto; }
   .canvas-wrap { flex: 1; min-width: 0; position: relative; background: #eef0f2; }
   .plan, .viewer { position: absolute; inset: 0; width: 100%; height: 100%; }
   .plan { display: block; cursor: crosshair; }

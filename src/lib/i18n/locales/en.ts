@@ -154,6 +154,7 @@ export const en = {
   "library.untitled": "Untitled Project",
   "library.actions": "Project actions for {name}",
   "library.open": "Open",
+  "library.edit": "Edit project",
   "library.rename": "Rename",
   "library.duplicate": "Duplicate",
   "library.delete": "Delete",

@@ -239,7 +239,10 @@
               <a href={`${base}/editor?id=${encodeURIComponent(project.id)}`} class="block">
                 <h3 class="font-semibold text-gray-800 text-sm truncate">{project.name || $t('library.untitled')}</h3>
               </a>
-              <p class="text-xs text-gray-400 mt-1">{formatDate(project.updatedAt, $locale)}</p>
+              <div class="flex items-center justify-between gap-2 mt-1">
+                <p class="text-xs text-gray-400">{formatDate(project.updatedAt, $locale)}</p>
+                <a href={`${base}/editor?id=${encodeURIComponent(project.id)}`} class="text-xs font-semibold text-blue-600 hover:underline">{$t('library.edit')}</a>
+              </div>
             </div>
 
             <ProjectActionsMenu name={project.name} disabled={duplicating}

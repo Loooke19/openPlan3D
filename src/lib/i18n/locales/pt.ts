@@ -154,6 +154,7 @@ export const pt = {
   "library.untitled": "Projeto sem título",
   "library.actions": "Ações do projeto {name}",
   "library.open": "Abrir",
+  "library.edit": "Editar projeto",
   "library.rename": "Renomear",
   "library.duplicate": "Duplicar",
   "library.delete": "Excluir",
