@@ -1,0 +1,42 @@
+{
+  "id": "stair-rotation-demo",
+  "name": "Stair rotation demo",
+  "floors": [
+    {
+      "id": "floor-0",
+      "name": "1F",
+      "level": 0,
+      "walls": [
+        { "id": "w1", "start": { "x": 0, "y": 0 }, "end": { "x": 2000, "y": 0 }, "thickness": 20, "height": 280 },
+        { "id": "w2", "start": { "x": 2000, "y": 0 }, "end": { "x": 2000, "y": 1200 }, "thickness": 20, "height": 280 },
+        { "id": "w3", "start": { "x": 2000, "y": 1200 }, "end": { "x": 0, "y": 1200 }, "thickness": 20, "height": 280 },
+        { "id": "w4", "start": { "x": 0, "y": 1200 }, "end": { "x": 0, "y": 0 }, "thickness": 20, "height": 280 }
+      ],
+      "doors": [],
+      "windows": [],
+      "rooms": [],
+      "furniture": [],
+      "stairs": [
+        {
+          "id": "stair-swapped",
+          "position": { "x": 1000, "y": 600 },
+          "rotation": 0,
+          "width": 320,
+          "depth": 120,
+          "riserCount": 14,
+          "direction": "up",
+          "stairType": "straight"
+        }
+      ],
+      "columns": [],
+      "guides": [],
+      "measurements": [],
+      "annotations": [],
+      "textAnnotations": [],
+      "groups": []
+    }
+  ],
+  "activeFloorId": "floor-0",
+  "createdAt": "2026-10-14T00:00:00.000Z",
+  "updatedAt": "2026-10-14T00:00:00.000Z"
+}
