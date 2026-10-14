@@ -2,6 +2,7 @@ import { get } from 'svelte/store';
 import {
   addDoor,
   addRoomFace,
+  addStair,
   addWallSpec,
   addWindow,
   beginUndoGroup,
@@ -12,11 +13,13 @@ import {
   viewMode,
   updateDoor,
   updateRoom,
+  updateStair,
   updateWall,
   updateWindow,
   upsertRoomRecord,
 } from '$lib/stores/project';
-import { autoSave } from '$lib/stores/saveStatus';
+import { autoSave, manualSave } from '$lib/stores/saveStatus';
+import { pushNow } from '$lib/services/serverSync';
 import { readProject } from '$lib/utils/projectValidation';
 import type { Door, Wall, Window } from '$lib/models/types';
 
@@ -34,6 +37,7 @@ export type EditorCommand = {
   walls?: Record<string, unknown>[];
   rooms?: Record<string, unknown>[];
   face?: Record<string, unknown>;
+  stairs?: Record<string, unknown>[];
   view?: string;
 };
 
@@ -270,6 +274,39 @@ async function captureEditorViews(view: string) {
   return images;
 }
 
+function applyUpsertStairs(stairs: Record<string, unknown>[]) {
+  const floor = requireFloor(get(currentProject)?.activeFloorId);
+  const changed: string[] = [];
+  for (const item of stairs) {
+    const id = item.id;
+    if (typeof id === 'string' && floor.stairs?.some((s) => s.id === id)) {
+      const updates: Record<string, unknown> = {};
+      if (finitePoint(item.position)) updates.position = item.position;
+      if (typeof item.rotation === 'number') updates.rotation = item.rotation;
+      if (typeof item.width === 'number') updates.width = item.width;
+      if (typeof item.depth === 'number') updates.depth = item.depth;
+      if (typeof item.riserCount === 'number') updates.riserCount = item.riserCount;
+      if (typeof item.stairType === 'string') updates.stairType = item.stairType;
+      if (typeof item.direction === 'string') updates.direction = item.direction;
+      updateStair(id, updates);
+      changed.push(id);
+      continue;
+    }
+    if (!finitePoint(item.position)) throw new Error('新建楼梯需要 position');
+    const newId = addStair({ x: item.position.x, y: item.position.y });
+    updateStair(newId, {
+      rotation: typeof item.rotation === 'number' ? item.rotation : 0,
+      width: typeof item.width === 'number' ? item.width : 100,
+      depth: typeof item.depth === 'number' ? item.depth : 300,
+      riserCount: typeof item.riserCount === 'number' ? item.riserCount : 14,
+      stairType: typeof item.stairType === 'string' ? item.stairType : 'straight',
+      direction: typeof item.direction === 'string' ? item.direction : 'up',
+    });
+    changed.push(newId);
+  }
+  return changed;
+}
+
 function applyRoom(room: Record<string, unknown>) {
   const floor = requireFloor(get(currentProject)?.activeFloorId);
   const id = room.id;
@@ -298,12 +335,20 @@ export async function applyEditorCommand(command: EditorCommand): Promise<ApplyR
       try { await autoSave(); } catch { /* 工程留在当前页 */ }
       return { ok: true, summary: { loaded: project.id, undo: 'cleared', counts: counts() }, project: plainProject() };
     }
+    if (command.op === 'save_project') {
+      if (!get(currentProject)) return fail('没有打开的工程');
+      const ok = await manualSave();
+      if (!ok) return fail('本地保存失败');
+      await pushNow(true);
+      return { ok: true, summary: { saved: true, counts: counts() }, project: plainProject() };
+    }
     requireFloor(command.floorId);
     const label = command.op === 'set_walls' ? 'MCP 修改墙'
       : command.op === 'add_walls' ? 'MCP 添加墙'
       : command.op === 'set_openings' ? 'MCP 修改门窗'
       : command.op === 'upsert_rooms' ? 'MCP 铺房间地面'
       : command.op === 'add_room_face' ? 'MCP 添加房间地面'
+      : command.op === 'upsert_stairs' ? 'MCP 添加楼梯'
       : 'MCP 修改房间';
     beginUndoGroup();
     let summary: Record<string, unknown> = { undo: 'editor', counts: counts() };
@@ -315,6 +360,7 @@ export async function applyEditorCommand(command: EditorCommand): Promise<ApplyR
       else if (command.op === 'set_room' && command.room) summary.changed = applyRoom(command.room);
       else if (command.op === 'upsert_rooms') summary.changed = applyUpsertRooms(command.rooms ?? []);
       else if (command.op === 'add_room_face' && command.face) summary.created = applyAddRoomFace(command.face);
+      else if (command.op === 'upsert_stairs') summary.changed = applyUpsertStairs(command.stairs ?? []);
       else throw new Error('未知命令');
     } finally {
       endUndoGroup(label);
