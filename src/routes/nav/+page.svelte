@@ -169,7 +169,7 @@
   let view = $state<NavView | null>(null);
   let projectId = $state('');
   let apiOrigin = $state('http://127.0.0.1:8881');
-  /** Back target: openPlan project library (`/`), never the import API `/files` page. */
+  /** Back target: default project list at `/` (same cards as import-service `/files`). */
   let libraryUrl = $state('/');
 
   const MAX_VIA = 6;

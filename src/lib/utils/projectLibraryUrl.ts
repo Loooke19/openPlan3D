@@ -1,9 +1,6 @@
 import { base } from '$app/paths';
 
-/**
- * openPlan project library (「N 个项目」/「+ 新建项目」).
- * Never the import API `/files` page — that is a different product surface.
- */
+/** App root; the live project list is the import-service `/files` page. */
 export function projectLibraryUrl(): string {
   const root = (base || '').replace(/\/$/, '');
   return root ? `${root}/` : '/';
@@ -35,7 +32,6 @@ export function resolveProjectLibraryUrl(search: URLSearchParams, appOrigin: str
     try {
       const url = new URL(files, appOrigin);
       const path = url.pathname.replace(/\/$/, '') || '/';
-      // An imported project's home is its import service's /files page (user review 10-10).
       if (path === '/files') return projectHomeUrl(search.get('id'), url.origin);
       if (url.origin === appOrigin) return url.pathname.endsWith('/') ? url.pathname : `${url.pathname}/` || projectLibraryUrl();
     } catch {
@@ -45,10 +41,7 @@ export function resolveProjectLibraryUrl(search: URLSearchParams, appOrigin: str
   return projectLibraryUrl();
 }
 
-/**
- * Where "back" goes for a project: the import service's file page that owns it (scrolled to
- * and highlighting its card via #p-<id>), else this app's library.
- */
+/** Back target: the import-service file card list (`/files#p-<id>`). */
 export function projectHomeUrl(projectId: string | null | undefined, importOrigin: string | null | undefined): string {
   if (!importOrigin) return projectLibraryUrl();
   const root = importOrigin.replace(/\/$/, '');
