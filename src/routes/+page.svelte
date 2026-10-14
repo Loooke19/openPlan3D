@@ -14,6 +14,8 @@
   import ProjectPackageDialog from '$lib/components/ProjectPackageDialog.svelte';
   import ProjectActionsMenu from '$lib/components/ProjectActionsMenu.svelte';
   import { houseTemplates } from '$lib/utils/houseTemplates';
+  import { importOrigin } from '$lib/utils/importOrigin';
+  import { filesPageUrl } from '$lib/utils/importedProjectLinks';
 
   const openingLifetime = new AbortController();
   onDestroy(() => openingLifetime.abort());
@@ -33,6 +35,7 @@
   let showTemplateModal = $state(false);
 
   let libraryError = $state<string | null>(null);
+  let importFilesHref = $state(`${base}/files`);
 
   async function withLibraryError(action: () => Promise<void>) {
     try { await action(); libraryError = null; }
@@ -61,6 +64,7 @@
   }
 
   onMount(() => {
+    importFilesHref = filesPageUrl(importOrigin());
     void withLibraryError(async () => {
       await refreshProjects();
       const seen = localStorage.getItem('hasSeenWelcome');
@@ -185,6 +189,7 @@
     <div class="mb-5 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-500">
       <p>{$t('library.local')}</p>
       <div class="flex flex-wrap gap-4">
+        <a class="font-semibold text-blue-600 underline" href={importFilesHref} data-testid="open-imported-projects">{$t('library.openImported')}</a>
         {#if !libraryError}<button class="font-semibold text-blue-600 underline" onclick={backupLibrary}>{$t('library.backup')}</button>{/if}
         <button class="font-semibold text-blue-600 underline" onclick={openRestore}>{$t('library.restore')}</button>
         <button class="font-semibold text-blue-600 underline" onclick={openPackage}>{$t('library.package')}</button>
