@@ -327,7 +327,7 @@
 </script>
 
 <div class="h-12 bg-gradient-to-r from-slate-800 to-slate-700 flex items-center px-4 gap-2 max-xl:px-2 max-xl:gap-1 shrink-0 shadow-sm">
-  <!-- Back to the default project list (/ + #p-<id>) -->
+  <!-- Back to the import-service /files card -->
   <a
     href={projectHomeUrl($currentProject?.id, projectImportOrigin($currentProject?.id))}
     class="flex items-center gap-1 text-white/70 hover:text-white text-sm transition-colors"

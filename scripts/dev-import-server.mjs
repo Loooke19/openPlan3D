@@ -73,8 +73,10 @@ function filesPage() {
   const cards = listProjects().map((project) => {
     const hrefs = cardLinks(project.id);
     return `<article class="card" id="p-${escapeHtml(project.id)}" data-project-id="${escapeHtml(project.id)}" data-project-name="${escapeHtml(project.name)}">
-  <h2>${escapeHtml(project.name)}</h2>
-  <p class="meta">${project.floorCount} 层 · ${escapeHtml(project.id)}</p>
+  <div class="info">
+    <h2>${escapeHtml(project.name)}</h2>
+    <p class="meta">${project.floorCount} 层</p>
+  </div>
   <div class="actions">
     <a class="nav" data-testid="nav-browse" href="${escapeHtml(hrefs.nav)}">导航浏览</a>
     <a class="edit" data-testid="edit-project" href="${escapeHtml(hrefs.edit)}">编辑项目</a>
@@ -86,29 +88,24 @@ function filesPage() {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>导航项目管理</title>
+  <title>文件</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 0; background: #f3f4f6; color: #111827; }
-    header { background: #1e293b; color: #fff; padding: 20px 24px; }
-    header h1 { margin: 0; font-size: 22px; }
-    header p { margin: 6px 0 0; opacity: .7; font-size: 14px; }
-    main { max-width: 960px; margin: 0 auto; padding: 24px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
-    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
-    .card:target { outline: 2px solid #2563eb; }
-    .card h2 { margin: 0; font-size: 16px; }
-    .meta { margin: 8px 0 14px; font-size: 12px; color: #6b7280; word-break: break-all; }
-    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-    a { text-decoration: none; font-size: 13px; font-weight: 600; padding: 8px 12px; border-radius: 8px; }
-    a.nav { border: 1px solid #cbd5e1; color: #334155; }
-    a.edit { background: #2563eb; color: #fff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "PingFang SC", "Noto Sans SC", system-ui, sans-serif; background: #f4f5f7; color: #1f2329; }
+    .list { max-width: 720px; margin: 0 auto; padding: 20px 16px 40px; display: flex; flex-direction: column; gap: 10px; }
+    .card { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #fff; border-radius: 10px; padding: 14px 16px; }
+    .card:target { box-shadow: 0 0 0 2px #1a7af8; }
+    .info { min-width: 0; }
+    .card h2 { margin: 0; font-size: 16px; font-weight: 600; }
+    .meta { margin: 4px 0 0; font-size: 12px; color: #8b919a; }
+    .actions { display: flex; gap: 8px; flex: none; }
+    a { text-decoration: none; font-size: 13px; font-weight: 600; padding: 7px 12px; border-radius: 8px; }
+    a.nav { background: #edf3ff; color: #1a7af8; }
+    a.edit { background: #1a7af8; color: #fff; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>导航项目管理</h1>
-    <p>导入服务项目列表 · ${store.size} 个项目</p>
-  </header>
-  <main>${cards}</main>
+  <main class="list">${cards}</main>
 </body>
 </html>`;
 }

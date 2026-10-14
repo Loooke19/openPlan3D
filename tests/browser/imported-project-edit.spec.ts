@@ -38,18 +38,14 @@ test('import-service project cards open the editor for that project.json', async
     const project = listing.projects.find((item: { id: string }) => item.id === 'qa-project-import-safety')
       || listing.projects[0];
     expect(project?.id).toBeTruthy();
-    await page.addInitScript((api) => {
-      localStorage.setItem('openplan.importOrigin', api);
-    }, origin);
-    await page.goto('/');
-    await expect(page.getByTestId('imported-project-home')).toBeVisible();
-    await expect(page.getByRole('heading', { name: '导航项目管理' })).toBeVisible();
+    await page.goto(`${origin}/files`);
+    await expect(page.locator('header, [class*="gradient"]')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: '导入' })).toHaveCount(0);
     const card = page.locator(`[data-project-id="${project.id}"]`);
     await expect(card.getByTestId('nav-browse')).toHaveText('导航浏览');
     await expect(card.getByTestId('edit-project')).toHaveText('编辑项目');
     await card.getByTestId('edit-project').click();
     await expect(page).toHaveURL(new RegExp(`/editor\\?.*id=${encodeURIComponent(project.id)}`));
-    await expect(page).toHaveURL(/apiOrigin=/);
     await expect(page.getByRole('application')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('button', { name: project.name })).toBeVisible();
   } finally {

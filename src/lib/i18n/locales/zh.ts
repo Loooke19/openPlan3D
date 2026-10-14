@@ -142,7 +142,7 @@ export const zh = {
   "library.duplicating": "正在复制项目…",
   "library.local": "项目和版本历史保存在此浏览器。",
   "library.localLibrary": "本地项目库",
-  "library.importedTitle": "导航项目管理",
+  "library.importedTitle": "文件",
   "library.importedHelp": "导入服务中的项目。每张卡片可导航浏览或进入编辑页（加载对应 project.json）。",
   "library.importedEmpty": "导入服务里还没有项目。",
   "library.openImported": "打开导入项目管理",
