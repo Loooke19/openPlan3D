@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { importOrigin } from '$lib/utils/importOrigin';
-  import { filesPageUrl } from '$lib/utils/importedProjectLinks';
+  import { projectHomeUrl } from '$lib/utils/projectLibraryUrl';
 
-  /** Default home is the import-service file cards (`/files`), not the local IndexedDB library. */
+  /** Default home is the import-service file cards, not the local IndexedDB library. */
   onMount(() => {
-    const hash = window.location.hash;
-    window.location.replace(`${filesPageUrl(importOrigin())}${hash || ''}`);
+    const hash = window.location.hash.match(/^#p-(.+)$/)?.[1];
+    window.location.replace(projectHomeUrl(hash ? decodeURIComponent(hash) : null, importOrigin()));
   });
 </script>
 
-<p data-testid="imported-project-home">正在打开文件…</p>
+<p>正在打开文件…</p>

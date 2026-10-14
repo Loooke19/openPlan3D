@@ -12,7 +12,6 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev --host 127.0.0.1 --port 5381 --strictPort",
-		"dev:import": "node scripts/dev-import-server.mjs",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
