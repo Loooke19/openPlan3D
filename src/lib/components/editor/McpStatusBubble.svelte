@@ -52,16 +52,25 @@
   function fallbackConfig() {
     const port = new URL(origin).port || '80';
     const server: Record<string, unknown> = { url: `${origin}/mcp` };
-    if (tokenRequired) server.headers = { Authorization: 'Bearer YOUR_TOKEN' };
+    if (tokenRequired) server.headers = { 'X-OpenPlan-Token': 'YOUR_TOKEN' };
     return {
       host: '127.0.0.1',
       port: Number(port),
       mcpPath: '/mcp',
       mcpUrl: `${origin}/mcp`,
-      env: { OPENPLAN_MCP_HOST: '127.0.0.1', OPENPLAN_MCP_PORT: port, OPENPLAN_MCP_TOKEN: '可选，留空则不校验' },
+      apiPort: 8882,
+      apiOrigin: 'http://127.0.0.1:8882',
+      viteDev: 'http://127.0.0.1:5173/editor',
+      env: {
+        OPENPLAN_MCP_HOST: '127.0.0.1',
+        OPENPLAN_MCP_PORT: port,
+        OPENPLAN_API_PORT: '8882',
+        OPENPLAN_MCP_TOKEN: '可选，留空则不校验',
+      },
       start: ['python3 scripts/openplan_editor_mcp.py', 'py -3 scripts/openplan_editor_mcp.py'],
       notes: [
-        '在 gifu-hospital-3d-tour 仓库里启动，进程只听 127.0.0.1。',
+        '在本仓库根目录启动：python3 scripts/openplan_editor_mcp.py（仅监听 127.0.0.1）。',
+        'Vite 开发地址默认 http://127.0.0.1:5173/editor；工程 API 默认 http://127.0.0.1:8882。',
         'Cursor 使用下面的 mcp.json。编辑器页保持打开，气泡为绿色后再改工程。',
       ],
       mcpJson: { mcpServers: { 'openplan-editor': server } },
