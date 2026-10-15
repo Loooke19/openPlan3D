@@ -15,10 +15,14 @@ import {
   updateWall,
   updateWindow,
   upsertRoomRecord,
+  removeWall,
+  removeElement,
+  removeRoomRecords,
 } from '$lib/stores/project';
+import { orphanRoomRecords, rematchRoomRecords, snapshotRoomRecords } from '$lib/utils/roomRematch';
 import { autoSave } from '$lib/stores/saveStatus';
 import { readProject } from '$lib/utils/projectValidation';
-import type { Door, Wall, Window } from '$lib/models/types';
+import type { Door, Point, Wall, Window } from '$lib/models/types';
 
 const DOOR_TYPES = new Set(['single', 'double', 'sliding', 'french', 'pocket', 'bifold', 'opening', 'garage']);
 const WINDOW_TYPES = new Set(['standard', 'fixed', 'casement', 'sliding', 'bay']);
@@ -35,6 +39,11 @@ export type EditorCommand = {
   rooms?: Record<string, unknown>[];
   face?: Record<string, unknown>;
   view?: string;
+  ids?: string[];
+  doors?: string[];
+  windows?: string[];
+  rematch?: boolean;
+  prune?: boolean;
 };
 
 export type ApplyResult = {
@@ -203,6 +212,7 @@ function applyUpsertRooms(rooms: Record<string, unknown>[]) {
       walls,
       area: typeof room.area === 'number' ? room.area : undefined,
       floorOpening: typeof room.floorOpening === 'boolean' ? room.floorOpening : undefined,
+      roomType: typeof room.roomType === 'string' ? room.roomType : undefined,
     });
     changed.push(room.id);
   }
@@ -274,12 +284,59 @@ function applyRoom(room: Record<string, unknown>) {
   const floor = requireFloor(get(currentProject)?.activeFloorId);
   const id = room.id;
   if (typeof id !== 'string' || !floor.rooms.some((item) => item.id === id)) throw new Error('房间不存在，不会新建房间');
-  const updates: { name?: string; color?: string; floorTexture?: string } = {};
+  const updates: { name?: string; color?: string; floorTexture?: string; roomType?: any } = {};
+  if (typeof room.roomType === 'string') updates.roomType = room.roomType;
   if (typeof room.name === 'string') updates.name = room.name;
   if (typeof room.color === 'string') updates.color = room.color;
   if (typeof room.floorTexture === 'string') updates.floorTexture = room.floorTexture;
   updateRoom(id, updates);
   return [id];
+}
+
+function applyDeleteWalls(ids: string[]) {
+  const floor = requireFloor(get(currentProject)?.activeFloorId);
+  const known = new Set(floor.walls.map((wall) => wall.id));
+  for (const id of ids) if (!known.has(id)) throw new Error(`墙不存在: ${id}`);
+  const openings = floor.doors.filter((d) => ids.includes(d.wallId)).length + floor.windows.filter((w) => ids.includes(w.wallId)).length;
+  for (const id of ids) removeWall(id);
+  return { deleted: ids, openingsRemoved: openings };
+}
+
+function applyDeleteOpenings(doors: string[], windows: string[]) {
+  const floor = requireFloor(get(currentProject)?.activeFloorId);
+  const doorIds = new Set(floor.doors.map((d) => d.id));
+  const windowIds = new Set(floor.windows.map((w) => w.id));
+  for (const id of doors) if (!doorIds.has(id)) throw new Error(`门不存在: ${id}`);
+  for (const id of windows) if (!windowIds.has(id)) throw new Error(`窗不存在: ${id}`);
+  for (const id of [...doors, ...windows]) removeElement(id);
+  return { deleted: [...doors, ...windows] };
+}
+
+function applyDeleteRooms(ids: string[], prune: boolean) {
+  const floor = requireFloor(get(currentProject)?.activeFloorId);
+  const known = new Set(floor.rooms.map((room) => room.id));
+  for (const id of ids) if (!known.has(id)) throw new Error(`房间记录不存在: ${id}`);
+  const drop = [...ids];
+  if (prune) for (const room of orphanRoomRecords(floor)) if (!drop.includes(room.id)) drop.push(room.id);
+  if (drop.length) removeRoomRecords(drop);
+  return { deleted: drop };
+}
+
+/** Re-attach saved room records (name, type, finish) to the faces they became after a wall edit. */
+/** Last polygon each saved record resolved to, per floor; lets rematch span several edits. */
+const lastKnownRoomPolygons = new Map<string, Map<string, Point[]>>();
+function knownPolygons(floorId: string) {
+  let map = lastKnownRoomPolygons.get(floorId);
+  if (!map) lastKnownRoomPolygons.set(floorId, (map = new Map()));
+  return map;
+}
+
+function rematchAfter(before: ReturnType<typeof snapshotRoomRecords>) {
+  const floor = requireFloor(get(currentProject)?.activeFloorId);
+  const matches = rematchRoomRecords(before, floor);
+  for (const m of matches) upsertRoomRecord({ id: m.id, walls: m.walls, area: m.area });
+  snapshotRoomRecords(requireFloor(get(currentProject)?.activeFloorId), knownPolygons(floor.id));
+  return matches.map((m) => ({ id: m.id, name: m.name, area: m.area }));
 }
 
 export async function applyEditorCommand(command: EditorCommand): Promise<ApplyResult> {
@@ -304,18 +361,27 @@ export async function applyEditorCommand(command: EditorCommand): Promise<ApplyR
       : command.op === 'set_openings' ? 'MCP 修改门窗'
       : command.op === 'upsert_rooms' ? 'MCP 铺房间地面'
       : command.op === 'add_room_face' ? 'MCP 添加房间地面'
+      : command.op === 'delete_walls' ? 'MCP 删除墙'
+      : command.op === 'delete_openings' ? 'MCP 删除门窗'
+      : command.op === 'delete_rooms' ? 'MCP 删除房间记录'
       : 'MCP 修改房间';
     beginUndoGroup();
     let summary: Record<string, unknown> = { undo: 'editor', counts: counts() };
     try {
       if (command.floorId) setActiveFloor(command.floorId);
+      const wallEdit = command.op === 'set_walls' || command.op === 'add_walls' || command.op === 'delete_walls';
+      const before = wallEdit && command.rematch !== false ? snapshotRoomRecords(requireFloor(get(currentProject)?.activeFloorId), knownPolygons(requireFloor(get(currentProject)?.activeFloorId).id)) : null;
       if (command.op === 'set_walls') summary.changed = applyWalls(command.patches ?? []);
       else if (command.op === 'add_walls') summary.created = applyAddWalls(command.walls ?? []);
+      else if (command.op === 'delete_walls') Object.assign(summary, applyDeleteWalls(command.ids ?? []));
+      else if (command.op === 'delete_openings') Object.assign(summary, applyDeleteOpenings(command.doors ?? [], command.windows ?? []));
+      else if (command.op === 'delete_rooms') Object.assign(summary, applyDeleteRooms(command.ids ?? [], command.prune === true));
       else if (command.op === 'set_openings') Object.assign(summary, applyOpenings(command.openings ?? []));
       else if (command.op === 'set_room' && command.room) summary.changed = applyRoom(command.room);
       else if (command.op === 'upsert_rooms') summary.changed = applyUpsertRooms(command.rooms ?? []);
       else if (command.op === 'add_room_face' && command.face) summary.created = applyAddRoomFace(command.face);
       else throw new Error('未知命令');
+      if (before) summary.rematched = rematchAfter(before);
     } finally {
       endUndoGroup(label);
     }
