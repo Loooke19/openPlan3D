@@ -316,10 +316,12 @@ export function upsertRoomRecord(room: {
   walls?: string[];
   area?: number;
   floorOpening?: boolean;
+  roomType?: string;
 }) {
   mutate((f) => {
     const existing = f.rooms.find((item) => item.id === room.id);
     if (existing) {
+      if (room.roomType !== undefined) existing.roomType = room.roomType as Room['roomType'];
       if (room.name !== undefined) existing.name = room.name;
       if (room.color !== undefined) existing.color = room.color;
       if (room.floorTexture !== undefined) existing.floorTexture = room.floorTexture;
@@ -335,10 +337,17 @@ export function upsertRoomRecord(room: {
       floorTexture: room.floorTexture ?? 'none',
       area: room.area ?? 0,
       color: room.color,
-      roomType: 'indoor',
+      roomType: (room.roomType ?? 'indoor') as Room['roomType'],
       ...(room.floorOpening ? { floorOpening: true } : {}),
     });
   });
+}
+
+/** Delete saved room records only (metadata); walls and openings are untouched. */
+export function removeRoomRecords(ids: string[]) {
+  const drop = new Set(ids);
+  mutate((f) => { f.rooms = f.rooms.filter((room) => !drop.has(room.id)); }, 'Deleted room records');
+  detectedRoomsStore.update((rooms) => rooms.filter((room) => !drop.has(room.id)));
 }
 
 export function addWall(start: Point, end: Point): string {
