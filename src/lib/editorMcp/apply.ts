@@ -4,6 +4,8 @@ import {
   addRoomFace,
   addWallSpec,
   addWindow,
+  addStair,
+  updateStair,
   beginUndoGroup,
   currentProject,
   endUndoGroup,
@@ -37,6 +39,7 @@ export type EditorCommand = {
   room?: Record<string, unknown>;
   walls?: Record<string, unknown>[];
   rooms?: Record<string, unknown>[];
+  stairs?: Record<string, unknown>[];
   face?: Record<string, unknown>;
   view?: string;
   ids?: string[];
@@ -322,6 +325,45 @@ function applyDeleteRooms(ids: string[], prune: boolean) {
   return { deleted: drop };
 }
 
+const STAIR_TYPES = new Set(['straight', 'l-shaped', 'u-shaped', 'spiral']);
+/** Move / resize existing stairs or create new ones (no id). Footprint is capped at 30 m². */
+function applyStairs(patches: Record<string, unknown>[]) {
+  const floor = requireFloor(get(currentProject)?.activeFloorId);
+  const known = new Set((floor.stairs ?? []).map((s) => s.id));
+  const changed: string[] = [];
+  const created: string[] = [];
+  for (const patch of patches) {
+    const num = (k: string) => (typeof patch[k] === 'number' && Number.isFinite(patch[k] as number) ? (patch[k] as number) : undefined);
+    const pos = patch.position as Point | undefined;
+    if (pos !== undefined && (typeof pos?.x !== 'number' || typeof pos?.y !== 'number')) throw new Error('楼梯 position 无效');
+    const updates: Record<string, unknown> = {};
+    if (pos) updates.position = { x: pos.x, y: pos.y };
+    for (const k of ['rotation', 'width', 'depth', 'riserCount']) if (num(k) !== undefined) updates[k] = num(k);
+    if (typeof patch.direction === 'string') updates.direction = patch.direction === 'down' ? 'down' : 'up';
+    if (typeof patch.stairType === 'string') {
+      if (!STAIR_TYPES.has(patch.stairType)) throw new Error(`楼梯类型无效: ${patch.stairType}`);
+      updates.stairType = patch.stairType;
+    }
+    const ident = typeof patch.id === 'string' && patch.id ? patch.id : '';
+    const prev = ident ? (floor.stairs ?? []).find((s) => s.id === ident) : undefined;
+    const w = (updates.width as number | undefined) ?? prev?.width ?? 100;
+    const d = (updates.depth as number | undefined) ?? prev?.depth ?? 300;
+    if (w <= 0 || d <= 0) throw new Error('楼梯尺寸必须为正');
+    if ((w * d) / 10000 > 30) throw new Error('楼梯面积超过 30㎡');
+    if (ident) {
+      if (!known.has(ident)) throw new Error(`楼梯不存在: ${ident}`);
+      updateStair(ident, updates);
+      changed.push(ident);
+    } else {
+      if (!pos) throw new Error('新楼梯需要 position');
+      const id = addStair(pos);
+      updateStair(id, updates);
+      created.push(id);
+    }
+  }
+  return { changed, created };
+}
+
 /** Re-attach saved room records (name, type, finish) to the faces they became after a wall edit. */
 /** Last polygon each saved record resolved to, per floor; lets rematch span several edits. */
 const lastKnownRoomPolygons = new Map<string, Map<string, Point[]>>();
@@ -364,6 +406,7 @@ export async function applyEditorCommand(command: EditorCommand): Promise<ApplyR
       : command.op === 'delete_walls' ? 'MCP 删除墙'
       : command.op === 'delete_openings' ? 'MCP 删除门窗'
       : command.op === 'delete_rooms' ? 'MCP 删除房间记录'
+      : command.op === 'set_stairs' ? 'MCP 修改楼梯'
       : 'MCP 修改房间';
     beginUndoGroup();
     let summary: Record<string, unknown> = { undo: 'editor', counts: counts() };
@@ -376,6 +419,7 @@ export async function applyEditorCommand(command: EditorCommand): Promise<ApplyR
       else if (command.op === 'delete_walls') Object.assign(summary, applyDeleteWalls(command.ids ?? []));
       else if (command.op === 'delete_openings') Object.assign(summary, applyDeleteOpenings(command.doors ?? [], command.windows ?? []));
       else if (command.op === 'delete_rooms') Object.assign(summary, applyDeleteRooms(command.ids ?? [], command.prune === true));
+      else if (command.op === 'set_stairs') Object.assign(summary, applyStairs(command.stairs ?? []));
       else if (command.op === 'set_openings') Object.assign(summary, applyOpenings(command.openings ?? []));
       else if (command.op === 'set_room' && command.room) summary.changed = applyRoom(command.room);
       else if (command.op === 'upsert_rooms') summary.changed = applyUpsertRooms(command.rooms ?? []);

@@ -71,10 +71,11 @@ export type RoomRematch = { id: string; name: string; walls: string[]; area: num
  * After a wall edit, saved records whose wall set no longer resolves to a face are matched to
  * the new faces by geometric overlap instead of exact wall-set identity. Each record goes to at
  * most one face and each face takes at most one record (largest overlap first), and a match
- * needs the shared area to cover at least `minRatio` of the smaller of the two polygons. Split
+ * needs the shared area to cover at least `minRatio` of the smaller of the two polygons and at
+ * least `swallowRatio` of the new face. Split
  * rooms keep their record on the larger part; the other part stays unnamed.
  */
-export function rematchRoomRecords(before: RoomSnapshot[], after: FloorRooms, minRatio = 0.5): RoomRematch[] {
+export function rematchRoomRecords(before: RoomSnapshot[], after: FloorRooms, minRatio = 0.5, swallowRatio = 0.25): RoomRematch[] {
   const savedIds = new Set((after.rooms ?? []).map(room => room.id));
   const faces = roomFaces(after);
   const matchedRecords = new Set(faces.filter(item => savedIds.has(item.room.id)).map(item => item.room.id));
@@ -86,7 +87,10 @@ export function rematchRoomRecords(before: RoomSnapshot[], after: FloorRooms, mi
     for (const face of freeFaces) {
       const overlap = overlapArea(snap.polygon, face.polygon);
       if (overlap <= 0) continue;
-      if (overlap >= minRatio * Math.min(oldArea, polygonArea(face.polygon))) pairs.push({ overlap, snap, face });
+      // The shared area must cover most of the old room, and the new face must not be mostly
+      // something else: a small room swallowed by a corridor does not hand its name to the corridor.
+      const newArea = polygonArea(face.polygon);
+      if (overlap >= minRatio * Math.min(oldArea, newArea) && overlap >= swallowRatio * newArea) pairs.push({ overlap, snap, face });
     }
   }
   pairs.sort((a, b) => b.overlap - a.overlap);

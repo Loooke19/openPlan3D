@@ -64,4 +64,15 @@ describe('room record rematch after wall edits', () => {
     expect(matches.map(m => m.id)).toEqual(['r-big']);
     expect(matches[0].walls).toContain('s2');
   });
+
+  it('does not give a small room name to a corridor that swallowed it', () => {
+    const corridor = [w('n', 0, 0, 2000, 0), w('e', 2000, 0, 2000, 600), w('s', 2000, 600, 0, 600), w('wv', 0, 600, 0, 0)];
+    const closet = [w('c1', 100, 0, 100, 150), w('c2', 100, 150, 0, 150)];
+    const floor = { walls: [...corridor, ...closet], rooms: [] as Room[] };
+    const small = roomFaces(floor).find(f => f.room.area < 3)!;
+    floor.rooms = [{ id: 'r-wc', name: '卫', walls: small.room.walls, floorTexture: 'none', area: small.room.area } as Room];
+    const before = snapshotRoomRecords(floor);
+    const after = { rooms: floor.rooms, walls: corridor };
+    expect(rematchRoomRecords(before, after)).toHaveLength(0);
+  });
 });
