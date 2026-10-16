@@ -1477,7 +1477,7 @@
       if (o.userData.navRoom) rooms.push({ polygon: o.userData.navRoom });
       if (o.userData.navCeiling) ceilings.push(o.userData.navCeiling);
     });
-    navDressing = new NavDressing(wallGroup, { look: navLook, floorY: activeFloorElevation, rooms, walls: currentFloor?.walls ?? [], ceilings });
+    navDressing = new NavDressing(wallGroup, { look: navLook, floorY: activeFloorElevation, rooms, walls: currentFloor?.walls ?? [], ceilings, shafts: navShaftFootprints(currentFloor), storey: navStoreyHeight(currentFloor) });
     scene.add(navDressing.group);
     applyNavCutMaterials();
     navSigns?.dispose();
@@ -1502,6 +1502,22 @@
     applyNavLook(navLook, true);
   }
 
+
+  /** Plan footprints (cm) of stairs/lift shafts: stair objects + rooms typed/named as stairs or lifts. */
+  function navShaftFootprints(floor?: Floor | null): { x: number; y: number }[][] {
+    if (!floor) return [];
+    const out: { x: number; y: number }[][] = [];
+    for (const st of floor.stairs ?? []) {
+      const a = ((st.rotation || 0) * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
+      const hw = st.width / 2, hd = st.depth / 2;
+      out.push([[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([u, v]) => ({ x: st.position.x + u * c - v * sn, y: st.position.y + u * sn + v * c })));
+    }
+    for (const r of roomFaces(floor)) {
+      const t = (r.room as { roomType?: string }).roomType;
+      if ((t === 'stairs' || t === 'elevator' || /楼梯|电梯|扶梯/.test(r.room.name || '')) && r.polygon.length > 2) out.push(r.polygon);
+    }
+    return out;
+  }
 
   function navTextSprite(text: string, opts: { bg?: string; fg?: string; size?: number } = {}) {
     const size = opts.size ?? 44;
@@ -1782,10 +1798,27 @@
     }
   }
 
+  /**
+   * One storey (floor-to-floor) height for a floor: elevation gap to the next floor up (or down
+   * from the one below), else 280. Stairs, the FP stair climb and the stairwell shaft all use it,
+   * so they agree with the data's floor spacing.
+   */
+  function navStoreyHeight(floor?: Floor | null): number {
+    const floors = (get(currentProject)?.floors ?? []).filter(f => typeof f.elevation === 'number');
+    if (floor && typeof floor.elevation === 'number' && floors.length > 1) {
+      const sorted = [...floors].sort((a, b) => (a.elevation ?? 0) - (b.elevation ?? 0));
+      const i = sorted.findIndex(f => f.id === floor.id);
+      const gap = i >= 0 && i + 1 < sorted.length ? (sorted[i + 1].elevation ?? 0) - (floor.elevation ?? 0)
+        : i > 0 ? (floor.elevation ?? 0) - (sorted[i - 1].elevation ?? 0) : 0;
+      if (gap >= 200 && gap <= 600) return gap;
+    }
+    return 280;
+  }
+
   function buildStairs(floor: Floor) {
     if (!floor.stairs) return;
     for (const stair of floor.stairs) {
-      const totalHeight = 260; // standard floor height
+      const totalHeight = navStoreyHeight(floor); // floor-to-floor, same as the FP climb
       const riserHeight = totalHeight / stair.riserCount;
       const mat = new THREE.MeshStandardMaterial({ color: 0xd4a574, roughness: 0.7 });
       const sideMat = new THREE.MeshStandardMaterial({ color: 0xb8956a, roughness: 0.8 });
@@ -2501,16 +2534,16 @@
     renderFrameForTest();
   }
 
-  /** Storey height used for FP stair climb (matches buildStairs totalHeight). */
-  const STAIR_STOREY_CM = 280;
-
   let stairClimbing = false;
   let stairClimbRaf = 0;
   let stairClimbSamples: number[] = [];
 
   /**
-   * First-person continuous stair climb between floors. Keeps walk mode; Y is monotonic
-   * (no floor-hop snap). Path: run → landing turn → run (U-shape in plan).
+   * First-person stair transfer. Starts from where the camera already is (no back-step teleport),
+   * turns smoothly toward the stair, then walks onto the first flight rising only while the eye
+   * stays under the ceiling; `onFade` fires mid-way so the page can cross-fade to the next floor.
+   * The camera never pitches more than ~12°, never pokes through the slab, and a stair link whose
+   * start == end (no plan direction) uses `dir`/`target` or the current heading instead.
    */
   export function playStairClimb(opts: {
     from: { x: number; y: number };
@@ -2518,6 +2551,9 @@
     direction?: 'up' | 'down' | string;
     storeys?: number;
     speed?: number;
+    target?: { x: number; y: number } | null;
+    dir?: { x: number; y: number } | null;
+    onFade?: () => void;
   }): Promise<{ samples: number[]; maxJump: number; ok: boolean; durationMs: number }> {
     return new Promise((resolve) => {
       if (!camera || !navShell) {
@@ -2527,60 +2563,54 @@
       if (simRaf) { cancelAnimationFrame(simRaf); simRaf = 0; }
       simPlaying = false;
       if (stairClimbRaf) cancelAnimationFrame(stairClimbRaf);
-      const storeys = Math.max(1, Math.round(opts.storeys || 1));
       const sign = opts.direction === 'down' ? -1 : 1;
-      const deltaY = STAIR_STOREY_CM * storeys * sign;
       const speed = Math.max(0.35, Math.min(3, opts.speed || 1));
-      const durationMs = Math.max(2400, (4000 * storeys) / speed);
-      const from = opts.from;
-      const to = opts.to || opts.from;
-      const dx = to.x - from.x;
-      const dz = to.y - from.y;
-      const len = Math.hypot(dx, dz) || 1;
-      const fx = dx / len;
-      const fz = dz / len;
-      // Perpendicular for landing turn (stay inside shaft, ~1.2 m).
-      const px = -fz;
-      const pz = fx;
-      const approach = 90;
-      const land = 120;
+      const durationMs = Math.max(1800, 2800 / speed);
+      const start = { x: camera.position.x, y: camera.position.z };
+      const fwd0 = new THREE.Vector3(); camera.getWorldDirection(fwd0);
+      const yaw0 = Math.atan2(fwd0.z, fwd0.x);
+      // Heading: toward the stair (target), else the given approach dir, else from→to, else as-is.
+      let hx = 0, hz = 0;
+      const tgt = opts.target ?? (Math.hypot(opts.to.x - opts.from.x, opts.to.y - opts.from.y) > 1 ? null : opts.from);
+      if (tgt && Math.hypot(tgt.x - start.x, tgt.y - start.y) > 40) { hx = tgt.x - start.x; hz = tgt.y - start.y; }
+      else if (opts.dir && Math.hypot(opts.dir.x, opts.dir.y) > 1e-6) { hx = opts.dir.x; hz = opts.dir.y; }
+      else if (Math.hypot(opts.to.x - opts.from.x, opts.to.y - opts.from.y) > 1) { hx = opts.to.x - opts.from.x; hz = opts.to.y - opts.from.y; }
+      else { hx = Math.cos(yaw0); hz = Math.sin(yaw0); }
+      const yaw1 = Math.atan2(hz, hx);
+      let dYaw = yaw1 - yaw0;
+      while (dYaw > Math.PI) dYaw -= Math.PI * 2;
+      while (dYaw < -Math.PI) dYaw += Math.PI * 2;
+      const fx = Math.cos(yaw1), fz = Math.sin(yaw1);
+      // Never walk into a wall: stop ~0.6 m short of the first wall along the heading.
+      const travel = Math.min(tgt ? Math.min(220, Math.max(80, Math.hypot(tgt.x - start.x, tgt.y - start.y) + 40)) : 160,
+        Math.max(0, navWallHit(start, yaw1) - 60));
+      // Stay under the ceiling going up (≈ wall height − eye − 30 cm), and above the slab going down.
+      const roomH = navStoreyHeight(get(currentProject)?.floors.find(f => f.id === get(currentProject)?.activeFloorId)) - 20;
+      const rise = sign > 0 ? Math.max(30, Math.min(110, roomH - eyeHeight - 30)) : -Math.min(70, eyeHeight - 70);
+      const pitch = sign > 0 ? 0.12 : -0.2; // radians, gentle
       const baseY = activeFloorElevation + eyeHeight;
       const startTs = performance.now();
+      const ease = (u: number) => u * u * (3 - 2 * u);
+      let faded = false;
       stairClimbSamples = [];
       stairClimbing = true;
       navAutoWalking = true;
       walkthroughMode = true;
       controls.enabled = false;
-      // Exactly 30 Y samples; fill skipped indices when headless RAF coalesces frames.
       const SAMPLE_N = 30;
       let lastEmit = -1;
 
       const sampleAt = (t: number) => {
-        // t in [0,1]: 0–0.42 run1, 0.42–0.58 landing, 0.58–1 run2
-        let x: number;
-        let z: number;
-        let yFrac: number;
-        if (t < 0.42) {
-          const u = t / 0.42;
-          x = from.x + fx * approach * u;
-          z = from.y + fz * approach * u;
-          yFrac = 0.5 * u;
-        } else if (t < 0.58) {
-          const u = (t - 0.42) / 0.16;
-          x = from.x + fx * approach + px * land * u;
-          z = from.y + fz * approach + pz * land * u;
-          yFrac = 0.5;
-        } else {
-          const u = (t - 0.58) / 0.42;
-          x = from.x + fx * approach + px * land + (to.x - (from.x + fx * approach + px * land)) * u;
-          z = from.y + fz * approach + pz * land + (to.y - (from.y + fz * approach + pz * land)) * u;
-          yFrac = 0.5 + 0.5 * u;
-        }
-        const y = baseY + deltaY * yFrac;
-        const lookX = x + fx * 60;
-        const lookZ = z + fz * 60;
+        const turn = ease(Math.min(1, t / 0.3));
+        const yaw = yaw0 + dYaw * turn;
+        const walk = ease(Math.max(0, Math.min(1, (t - 0.12) / 0.88)));
+        const x = start.x + fx * travel * walk;
+        const z = start.y + fz * travel * walk;
+        const y = baseY + rise * ease(Math.max(0, Math.min(1, (t - 0.25) / 0.75)));
+        const p = pitch * ease(Math.min(1, t / 0.5));
         camera.position.set(x, y, z);
-        camera.lookAt(lookX, y - 3, lookZ);
+        camera.lookAt(x + Math.cos(yaw) * 100, y + Math.tan(p) * 100, z + Math.sin(yaw) * 100);
+        navWalkYaw = yaw;
         return y;
       };
 
@@ -2596,8 +2626,8 @@
         const t = Math.min(1, (now - startTs) / durationMs);
         const emit = t >= 1 ? SAMPLE_N - 1 : Math.floor(t * (SAMPLE_N - 1));
         flushEmit(emit);
+        if (!faded && t >= 0.55) { faded = true; try { opts.onFade?.(); } catch { /* page callback */ } }
         if (t < 1) {
-          // Keep camera on true clock position between discrete sample ticks.
           if (lastEmit === emit) sampleAt(t);
           markSceneDirty();
           stairClimbRaf = requestAnimationFrame(step);
@@ -2612,7 +2642,6 @@
         }
         const monoUp = sign > 0 && stairClimbSamples.every((v, i, a) => i === 0 || v >= a[i - 1] - 0.05);
         const monoDown = sign < 0 && stairClimbSamples.every((v, i, a) => i === 0 || v <= a[i - 1] + 0.05);
-        // Uniform 30 samples → ~280/29 ≈ 9.7 cm/step; maxJump gate catches residual snaps.
         resolve({
           samples: stairClimbSamples.slice(),
           maxJump,
@@ -2622,6 +2651,26 @@
       };
       stairClimbRaf = requestAnimationFrame(step);
     });
+  }
+
+  const navRay = new THREE.Raycaster();
+  /** Distance (cm) from the eye along `yaw` to the first wall (Infinity when clear within 3 m). */
+  function navWallHit(pose: { x: number; y: number }, yaw: number): number {
+    if (!wallGroup) return Infinity;
+    navRay.set(new THREE.Vector3(pose.x, activeFloorElevation + eyeHeight * 0.6, pose.y), new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw)));
+    navRay.far = 300;
+    const hits = navRay.intersectObjects(navWallTargets(), false);
+    return hits.length ? hits[0].distance : Infinity;
+  }
+  let navWallCache: { key: number; list: THREE.Object3D[] } = { key: -1, list: [] };
+  function navWallTargets(): THREE.Object3D[] {
+    const key = wallGroup.children.length;
+    if (navWallCache.key !== key) {
+      const list: THREE.Object3D[] = [];
+      wallGroup.traverse(o => { if ((o as THREE.Mesh).isMesh && o.userData.wallId) list.push(o); });
+      navWallCache = { key, list };
+    }
+    return navWallCache.list;
   }
 
   export function getStairClimbSamples() { return stairClimbSamples.slice(); }
@@ -2670,24 +2719,32 @@
   }
 
   /** Transfer: stand ~1.6 m from the stair/lift and look at it (its room centre / door). */
+  let faceRaf = 0;
+  /**
+   * Transfer look: turn in place (eased, ~0.7 s) toward the stair/lift, looking up slightly so its
+   * sign is in frame. No position jump: stepping back 2–3 m read as a teleport.
+   */
   export function faceNavPoint(target: { x: number; y: number }) {
-    if (!camera || !simRoute.length) return;
-    // Stand ~3 m back on the approach (not 1.2–2.2 m from the shaft room's centre, which in a
-    // narrow portrait FOV showed only the lift lobby wall) and look up a little, so the lift/stair
-    // door and the sign above it are both in frame.
-    const back = narrowViewport() ? 320 : 240;
-    const p = pointOnRoute(Math.max(0, simTotalLen - back));
-    const end = simRoute[simRoute.length - 1];
-    let pos = p && Math.hypot(p.x - target.x, p.y - target.y) > 60 ? { x: p.x, y: p.y } : null;
-    if (!pos) {
-      let vx = end.x - target.x, vy = end.y - target.y;
-      const n = Math.hypot(vx, vy) || 1;
-      if (n < 1) { vx = 1; vy = 0; }
-      pos = { x: target.x + vx / n * back, y: target.y + vy / n * back };
-    }
-    navWalkYaw = Math.atan2(target.y - pos.y, target.x - pos.x);
-    setFloorCameraPose(camera, activeFloorElevation, { x: pos.x, y: eyeHeight, z: pos.y }, { x: target.x, y: eyeHeight + 25, z: target.y });
-    markSceneDirty();
+    if (!camera) return;
+    if (faceRaf) cancelAnimationFrame(faceRaf);
+    const f = new THREE.Vector3(); camera.getWorldDirection(f);
+    const yaw0 = Math.atan2(f.z, f.x);
+    const px = camera.position.x, pz = camera.position.z, py = camera.position.y;
+    if (Math.hypot(target.x - px, target.y - pz) < 30) return;
+    let d = Math.atan2(target.y - pz, target.x - px) - yaw0;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const t0 = performance.now(), dur = 700;
+    const tick = (now: number) => {
+      const u = Math.min(1, (now - t0) / dur), e = u * u * (3 - 2 * u);
+      const yaw = yaw0 + d * e;
+      camera.position.set(px, py, pz);
+      camera.lookAt(px + Math.cos(yaw) * 100, py + 8 * e, pz + Math.sin(yaw) * 100);
+      navWalkYaw = yaw;
+      markSceneDirty();
+      faceRaf = u < 1 ? requestAnimationFrame(tick) : 0;
+    };
+    faceRaf = requestAnimationFrame(tick);
   }
 
   function narrowViewport() {

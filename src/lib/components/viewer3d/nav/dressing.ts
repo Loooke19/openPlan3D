@@ -50,7 +50,34 @@ export function wallMeshes(root: THREE.Object3D): THREE.Mesh[] {
   return out;
 }
 
-export type DressingOptions = { look: NavLook; floorY: number; rooms: { polygon: { x: number; y: number }[] }[]; walls?: { start: { x: number; y: number }; end: { x: number; y: number }; thickness?: number }[]; ceilings: { polygon: { x: number; y: number }[]; height: number }[] };
+type Rect = { x0: number; y0: number; x1: number; y1: number };
+/** Axis-aligned, merged (non-overlapping) rects for shaft holes, clipped inside the ceiling outline. */
+export function shaftRects(shafts: { x: number; y: number }[][], outer?: { x: number; y: number }[]): Rect[] {
+  let rects: Rect[] = shafts.filter(p => p.length > 2).map(p => ({ x0: Math.min(...p.map(q => q.x)), y0: Math.min(...p.map(q => q.y)), x1: Math.max(...p.map(q => q.x)), y1: Math.max(...p.map(q => q.y)) }));
+  if (outer?.length) {
+    const ox0 = Math.min(...outer.map(q => q.x)) + 2, ox1 = Math.max(...outer.map(q => q.x)) - 2, oy0 = Math.min(...outer.map(q => q.y)) + 2, oy1 = Math.max(...outer.map(q => q.y)) - 2;
+    rects = rects.map(r => ({ x0: Math.max(r.x0, ox0), y0: Math.max(r.y0, oy0), x1: Math.min(r.x1, ox1), y1: Math.min(r.y1, oy1) }));
+  }
+  rects = rects.filter(r => r.x1 - r.x0 > 40 && r.y1 - r.y0 > 40 && r.x1 - r.x0 < 2000 && r.y1 - r.y0 < 2000);
+  // Merge overlapping/touching rects until stable (holes must not overlap in a ShapeGeometry).
+  let merged = true;
+  while (merged) {
+    merged = false;
+    outer: for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
+      const a = rects[i], b = rects[j];
+      if (a.x0 <= b.x1 + 5 && b.x0 <= a.x1 + 5 && a.y0 <= b.y1 + 5 && b.y0 <= a.y1 + 5) {
+        rects[i] = { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) };
+        rects.splice(j, 1); merged = true; break outer;
+      }
+    }
+  }
+  return rects;
+}
+
+export type DressingOptions = { look: NavLook; floorY: number; rooms: { polygon: { x: number; y: number }[] }[]; walls?: { start: { x: number; y: number }; end: { x: number; y: number }; thickness?: number }[]; ceilings: { polygon: { x: number; y: number }[]; height: number }[];
+  /** Stair/lift footprints: the ceiling is cut open above them and a stairwell shaft rises one storey. */
+  shafts?: { x: number; y: number }[][];
+  storey?: number };
 
 export class NavDressing {
   readonly group = new THREE.Group();
@@ -74,7 +101,7 @@ export class NavDressing {
       const [x0, x1, z0, z1] = [Math.min(...xs) + 15, Math.max(...xs) - 15, Math.min(...zs) + 15, Math.max(...zs) - 15];
       return [{ x: x0, y: z0 }, { x: x1, y: z0 }, { x: x1, y: z1 }, { x: x0, y: z1 }];
     })() }] : [];
-    this.buildCeilings(ceilings, opts.floorY);
+    this.buildCeilings(ceilings, opts.floorY, shaftRects(opts.shafts ?? [], ceilings[0]?.polygon), opts.storey ?? 280);
     this.buildCeilingLights({ ...opts, ceilings: ceilings.length ? ceilings : opts.ceilings });
     this.setLook(opts.look);
   }
@@ -179,11 +206,28 @@ export class NavDressing {
     this.group.add(plane);
   }
 
-  private buildCeilings(ceilings: { polygon: { x: number; y: number }[]; height: number }[], floorY: number) {
+  private buildCeilings(ceilings: { polygon: { x: number; y: number }[]; height: number }[], floorY: number, holes: Rect[] = [], storey = 280) {
     if (!ceilings.length) return;
     const mat = this.track(new THREE.MeshStandardMaterial({ color: '#b9bcb6', roughness: 0.95, side: THREE.DoubleSide }));
+    // Stairwell: open the ceiling over each stair/lift and line the hole with a one-storey shaft
+    // (inward-facing walls + lid), so a camera rising on the stairs sees a stairwell, not a slab edge.
+    const shaftMat = this.track(new THREE.MeshStandardMaterial({ color: '#d9dbd6', roughness: 0.9, side: THREE.BackSide }));
+    const top0 = ceilings[0].height;
+    for (const r of holes) {
+      const h = storey + 40;
+      const geo = this.track(new THREE.BoxGeometry(r.x1 - r.x0, h, r.y1 - r.y0));
+      // Drop the bottom face so the shaft opens into the room below.
+      geo.clearGroups();
+      geo.addGroup(0, 18, 0); geo.addGroup(24, 12, 0);
+      const mesh = new THREE.Mesh(geo, shaftMat);
+      mesh.position.set((r.x0 + r.x1) / 2, floorY + top0 + h / 2 - 1, (r.y0 + r.y1) / 2);
+      mesh.userData.navDressing = true;
+      mesh.userData.navShaft = true;
+      this.walkOnly.add(mesh);
+    }
     for (const c of ceilings) {
       const shape = new THREE.Shape(c.polygon.map(p => new THREE.Vector2(p.x, -p.y)));
+      for (const r of holes) shape.holes.push(new THREE.Path([new THREE.Vector2(r.x0, -r.y0), new THREE.Vector2(r.x0, -r.y1), new THREE.Vector2(r.x1, -r.y1), new THREE.Vector2(r.x1, -r.y0)]));
       const geo = this.track(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2));
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.y = floorY + c.height - 0.5;

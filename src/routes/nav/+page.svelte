@@ -287,8 +287,12 @@
       const a = pts[pts.length - 2], b = pts[pts.length - 1];
       const fwd = a && b ? { x: b.x + (b.x - a.x) / (Math.hypot(b.x - a.x, b.y - a.y) || 1) * 150, y: b.y + (b.y - a.y) / (Math.hypot(b.x - a.x, b.y - a.y) || 1) * 150 } : null;
       const target = best && bestD < 500 ? { x: best.x, y: best.y } : fwd;
+      transferTarget = target;
+      transferDir = a && b ? { x: b.x - a.x, y: b.y - a.y } : null;
       // Never faceNavArrival at a transfer — that frames the final door and looks like early arrival.
-      if (target) viewer?.faceNavPoint?.(target);
+      // Stairs turn inside playStairClimb (one continuous move); lifts turn in place here.
+      const stairsHop = transfer.kind === 'stairs' || /楼梯/.test(transfer.kindLabel || '');
+      if (target && !stairsHop) viewer?.faceNavPoint?.(target);
     }
     pendingLegAdvance = true;
     // Remember first person NOW: on a stair/lift hop the viewer can drop walk mode before the
@@ -304,16 +308,36 @@
         direction: transfer.direction,
         storeys: transfer.storeys || 1,
         speed: Number(walkSpeed) || 1,
-      }).then(() => {
-        void advanceToLeg(activeLegIndex + 1, true);
+        target: transferTarget,
+        dir: transferDir,
+        onFade: () => { fpFade = true; },
+      }).then(async () => {
+        fpFade = true;
+        await advanceToLeg(activeLegIndex + 1, true);
+        releaseFade();
       });
       return;
     }
     if (transferTimer) clearTimeout(transferTimer);
-    transferTimer = setTimeout(() => {
+    const hopMs = walking ? Math.max(1500, 2500 / (Number(walkSpeed) || 1)) : Math.max(450, 1200 / (Number(walkSpeed) || 1));
+    if (fpAtTransfer) setTimeout(() => { if (pendingLegAdvance) fpFade = true; }, hopMs * 0.6);
+    transferTimer = setTimeout(async () => {
       transferTimer = null;
-      void advanceToLeg(activeLegIndex + 1, fpAtTransfer || walking);
-    }, walking ? Math.max(1500, 2500 / (Number(walkSpeed) || 1)) : Math.max(450, 1200 / (Number(walkSpeed) || 1)));
+      if (fpAtTransfer) fpFade = true;
+      await advanceToLeg(activeLegIndex + 1, fpAtTransfer || walking);
+      releaseFade();
+    }, hopMs);
+  }
+
+  /** Cross-fade cover for floor changes in first person: the scene rebuild happens under black. */
+  let fpFade = $state(false);
+  let transferTarget: { x: number; y: number } | null = null;
+  let transferDir: { x: number; y: number } | null = null;
+  let fadeTimer: ReturnType<typeof setTimeout> | null = null;
+  function releaseFade() {
+    if (fadeTimer) clearTimeout(fadeTimer);
+    // Wait until the new floor's walk has placed the camera (a few frames) before revealing.
+    fadeTimer = setTimeout(() => { fadeTimer = null; fpFade = false; }, 1100);
   }
 
   function handleNavWalkExit() {
@@ -1162,6 +1186,7 @@
         <div class="viewer" class:hidden={mode !== '3d'} onpointerdowncapture={onViewerPointerDown} onpointerupcapture={onViewerPointerUp}>
           {#if ThreeViewer}
             <ThreeViewer bind:this={viewer} navShell={true} routePolyline={routePolyline} routeDoorIds={routeDoorIds} onRouteProgress={handleRouteProgress} onNavWalkExit={handleNavWalkExit} />
+            <div class="fp-fade" class:on={fpFade} aria-hidden="true"></div>
           {/if}
         </div>
         {#if tapHint}
@@ -1471,6 +1496,8 @@
   .remove { border: 0; background: transparent; cursor: pointer; font-size: 16px; color: #888; }
   .transfer-notice.arrived { background: #1f7a4d; display: flex; flex-direction: column; align-items: center; gap: 2px; }
   .transfer-notice.arrived small { font-size: 12px; opacity: .85; font-weight: 400; }
+  .fp-fade { position: absolute; inset: 0; background: #0b0d0c; opacity: 0; pointer-events: none; transition: opacity .45s ease; z-index: 3; }
+  .fp-fade.on { opacity: 1; }
   .transfer-notice {
     position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 4;
     padding: 8px 16px; background: rgba(15, 61, 122, 0.92); color: #fff;
