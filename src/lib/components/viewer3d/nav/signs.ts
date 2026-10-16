@@ -154,6 +154,7 @@ function signTexture(name: string) {
 export class NavSigns {
   readonly group = new THREE.Group();
   private disposables: { dispose(): void }[] = [];
+  private bladeSpots: THREE.Vector3[] = [];
 
   constructor(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string }[] = []) {
     this.group.userData.navDressing = true;
@@ -196,22 +197,52 @@ export class NavSigns {
       arm.position.copy(base).addScaledVector(jamb, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 20);
       arm.position.y = blade.position.y + 11;
       arm.quaternion.copy(blade.quaternion);
-      for (const m of [blade, arm]) { m.userData.navDressing = true; this.group.add(m); }
+      // Flat lintel plate over the door, facing the corridor: readable when walking straight at
+      // the door (the blade is edge-on then).
+      const plate = new THREE.Mesh(this.box(Math.min(76, Math.max(48, d.width * 0.8)), 15, 1.2), faceMats(label));
+      plate.position.copy(base).addScaledVector(n, d.wallThickness / 2 + 0.8);
+      plate.position.y = floorY + d.height + 16;
+      plate.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3().crossVectors(up, n).normalize(), up, n));
+      plate.userData.navSign = { kind: 'lintel', name: label };
+      for (const m of [blade, arm, plate]) { m.userData.navDressing = true; this.group.add(m); }
+      this.bladeSpots.push(blade.position.clone());
     }
-    this.hangLinks(links, floorY, faceMats, bracketMat);
+    this.hangLinks(links, floorY, faceMats, bracketMat, doors);
   }
 
-  /** Ceiling-hung two-sided sign over each stair/lift landing with its patient name (「楼梯 A」). */
-  private hangLinks(links: { x: number; y: number; name: string }[], floorY: number, faceMats: (n: string) => THREE.Material[], mat: THREE.Material) {
+  /**
+   * Ceiling-hung sign over each stair/lift landing with its patient name (「楼梯 A」): ONE
+   * double-sided board turned to face the nearest door (the approach), never two crossed boards,
+   * and nudged along its own plane away from any door blade it would intersect.
+   */
+  private hangLinks(links: { x: number; y: number; name: string }[], floorY: number, faceMats: (n: string) => THREE.Material[], mat: THREE.Material, doors: SignDoor[] = []) {
     for (const l of links) {
-      for (const rot of [0, Math.PI / 2]) {
-        const sign = new THREE.Mesh(this.box(90, 28, 3), faceMats(l.name));
-        sign.position.set(l.x, floorY + 232, l.y);
-        sign.rotation.y = rot;
-        const rod = new THREE.Mesh(this.box(1.5, 30, 1.5), mat);
-        rod.position.set(l.x, floorY + 261, l.y);
-        for (const m of [sign, rod]) { m.userData.navDressing = true; this.group.add(m); }
+      let face = new THREE.Vector3(0, 0, 1);
+      let best = Infinity;
+      for (const d of doors) {
+        const k = Math.hypot(d.center.x - l.x, d.center.y - l.y);
+        if (k < best && k > 20 && k < 600) { best = k; face = new THREE.Vector3(d.center.x - l.x, 0, d.center.y - l.y).normalize(); }
       }
+      const up = new THREE.Vector3(0, 1, 0);
+      const across = new THREE.Vector3().crossVectors(up, face).normalize();
+      const pos = new THREE.Vector3(l.x, floorY + 236, l.y);
+      for (let i = 0; i < 4; i++) {
+        const clash = this.bladeSpots.find(b => Math.hypot(b.x - pos.x, b.z - pos.z) < 85 && Math.abs(b.y - pos.y) < 35);
+        if (!clash) break;
+        const side = Math.sign(across.dot(new THREE.Vector3(pos.x - clash.x, 0, pos.z - clash.z))) || 1;
+        pos.addScaledVector(across, side * 60);
+      }
+      const sign = new THREE.Mesh(this.box(96, 28, 3), faceMats(l.name));
+      sign.position.copy(pos);
+      sign.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(across, up, face));
+      sign.userData.navSign = { kind: 'link', name: l.name };
+      const rods = [-38, 38].map(o => {
+        const rod = new THREE.Mesh(this.box(1.5, 30, 1.5), mat);
+        rod.position.copy(pos).addScaledVector(across, o);
+        rod.position.y = floorY + 265;
+        return rod;
+      });
+      for (const m of [sign, ...rods]) { m.userData.navDressing = true; this.group.add(m); }
     }
   }
 

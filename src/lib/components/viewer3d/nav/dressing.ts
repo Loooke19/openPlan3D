@@ -208,7 +208,8 @@ export class NavDressing {
 
   private buildCeilings(ceilings: { polygon: { x: number; y: number }[]; height: number }[], floorY: number, holes: Rect[] = [], storey = 280) {
     if (!ceilings.length) return;
-    const mat = this.track(new THREE.MeshStandardMaterial({ color: '#b9bcb6', roughness: 0.95, side: THREE.DoubleSide }));
+    // Lighter, slightly satin ceiling (#b9bcb6 @0.95 read as a grey lid in first person).
+    const mat = this.track(new THREE.MeshStandardMaterial({ color: '#dcded9', roughness: 0.85, side: THREE.DoubleSide }));
     // Stairwell: open the ceiling over each stair/lift and line the hole with a one-storey shaft
     // (inward-facing walls + lid), so a camera rising on the stairs sees a stairwell, not a slab edge.
     const shaftMat = this.track(new THREE.MeshStandardMaterial({ color: '#d9dbd6', roughness: 0.9, side: THREE.BackSide }));

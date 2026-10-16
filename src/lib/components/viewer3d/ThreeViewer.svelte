@@ -736,6 +736,7 @@
   }
 
   function exitWalkthroughMode() {
+    queueMicrotask(() => applyNavWalkFov());
     const wasWalking = walkthroughMode || navAutoWalking;
     if (navAutoWalking) {
       navAutoWalking = false;
@@ -1320,6 +1321,8 @@
   let navOrbitInteractive = false;
   function navShellPixelRatio() {
     if (!navPipeline) return effectivePixelRatio();
+    // Walking: never above the device ratio, and ≤ 1.25 (full-screen post at 1.5× cost ~45% more fill).
+    if (walkthroughMode) return Math.min(effectivePixelRatio(), window.devicePixelRatio || 1, 1.25);
     return Math.min(effectivePixelRatio(), navPipeline.quality === 'ultra' ? 2 : navPipeline.quality === 'high' ? 1.5 : 1.25);
   }
   /** Drag/orbit adaptive quality: DPR→1, bloom/SMAA off until the pointer releases. */
@@ -1457,9 +1460,15 @@
       }
       return false;
     }
+    // First person: no diorama frame at all — lift the cut immediately.
+    if (goal >= 1e5) {
+      navCut.y = goal;
+      navCutPlane.constant = goal;
+      navDressing?.setCut(goal);
+      return true;
+    }
     navCut.started ||= timestamp;
-    // FP lift: snap quickly so shaft walls never sit at diorama height while walking in.
-    const dur = goal >= 1e5 ? 180 : 450;
+    const dur = 450;
     const k = Math.min(1, (timestamp - navCut.started) / dur);
     const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
     navCut.y = k >= 1 ? navCut.to : navCut.from + (navCut.to - navCut.from) * e;
@@ -1796,7 +1805,29 @@
       riser.castShadow = true;
       group.add(riser);
     }
+    // Solid flight: sloped soffit under the treads + closed stringers + handrails on both sides,
+    // so an open stair reads as a stair (not floating slabs) from the corridor and from below.
+    const h = riserCount * riserHeight;
+    const L = Math.hypot(depth, h), a = Math.atan2(h, depth);
+    const along = (geo: THREE.BoxGeometry, m: THREE.Material, x: number, y: number) => {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.rotation.x = -a;
+      mesh.position.set(offsetX + x, offsetY + h / 2 + y, offsetZ + depth / 2);
+      mesh.castShadow = true;
+      group.add(mesh);
+    };
+    along(new THREE.BoxGeometry(width, 10, L), sideMat, 0, -9);
+    for (const sx of [-1, 1]) {
+      along(new THREE.BoxGeometry(4, 34, L), sideMat, sx * (width / 2 + 2), 4);
+      along(new THREE.BoxGeometry(5, 5, L), stairRailMat, sx * (width / 2 - 2), 92);
+      for (const t of [0.04, 0.5, 0.96]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(3, 90, 3), stairRailMat);
+        post.position.set(offsetX + sx * (width / 2 - 2), offsetY + h * t + 45, offsetZ + depth * t);
+        group.add(post);
+      }
+    }
   }
+  const stairRailMat = new THREE.MeshStandardMaterial({ color: 0xb9c0c4, metalness: 0.6, roughness: 0.35 });
 
   /**
    * One storey (floor-to-floor) height for a floor: elevation gap to the next floor up (or down
@@ -2227,6 +2258,7 @@
   }
 
   export function clearNavRoute() {
+    clearNavArrivalMarker();
     clearNavStack();
     stopRouteSimulation();
     drawNavRoute([]);
@@ -2320,7 +2352,7 @@
     // of a stub segment's direction (which used to aim the camera at a wall after a seek).
     // Look ahead ~2.5 m along the route (a person looks where they are going, not at the wall
     // beside the next corner); fall back to the local tangent, then the last heading.
-    const ahead = pointOnRoute(Math.min(simTotalLen, distance + 250));
+    const ahead = pointOnRoute(Math.min(simTotalLen, distance + 170));
     const back = pointOnRoute(Math.max(0, distance - 30)), fwd = pointOnRoute(Math.min(simTotalLen, distance + 60));
     let yaw = navWalkYaw ?? pose.yaw;
     // Start: aim at where the route goes ~3 m on (a short first stub out of a doorway or a
@@ -2333,14 +2365,25 @@
     else if (ahead && Math.hypot(ahead.x - pose.x, ahead.y - pose.y) > 80) yaw = Math.atan2(ahead.y - pose.y, ahead.x - pose.x);
     else if (back && fwd && Math.hypot(fwd.x - back.x, fwd.y - back.y) > 20) yaw = Math.atan2(fwd.y - back.y, fwd.x - back.x);
     else if (navWalkYaw === null) yaw = routeHeadingBefore(distance);
+    // Wall guard: if the chosen heading hits a wall within ~1.1 m (look-ahead chord cutting a
+    // corner, or a dead-end stub), fall back to the local route tangent.
+    if (back && fwd && Math.hypot(fwd.x - back.x, fwd.y - back.y) > 20 && navWallHit(pose, yaw) < 110) {
+      const tYaw = Math.atan2(fwd.y - back.y, fwd.x - back.x);
+      if (navWallHit(pose, tYaw) > navWallHit(pose, yaw)) yaw = tYaw;
+    }
     // Smooth turns while playing (no snap at corners); seeks set navWalkYaw = null and snap.
+    // Time-based (τ ≈ 0.25 s), so slow devices turn as fast as fast ones.
+    const nowTs = performance.now();
+    const dt = navPlaceTs ? Math.min(0.5, (nowTs - navPlaceTs) / 1000) : 1 / 60;
+    navPlaceTs = nowTs;
     if (navWalkYaw !== null && simPlaying) {
       let dy = yaw - navWalkYaw;
       while (dy > Math.PI) dy -= 2 * Math.PI;
       while (dy < -Math.PI) dy += 2 * Math.PI;
-      yaw = navWalkYaw + dy * 0.25;
+      yaw = navWalkYaw + dy * (1 - Math.exp(-dt / 0.25));
     }
     navWalkYaw = yaw;
+    applyNavWalkFov();
     const lookX = pose.x + Math.cos(yaw) * 80;
     const lookY = pose.y + Math.sin(yaw) * 80;
     // Subtle head bob in the nav look (about 1.5 cm at a 70 cm stride).
@@ -2349,8 +2392,25 @@
     setFloorCameraPose(camera, activeFloorElevation,
       { x: pose.x, y: eyeHeight + bob, z: pose.y },
       // Near-level gaze: blade signs above doors stay in frame; the floor route still fills the lower half.
-      { x: lookX, y: eyeHeight - 3 + bob * 0.5, z: lookY });
+      // ~9° down: the route ribbon is visible from ~1.5 m ahead; blade signs stay in frame.
+      { x: lookX, y: eyeHeight - 13 + bob * 0.5, z: lookY });
     markSceneDirty();
+  }
+
+  let navPlaceTs = 0;
+  /**
+   * First-person FOV: 62° vertical on landscape; portrait keeps ≥ 72° horizontal (a 390 px phone
+   * at 50° vertical saw a 26° tunnel). Restored to the authored FOV outside walk mode.
+   */
+  let navBaseFov: number | null = null;
+  function applyNavWalkFov() {
+    if (!camera || !navShell) return;
+    navBaseFov ??= camera.fov;
+    const aspect = camera.aspect || 1;
+    const want = walkthroughMode
+      ? (aspect < 1 ? Math.min(95, Math.max(62, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(36)) / aspect)))) : 62)
+      : navBaseFov;
+    if (Math.abs(camera.fov - want) > 0.05) { camera.fov = want; camera.updateProjectionMatrix(); }
   }
 
   /** 「回到路线」: overview camera framing the current route leg (oblique, whole route in view). */
@@ -2414,13 +2474,84 @@
     const len = Math.hypot(n.x, n.y) || 1;
     n = { x: n.x / len, y: n.y / len };
     if (n.x * side.x + n.y * side.y < 0) n = { x: -n.x, y: -n.y };
-    const pos = { x: c.x + n.x * 160, y: c.y + n.y * 160 };
-    navWalkYaw = Math.atan2(c.y - pos.y, c.x - pos.x);
-    setFloorCameraPose(camera, activeFloorElevation, { x: pos.x, y: eyeHeight, z: pos.y },
-      { x: c.x, y: eyeHeight - 15, z: c.y });
-    markSceneDirty();
-    requestRender();
+    // Stand ~2 m out and ~0.55 m to the side (≈15°), looking THROUGH the (now open) door into the
+    // room, and glide there from wherever the walk ended instead of cutting.
+    const t = { x: -n.y, y: n.x };
+    const lat = (side.x * t.x + side.y * t.y) >= 0 ? 1 : -1;
+    const pos = { x: c.x + n.x * 200 + t.x * 55 * lat, y: c.y + n.y * 200 + t.y * 55 * lat };
+    const look = { x: c.x - n.x * 120, y: c.y - n.y * 120 };
+    const endIn = simRoute[simRoute.length - 1];
+    // Marker inside the room (route end), never under the camera's own feet.
+    const spot = Math.hypot(endIn.x - c.x, endIn.y - c.y) > 60 && Math.hypot(endIn.x - pos.x, endIn.y - pos.y) > 120 ? endIn : look;
+    showNavArrivalMarker(spot);
+    glideNavCamera(pos, look, 1000);
   }
+
+  let glideRaf = 0;
+  function glideNavCamera(pos: { x: number; y: number }, look: { x: number; y: number }, ms: number) {
+    if (glideRaf) cancelAnimationFrame(glideRaf);
+    const p0 = camera.position.clone();
+    const f0 = new THREE.Vector3(); camera.getWorldDirection(f0);
+    const yaw0 = Math.atan2(f0.z, f0.x);
+    let d = Math.atan2(look.y - pos.y, look.x - pos.x) - yaw0;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const y1 = activeFloorElevation + eyeHeight;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const u = Math.min(1, (now - t0) / ms), e = u * u * (3 - 2 * u);
+      const x = p0.x + (pos.x - p0.x) * e, z = p0.z + (pos.y - p0.z) * e, y = p0.y + (y1 - p0.y) * e;
+      const yaw = yaw0 + d * e;
+      camera.position.set(x, y, z);
+      camera.lookAt(x + Math.cos(yaw) * 100, y - 12, z + Math.sin(yaw) * 100);
+      navWalkYaw = yaw;
+      markSceneDirty();
+      requestRender();
+      glideRaf = u < 1 ? requestAnimationFrame(tick) : 0;
+    };
+    glideRaf = requestAnimationFrame(tick);
+  }
+
+  /** Arrival marker: pulsing ground ring + soft light pillar at the destination (not a closed door). */
+  let navArrivalMarker: THREE.Group | null = null;
+  function clearNavArrivalMarker() {
+    if (!navArrivalMarker) return;
+    navArrivalMarker.removeFromParent();
+    navArrivalMarker.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); } });
+    navArrivalMarker = null;
+  }
+  function showNavArrivalMarker(at: { x: number; y: number }) {
+    clearNavArrivalMarker();
+    const g = new THREE.Group();
+    const ringMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#2fd27a').multiplyScalar(1.6), transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(38, 48, 48).rotateX(-Math.PI / 2), ringMat);
+    ring.position.y = 1.5;
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(18, 32).rotateX(-Math.PI / 2), ringMat.clone());
+    dot.position.y = 1.6;
+    // FrontSide: from inside the pillar (camera standing on the marker) it is invisible, not a green wash.
+    const pillarMat = new THREE.MeshBasicMaterial({ color: '#5cf0a0', transparent: true, opacity: 0.2, depthWrite: false, side: THREE.FrontSide, blending: THREE.AdditiveBlending, toneMapped: false });
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(30, 42, 230, 32, 1, true), pillarMat);
+    pillar.position.y = 115;
+    g.add(ring, dot, pillar);
+    g.position.set(at.x, activeFloorElevation, at.y);
+    g.userData.navArrival = true;
+    g.renderOrder = 5;
+    scene.add(g);
+    navArrivalMarker = g;
+    const t0 = performance.now();
+    const pulse = (now: number) => {
+      if (navArrivalMarker !== g) return;
+      const k = ((now - t0) / 1400) % 1;
+      ring.scale.setScalar(1 + 0.35 * k);
+      ringMat.opacity = 0.9 * (1 - k);
+      markSceneDirty();
+      requestRender();
+      requestAnimationFrame(pulse);
+    };
+    requestAnimationFrame(pulse);
+  }
+
+
 
   // ── Tap-to-walk (first person) ──────────────────────────────────────────────
   let tapWalk: { pts: { x: number; y: number }[]; lens: number[]; total: number; d: number; last: number; raf: number } | null = null;
@@ -3793,6 +3924,19 @@
 
 
 
+  /** Nav shell hides the editor walk HUD (eye height/speed sliders, WASD help); `?hud=1` shows it. */
+  const navDevHud = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('hud') === '1';
+  /** 「沿路线自动行走」: shown for 2.5 s when auto-walk starts, then out of the way of the route. */
+  let navToastVisible = $state(false);
+  let navToastTimer: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    if (navAutoWalking && walkthroughMode) {
+      navToastVisible = true;
+      if (navToastTimer) clearTimeout(navToastTimer);
+      navToastTimer = setTimeout(() => { navToastVisible = false; }, 2500);
+    } else navToastVisible = false;
+  });
+
   let lastOrbitFrame: number | undefined;
   let lastDoorTs = 0;
   function animate(timestamp: number) {
@@ -4328,8 +4472,10 @@
     </div>
 
     {#if navAutoWalking && simProgress < 0.999}
-      <div class="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 bg-black/60 text-white text-xs rounded-lg px-3 py-1.5 pointer-events-none whitespace-nowrap">沿路线自动行走</div>
-    {:else if !(navShell && touchUi)}
+      {#if navToastVisible}
+      <div class="absolute top-16 left-1/2 -translate-x-1/2 z-10 bg-black/55 text-white text-xs rounded-lg px-3 py-1.5 pointer-events-none whitespace-nowrap">沿路线自动行走</div>
+      {/if}
+    {:else if !navShell || navDevHud}
     <!-- Controls Panel (keyboard/mouse; the nav page shows touch hints itself) -->
     <div class="absolute top-4 left-4 z-10 bg-black/70 text-white text-xs rounded-lg backdrop-blur-sm p-3 space-y-2 min-w-[180px]">
       <div class="font-semibold text-white/90 mb-1">{$t('viewerNav.walkControls')}</div>

@@ -254,7 +254,9 @@
   function handleRouteProgress(ratio: number, playing: boolean) {
     walkSeek = Math.round(ratio * 1000) / 10;
     playbackPlaying = playing;
-    if (playing && ratio < 1 && arrivedText) arrivedText = '';
+    if (ratio < 0.99 && arrivedText) arrivedText = '';
+    // A drag of the progress bar is not an arrival (it used to fire the banner and keep it).
+    if (seeking) return;
     // Last leg run out: arrive even if the viewer still reports playing (walk loop idling at the door).
     if (ratio >= 0.999 && playing && !pendingLegAdvance && !arrivedText && routeLegs.length && activeLegIndex + 1 >= routeLegs.length && (simulating || walking)) {
       arrive(walking);
@@ -339,6 +341,9 @@
     // Wait until the new floor's walk has placed the camera (a few frames) before revealing.
     fadeTimer = setTimeout(() => { fadeTimer = null; fpFade = false; }, 1100);
   }
+
+  let seeking = false;
+  const touchDevice = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
   function handleNavWalkExit() {
     walking = false;
@@ -1201,7 +1206,7 @@
           <button type="button" class="fp-exit" onclick={() => { const done = arrivedText; stopAll(); arrivedText = done; say('已退出第一人称'); }}>退出</button>
         {/if}
         {#if arrivedText}
-          <div class="transfer-notice arrived" role="status">{arrivedText}{#if walking}<small>按 Esc 或点「结束」退出第一人称</small>{/if}</div>
+          <div class="transfer-notice arrived" role="status">{arrivedText}{#if walking}<small>{touchDevice ? '点「退出」结束第一人称' : '按 Esc 或点「结束」退出第一人称'}</small>{/if}</div>
         {/if}
       </div>
       <aside class="side" class:open={panelOpen}>
@@ -1334,7 +1339,8 @@
                 const { from, width } = tripSpan(activeLegIndex);
                 const v = Number((e.currentTarget as HTMLInputElement).value) || 0;
                 walkSeek = width > 0 ? Math.max(0, Math.min(100, ((v - from) / width) * 100)) : v;
-                viewer?.setSimulationProgress?.((Number(walkSeek) || 0) / 100);
+                seeking = true;
+                try { viewer?.setSimulationProgress?.((Number(walkSeek) || 0) / 100); } finally { seeking = false; }
                 if (mode === '2d') drawPlan();
               }}
             />
