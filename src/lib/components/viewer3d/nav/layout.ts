@@ -22,6 +22,11 @@ export function lightSpots(rooms: { polygon: P2[] }[], step = 300): LightSpot[] 
     const long = w >= h;
     const major = Math.max(w, h), minor = Math.min(w, h);
     const corridor = major / minor >= CORRIDOR_ASPECT && minor <= CORRIDOR_MAX_WIDTH;
+    // L/T-shaped or jogged corridors (bounding box is not a corridor): lights on each leg's centreline.
+    if (!corridor) {
+      const legs = polygonCorridorSpots(room.polygon, step);
+      if (legs) { spots.push(...legs); continue; }
+    }
     const nMajor = Math.max(1, Math.round(major / step));
     const nMinor = corridor ? 1 : Math.max(1, Math.round(minor / (step + 40)));
     for (let i = 0; i < nMajor; i++) for (let j = 0; j < nMinor; j++) {
@@ -65,7 +70,72 @@ export function corridorLightSpots(rooms: { polygon: P2[] }[], walls: WallSeg[],
       if (!seen.has(key) && !rooms.some(r => inside({ x: cx, y: sy }, r.polygon))) seen.set(key, { x: cx, z: sy, long: false });
     }
   }
-  return [...seen.values()];
+  return alignLightRuns([...seen.values()], step);
+}
+
+/**
+ * Centreline samples of a polygon whose interior is mostly corridor-shaped (narrow in one axis,
+ * long in the other), measured against the polygon's own edges so door gaps never shift them.
+ * Returns null when the room is mostly hall-like (caller lays a grid instead).
+ */
+export function polygonCorridorSpots(poly: P2[], step = 300): LightSpot[] | null {
+  const edges: WallSeg[] = poly.map((p, i) => ({ start: p, end: poly[(i + 1) % poly.length] }));
+  const xs = poly.map(p => p.x), ys = poly.map(p => p.y);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const grid = 50, out: LightSpot[] = [];
+  let n = 0, hit = 0;
+  for (let x = x0 + grid / 2; x < x1; x += grid) for (let y = y0 + grid / 2; y < y1; y += grid) {
+    const p = { x, y };
+    if (!inside(p, poly)) continue;
+    n++;
+    const e = rayToWall(p, { x: 1, y: 0 }, edges, 1e5), w = rayToWall(p, { x: -1, y: 0 }, edges, 1e5);
+    const s = rayToWall(p, { x: 0, y: 1 }, edges, 1e5), no = rayToWall(p, { x: 0, y: -1 }, edges, 1e5);
+    const wx = e + w, wy = s + no;
+    if (wy <= CORRIDOR_MAX_WIDTH && wx >= wy * CORRIDOR_ASPECT) { hit++; out.push({ x, z: y + (s - no) / 2, long: true }); }
+    else if (wx <= CORRIDOR_MAX_WIDTH && wy >= wx * CORRIDOR_ASPECT) { hit++; out.push({ x: x + (e - w) / 2, z: y, long: false }); }
+  }
+  if (!n || hit / n < 0.6) return null;
+  return alignLightRuns(out, step, true);
+}
+
+/**
+ * Corridor light rows: spots of one leg share one centreline (median), and are evenly spaced
+ * between the leg's ends; with `resample`, dense samples are reduced to one panel per ~step.
+ * A turn's corner keeps only one panel (no doubled lights where two legs meet).
+ */
+export function alignLightRuns(spots: LightSpot[], step = 300, resample = false): LightSpot[] {
+  const out: LightSpot[] = [];
+  for (const long of [true, false]) {
+    const along = (s: LightSpot) => (long ? s.x : s.z), across = (s: LightSpot) => (long ? s.z : s.x);
+    const list = spots.filter(s => s.long === long).sort((a, b) => across(a) - across(b));
+    const rows: LightSpot[][] = [];
+    for (const s of list) {
+      const r = rows.find(r => Math.abs(across(r[0]) - across(s)) < 40);
+      if (r) r.push(s); else rows.push([s]);
+    }
+    for (const row of rows) {
+      row.sort((a, b) => along(a) - along(b));
+      const runs: LightSpot[][] = [[row[0]]];
+      for (let i = 1; i < row.length; i++) {
+        const gap = along(row[i]) - along(row[i - 1]);
+        if (gap > (resample ? 120 : step * 1.6)) runs.push([row[i]]); else runs[runs.length - 1].push(row[i]);
+      }
+      for (const run of runs) {
+        const c = run.map(across).sort((a, b) => a - b)[run.length >> 1];
+        let a0 = along(run[0]), a1 = along(run[run.length - 1]), k = run.length;
+        if (resample) {
+          const len = a1 - a0 + 50; if (len < 150) continue;
+          k = Math.max(1, Math.round(len / step)); const pitch = len / k; a0 = a0 - 25 + pitch / 2; a1 = a0 + pitch * (k - 1);
+        }
+        for (let i = 0; i < k; i++) {
+          const t = k === 1 ? (a0 + a1) / 2 : a0 + ((a1 - a0) * i) / (k - 1);
+          out.push(long ? { x: t, z: c, long } : { x: c, z: t, long });
+        }
+      }
+    }
+  }
+  // Where two legs meet, keep the first panel only.
+  return out.filter((s, i) => !out.slice(0, i).some(o => Math.hypot(o.x - s.x, o.z - s.z) < 120));
 }
 
 /**
