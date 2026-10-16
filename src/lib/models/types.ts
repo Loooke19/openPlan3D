@@ -253,6 +253,9 @@ export interface Floor {
   textAnnotations: TextAnnotation[];
   groups: ElementGroup[];
   entourage?: EntourageItem[];
+  /** Nav kit: footprint parts with no floor (atria/voids). */
+  footprintExclusions?: { x0: number; y0: number; x1: number; y1: number }[];
+  floorRegions?: { polygon: Point[]; holes: Point[][] }[];
 }
 
 export interface CustomModelDef {

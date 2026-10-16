@@ -27,9 +27,14 @@ type LightRig = { ambient: THREE.AmbientLight; hemi: THREE.HemisphereLight; fill
 
 export function applyTrialLights(rig: LightRig, walk: boolean) {
   if (!walk) return;
-  rig.ambient.intensity = 0.1;
-  rig.hemi.color.set('#f3f7ff'); rig.hemi.groundColor.set('#9ea4a8'); rig.hemi.intensity = 0.74;
-  rig.fill.color.set('#eef4ff'); rig.fill.intensity = 0.24;
+  // Kit preview look (wu9777 renders: Eevee, AgX, no lamps, soft GI): mostly soft diffuse sky
+  // light with a cool teal-grey cast, weak direct light so contact shade comes from AO, not
+  // hard shadows. Same light count as default -> no extra mobile cost.
+  rig.ambient.color.set('#dfe9e7'); rig.ambient.intensity = 0.22;
+  rig.hemi.color.set('#eef6f5'); rig.hemi.groundColor.set('#8ea3a0'); rig.hemi.intensity = 0.95;
+  rig.fill.color.set('#e6f1f0'); rig.fill.intensity = 0.16;
+  rig.sun.intensity *= 0.55; rig.sun.shadow.radius = Math.max(rig.sun.shadow.radius, 6);
+  rig.rim.intensity *= 0.5;
 }
 
 const TRIAL_TAG = '__navTrial';

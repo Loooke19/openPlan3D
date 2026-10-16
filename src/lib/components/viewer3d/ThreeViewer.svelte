@@ -77,6 +77,8 @@
   import { NavPipeline, type NavLook } from './nav/pipeline';
   import { NavRouteVisual } from './nav/route';
   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
+  import { createClinicFloorMaterial, mh01WorldUv } from './nav/clinicFloor';
+  import { NavKitDressing } from './nav/kitDressing';
   import { NavSigns, isCirculationRoom, type SignDoor } from './nav/signs';
   import { NAV_FONT, navFontLoaded, navFontReady } from '$lib/utils/navFonts';
   import { hospitalFloorY } from '$lib/utils/hospitalMaterials';
@@ -93,7 +95,6 @@
     createHospitalDoorEdgeMaterial,
     createHospitalDoorFrameMaterial,
     isHospitalFloorTexture,
-    navUsesHospitalFloor,
     isHospitalWallTexture,
   } from '$lib/utils/hospitalMaterials';
 
@@ -1453,6 +1454,7 @@
     navCut = { y: startY, from: startY, to: startY, started: 0 };
     navCutPlane.constant = navCut.y;
     navDressing?.setCut(navCut.y);
+    navKit?.setCut(navCut.y);
   }
   /** Returns true while still animating. */
   function stepNavCut(timestamp: number) {
@@ -1464,6 +1466,8 @@
       if (navCutPlane.constant !== navCut.y) {
         navCutPlane.constant = navCut.y;
         navDressing?.setCut(navCut.y);
+        navKit?.setCut(navCut.y);
+    navKit?.setCut(navCut.y);
         return true;
       }
       return false;
@@ -1482,12 +1486,19 @@
     navCut.y = k >= 1 ? navCut.to : navCut.from + (navCut.to - navCut.from) * e;
     navCutPlane.constant = navCut.y;
     navDressing?.setCut(navCut.y);
+    navKit?.setCut(navCut.y);
     return true;
   }
+
+  // wu9777 clinic kit in nav (MH02 wall trims + MH04-MH20 props): on by default, ?kit=0 turns it off.
+  let navKit: NavKitDressing | null = null;
+  const navKitOn = typeof location !== 'undefined' && new URLSearchParams(location.search).get('kit') !== '0';
 
   function rebuildNavDressing() {
     if (!navShell || !navPipeline) return;
     navDressing?.dispose();
+    navKit?.dispose();
+    navKit = null;
     const rooms: { polygon: { x: number; y: number }[] }[] = [];
     const ceilings: { polygon: { x: number; y: number }[]; height: number }[] = [];
     wallGroup.traverse(o => {
@@ -1518,6 +1529,14 @@
       if (navVisualTrialActive(currentFloor)) {
         applyTrialSurfaces(wallGroup, navDressing?.group ?? null);
         applyTrialSigns(navSigns.group);
+      }
+      if (navKitOn) {
+        const floorRef = currentFloor;
+        const kitRooms = roomFaces(floorRef).filter(r => r.polygon.length > 2).map(r => ({ name: r.room.name ?? '', polygon: r.polygon }));
+        const kitDoors = floorRef.doors.map(d => ({ wallId: d.wallId, position: d.position, width: d.width }));
+        navKit = new NavKitDressing(floorRef.walls, kitDoors, kitRooms, null, activeFloorElevation, `${appBase}/nav-kit`, () => { if (currentFloor === floorRef) markSceneDirty(); }, [], []);
+        navKit.setCut(navCut.y);
+        scene.add(navKit.group);
       }
     }
     applyNavLook(navLook, true);
@@ -3491,7 +3510,11 @@
 
       // Use room's floor material or fallback to color coding
       let material: THREE.MeshStandardMaterial;
-      if (isHospitalFloorTexture(room.floorTexture) || (navShell && navUsesHospitalFloor(room.floorTexture))) {
+      if (navShell) {
+        // Nav preview: every room floor uses the clinic kit MH01 2 m floor module look.
+        mh01WorldUv(geo);
+        material = createClinicFloorMaterial();
+      } else if (isHospitalFloorTexture(room.floorTexture)) {
         material = createHospitalSurfaceMaterial(
           'floor',
           room.color || getMaterial('hospital-floor').color,
@@ -4153,6 +4176,8 @@
       removeGhostPreview();
       skyTexture.dispose();
       navRouteVisual?.dispose();
+      navKit?.dispose();
+      navKit = null;
       navDressing?.dispose();
       navSigns?.dispose();
       navPipeline?.dispose();
