@@ -85,7 +85,9 @@ function buildLut(grade: Grade, size = 32): THREE.Data3DTexture {
   return tex;
 }
 
-/** Coffee FinalShader: Neutral + sRGB + 3D LUT + vignette. */
+/** Coffee FinalShader: Neutral + sRGB + 3D LUT + vignette.
+ *  WebGL2 only: three r182 maps texture2D→texture but has no texture3D alias, so the LUT lookup
+ *  must use the GLSL3 overload `texture(sampler3D, …)` (texture3D failed to compile → black canvas). */
 const FinalShaderLut = {
   name: 'NavFinalLut',
   uniforms: {
@@ -116,7 +118,7 @@ const FinalShaderLut = {
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
       vec3 col = toSRGB(clamp(neutral(c.rgb * exposure), 0., 1.));
-      col = texture3D(lut, col * (31. / 32.) + .5 / 32.).rgb;
+      col = texture(lut, col * (31. / 32.) + .5 / 32.).rgb;
       vec2 d = (vUv - .5) * vec2(1.15, 1.);
       col *= 1. - vignette * smoothstep(.35, .95, length(d));
       gl_FragColor = vec4(col, 1.);
@@ -193,7 +195,7 @@ export class NavPipeline {
   readonly quality: NavQuality;
   readonly hdrMsaa: boolean;
   /** Active post configuration (for diagnostics). */
-  readonly postMode: string;
+  postMode: string;
   private composer: EffectComposer | null = null;
   private bloom: UnrealBloomPass | null = null;
   private ssao: SSAOPass | null = null;
@@ -210,6 +212,7 @@ export class NavPipeline {
 
   constructor(private renderer: THREE.WebGLRenderer, private scene: THREE.Scene, private camera: THREE.Camera, quality = detectNavQuality()) {
     this.quality = quality;
+    this.installShaderErrorHook();
     this.luts = { overview: buildLut(GRADES.overview), walk: buildLut(GRADES.walk) };
     const pmrem = new THREE.PMREMGenerator(renderer);
     const room = new RoomEnvironment();
@@ -242,6 +245,8 @@ export class NavPipeline {
     let wantHdr = true;
     let wantBloom = true;
     let wantFinal: 'lut' | 'nolut' | 'none' = win && !forceLut ? 'nolut' : 'lut';
+    // sampler3D needs WebGL2; WebGL1 contexts always take the 2D-only grade.
+    if (!renderer.capabilities.isWebGL2) wantFinal = wantFinal === 'lut' ? 'nolut' : wantFinal;
     let forceNoMsaa = win; // Windows: HF without MSAA (MSAA+HF still risky with other passes)
 
     if (probe === 'rp') { wantBloom = false; wantFinal = 'none'; wantHdr = false; forceNoMsaa = true; }
@@ -348,6 +353,49 @@ export class NavPipeline {
     }
   }
 
+  /** Set when any program fails to compile/link; render() then degrades the post chain. */
+  private shaderFailed = false;
+  private degradeLevel = 0;
+
+  private installShaderErrorHook() {
+    const dbg = this.renderer.debug as unknown as { checkShaderErrors: boolean; onShaderError: ((...a: unknown[]) => void) | null };
+    dbg.checkShaderErrors = true;
+    dbg.onShaderError = (gl: unknown, program: unknown, vs: unknown, fs: unknown) => {
+      this.shaderFailed = true;
+      try {
+        const g = gl as WebGL2RenderingContext;
+        console.warn('[nav] shader compile/link failed; degrading post pipeline', g.getProgramInfoLog(program as WebGLProgram), g.getShaderInfoLog(fs as WebGLShader) || g.getShaderInfoLog(vs as WebGLShader));
+      } catch { console.warn('[nav] shader compile/link failed; degrading post pipeline'); }
+    };
+  }
+
+  /** Step 1: LUT final → 2D grade final, drop SSAO/SMAA. Step 2: no composer (direct Neutral). */
+  private degrade() {
+    this.shaderFailed = false;
+    this.degradeLevel++;
+    const composer = this.composer;
+    if (composer && this.degradeLevel === 1) {
+      if (this.ssao) { composer.removePass(this.ssao); this.ssao = null; }
+      if (this.smaa) { composer.removePass(this.smaa); this.smaa = null; }
+      if (this.final) {
+        composer.removePass(this.final);
+        this.final = new ShaderPass(FinalShaderNoLut);
+        this.useLut = false;
+        composer.addPass(this.final);
+      }
+      this.postMode = `${this.postMode}_fallback_nolut`;
+    } else {
+      this.composer = null;
+      this.renderer.toneMapping = THREE.NeutralToneMapping;
+      this.postMode = `${this.postMode}_fallback_direct`;
+    }
+    this.setLook(this.look);
+    if (typeof window !== 'undefined') {
+      const w = window as unknown as { __postProbeResult?: Record<string, unknown> };
+      w.__postProbeResult = { ...(w.__postProbeResult || {}), mode: this.postMode, shaderFallback: this.degradeLevel };
+    }
+  }
+
   setInteractive(on: boolean) {
     if (this.interactive === on) return;
     this.interactive = on;
@@ -400,6 +448,10 @@ export class NavPipeline {
       return;
     }
     if (this.final?.uniforms?.exposure) this.final.uniforms.exposure.value = this.exposure;
+    if (this.shaderFailed) {
+      this.degrade();
+      if (!this.composer) { this.renderer.render(this.scene, this.camera); return; }
+    }
     try {
       this.composer.render(delta);
     } catch (err) {

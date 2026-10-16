@@ -77,7 +77,7 @@
   import { NavPipeline, type NavLook } from './nav/pipeline';
   import { NavRouteVisual } from './nav/route';
   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
-  import { NavSigns, type SignDoor } from './nav/signs';
+  import { NavSigns, isCirculationRoom, type SignDoor } from './nav/signs';
   import { NAV_FONT, navFontLoaded, navFontReady } from '$lib/utils/navFonts';
   import { hospitalFloorY } from '$lib/utils/hospitalMaterials';
   import { centerRoute, enclosedRooms, inside as layoutInside } from './nav/layout';
@@ -1495,7 +1495,7 @@
       const links = navLinkSigns.filter(l => l.floorId === fid);
       // A stair/lift room's door sign carries the same patient name as banner and steps.
       const linkName = (poly: { x: number; y: number }[]) => links.find(l => insidePoly(l, poly))?.name;
-      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
+      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2 && !isCirculationRoom(r.room.name, r.room.roomType)).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
       navSigns = new NavSigns(doors, named, activeFloorElevation, links);
       scene.add(navSigns.group);
     }

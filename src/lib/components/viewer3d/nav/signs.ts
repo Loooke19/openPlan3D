@@ -20,6 +20,19 @@ function inside(p: P, poly: P[]) {
   return c;
 }
 
+const CIRCULATION_RE = /走廊|过道|走道|通道|连廊|廊道|门厅|前厅|候诊区|等候区|corridor|hallway|lobby/i;
+/**
+ * Circulation spaces (corridors, lobbies, waiting areas) are the side a blade hangs INTO, never a
+ * sign destination. A named corridor must not count as a "named room", otherwise every door off it
+ * has a named room on both sides and corridorOutward() skips the sign. Names that are clearly a
+ * room ("…室…", e.g. 输液室大厅) stay destinations.
+ */
+export function isCirculationRoom(name: string | undefined | null, roomType?: string | null): boolean {
+  if (roomType === 'corridor' || roomType === 'hallway' || roomType === 'circulation') return true;
+  if (!name) return false;
+  return CIRCULATION_RE.test(name) && !/室/.test(name);
+}
+
 /**
  * Corridor-outward normal for a door into exactly one named room.
  * Returns null when both/neither sides are named rooms (skip sign).
