@@ -197,6 +197,10 @@ export class NavSigns {
       arm.position.copy(base).addScaledVector(jamb, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 20);
       arm.position.y = blade.position.y + 11;
       arm.quaternion.copy(blade.quaternion);
+      // Trial/scaling hooks: the arm belongs to the blade; wall face point and blade inner gap.
+      blade.userData.arm = arm;
+      blade.userData.wallX = 38 - 32;
+      arm.userData.wallFace = base.clone().addScaledVector(jamb, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2).setY(arm.position.y);
       // Flat lintel plate over the door, facing the corridor: readable when walking straight at
       // the door (the blade is edge-on then).
       const plate = new THREE.Mesh(this.box(Math.min(76, Math.max(48, d.width * 0.8)), 15, 1.2), faceMats(label));

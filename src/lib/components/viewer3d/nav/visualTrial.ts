@@ -37,7 +37,12 @@ const TRIAL_TAG = '__navTrial';
 /** Materials are cloned per mesh on first touch so the trial never leaks into shared materials. */
 function own<T extends THREE.Material>(mesh: THREE.Mesh): T {
   if (!mesh.userData[TRIAL_TAG]) {
-    mesh.material = (mesh.material as THREE.Material).clone();
+    const src = mesh.material as THREE.Material;
+    const copy = src.clone();
+    // Material.clone() drops onBeforeCompile/customProgramCacheKey — keep the hospital PBR shader.
+    copy.onBeforeCompile = src.onBeforeCompile;
+    copy.customProgramCacheKey = src.customProgramCacheKey;
+    mesh.material = copy;
     mesh.userData[TRIAL_TAG] = true;
   }
   return mesh.material as T;
@@ -47,11 +52,8 @@ export function applyTrialSurfaces(walls: THREE.Object3D, dressing: THREE.Object
   walls.traverse(o => {
     const m = o as THREE.Mesh;
     if (!m.isMesh || Array.isArray(m.material) || m.userData[TRIAL_TAG]) return;
-    if (m.userData.renderMaterial === 'floor') {
-      const mat = own<THREE.MeshStandardMaterial>(m);
-      if ('roughness' in mat) { mat.roughness = 0.38; mat.metalness = 0.0; mat.envMapIntensity = 1.6; }
-      mat.color?.multiplyScalar(0.9);
-    } else if (m.userData.wallId) {
+    // Floors keep the default asset look exactly (terrazzo PBR maps untouched).
+    if (m.userData.wallId) {
       const mat = own<THREE.MeshStandardMaterial>(m);
       mat.color?.lerp(new THREE.Color('#ffffff'), 0.3);
     }
@@ -124,10 +126,28 @@ function arrowTexture() {
   return arrowTex;
 }
 
-/** Near blades/lintels a little larger (×1.25) for readability. */
+/**
+ * Door blade signs 20% smaller (×0.8), bracket arm scaled with them and still meeting the wall:
+ * the blade keeps its wall-side edge distance and hangs just under the (shortened) arm.
+ */
 export function applyTrialSigns(signs: THREE.Object3D | null) {
+  const k = 0.8;
   signs?.traverse(o => {
-    const k = o.userData.navSign?.kind;
-    if (k === 'blade' || k === 'lintel') o.scale.setScalar(1.25);
+    if (o.userData.navSign?.kind !== 'blade' || o.userData.__trialScaled) return;
+    const arm = o.userData.arm as THREE.Object3D | undefined;
+    const wallX = o.userData.wallX as number | undefined; // blade inner edge offset from the wall face (cm)
+    const x = new THREE.Vector3(1, 0, 0).applyQuaternion(o.quaternion); // into the corridor
+    o.scale.setScalar(k);
+    if (arm && wallX !== undefined) {
+      // Blade: inner edge stays wallX from the wall; centre moves in by half the width lost.
+      o.position.addScaledVector(x, -(64 * (1 - k)) / 2);
+      // Arm: from the wall face to the blade's outer edge, at the blade's new top.
+      const armLen = (wallX + 64 * k) + 2;
+      const armStart = (arm.userData.wallFace as THREE.Vector3).clone();
+      arm.scale.set(armLen / 42, 1, 1);
+      arm.position.copy(armStart).addScaledVector(x, armLen / 2);
+      arm.position.y = o.position.y + (20 * k) / 2 + 1;
+    }
+    o.userData.__trialScaled = true;
   });
 }

@@ -93,6 +93,7 @@
     createHospitalDoorEdgeMaterial,
     createHospitalDoorFrameMaterial,
     isHospitalFloorTexture,
+    navUsesHospitalFloor,
     isHospitalWallTexture,
   } from '$lib/utils/hospitalMaterials';
 
@@ -2902,6 +2903,22 @@
     return typeof window !== 'undefined' && window.innerWidth < 600;
   }
 
+  /** Test hook: floor materials in the nav scene (is the hospital PBR shader still attached?). */
+  export function debugFloorMaterials() {
+    const out: { n: number; pbr: number; patched: number; rough: number[]; env: number[]; trial: number } = { n: 0, pbr: 0, patched: 0, rough: [], env: [], trial: 0 };
+    wallGroup?.traverse(o => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || m.userData.renderMaterial !== 'floor') return;
+      const mat = m.material as THREE.MeshStandardMaterial;
+      out.n++;
+      if (mat.onBeforeCompile && mat.onBeforeCompile.toString().includes('hospital')) out.patched++;
+      if (String(mat.customProgramCacheKey?.()).includes('-pbr')) out.pbr++;
+      if (!out.rough.includes(mat.roughness)) out.rough.push(mat.roughness);
+      if (!out.env.includes(mat.envMapIntensity)) out.env.push(mat.envMapIntensity);
+      if (m.userData.__navTrial) out.trial++;
+    });
+    return out;
+  }
   export function debugCamera() {
     const d = new THREE.Vector3(); camera.getWorldDirection(d);
     return { x: camera.position.x, y: camera.position.z, dx: d.x, dy: d.z, walk: walkthroughMode, floor: currentFloor?.id };
@@ -3474,7 +3491,7 @@
 
       // Use room's floor material or fallback to color coding
       let material: THREE.MeshStandardMaterial;
-      if (isHospitalFloorTexture(room.floorTexture)) {
+      if (isHospitalFloorTexture(room.floorTexture) || (navShell && navUsesHospitalFloor(room.floorTexture))) {
         material = createHospitalSurfaceMaterial(
           'floor',
           room.color || getMaterial('hospital-floor').color,

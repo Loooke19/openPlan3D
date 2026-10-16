@@ -65,6 +65,22 @@ export function isHospitalFloorTexture(id: string | undefined | null): boolean {
   return id === HOSPITAL_FLOOR_ID;
 }
 
+/** True once the nav preview turned on the imported CC0 PBR pack (static/nav-textures). */
+export function hospitalPbrEnabled(): boolean {
+  return !!pbr;
+}
+
+/**
+ * Nav preview: hard/unspecified floor finishes (none, generic ceramic/porcelain/vinyl tiles) render
+ * with the imported terrazzo PBR pack instead of the editor's catalogue swatches — the editor's
+ * "ceramic-gray" (ambientCG Tiles101) is a blue-white azulejo that does not belong in a hospital.
+ * Wood, carpet, stone and marble finishes keep their own textures.
+ */
+const NAV_PBR_FLOOR_IDS = new Set(['none', 'ceramic-white', 'ceramic-gray', 'porcelain', 'vinyl']);
+export function navUsesHospitalFloor(id: string | undefined | null): boolean {
+  return isHospitalFloorTexture(id) || (!!pbr && (!id || NAV_PBR_FLOOR_IDS.has(id)));
+}
+
 /**
  * Optional CC0 PBR detail (static/nav-textures, ambientCG Terrazzo009 / PaintedPlaster017 /
  * Plastic010). The nav preview turns it on; the editor never does. Maps are luminance detail
