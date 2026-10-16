@@ -136,3 +136,23 @@ describe('corridor light rows', () => {
     expect(r.length).toBeGreaterThanOrEqual(8);
   });
 });
+
+import { mergeCollinear, centerRoute as cr } from '../src/lib/components/viewer3d/nav/layout';
+describe('route centring across planner node chains', () => {
+  it('merges collinear points', () => {
+    expect(mergeCollinear([{ x: 0, y: 0 }, { x: 0, y: 50 }, { x: 0, y: 170 }, { x: 300, y: 170 }])).toEqual([{ x: 0, y: 0 }, { x: 0, y: 170 }, { x: 300, y: 170 }]);
+  });
+  it('centres a leg split into short collinear pieces', () => {
+    // vertical corridor x in [300, 500] (centre 400), route runs at x=460 in 3 short pieces
+    const walls = [
+      { start: { x: 300, y: -400 }, end: { x: 300, y: 600 } }, { start: { x: 500, y: -400 }, end: { x: 500, y: 200 } },
+      { start: { x: 500, y: 400 }, end: { x: 1200, y: 400 } }, { start: { x: 500, y: 200 }, end: { x: 1200, y: 200 } },
+      { start: { x: 300, y: 600 }, end: { x: 1200, y: 600 } },
+    ];
+    const pts = [{ x: 460, y: -380 }, { x: 460, y: -300 }, { x: 460, y: -200 }, { x: 460, y: -100 }, { x: 460, y: 0 }, { x: 460, y: 300 }, { x: 1100, y: 300 }, { x: 1100, y: 290 }];
+    const out = cr(pts, walls, { radius: 0 });
+    const leg = sample(out).filter(p => p.y > -250 && p.y < 150);
+    expect(leg.length).toBeGreaterThan(0);
+    for (const p of leg) expect(Math.abs(p.x - 400)).toBeLessThan(6);
+  });
+});
