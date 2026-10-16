@@ -84,6 +84,7 @@
   import { navDoors } from './nav/navDoors';
   import { pinText, mapLabels, nearRoute } from '$lib/utils/navCopy';
   import { base as appBase } from '$app/paths';
+  import { navVisualTrialActive, applyTrialLights, applyTrialSurfaces, applyTrialRoute, applyTrialSigns, buildTurnHints } from './nav/visualTrial';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
   import {
     enableHospitalPbr,
@@ -1407,6 +1408,12 @@
     updateNavLabelVisibility();
     const bounds = wallGroup?.children.length ? new THREE.Box3().setFromObject(wallGroup) : null;
     applyNavLightRig({ ambient: ambientLight, hemi: hemiLight, sun: sunLight, fill: fillLight, rim: rimLight }, look, bounds, navPipeline.quality);
+    // Opt-in visual trial (?visualTrial=<floor>) — only on that floor, only in first person.
+    if (navVisualTrialActive(currentFloor)) {
+      applyTrialLights({ ambient: ambientLight, hemi: hemiLight, fill: fillLight }, look === 'walk');
+      if (look === 'walk') navPipeline.setExposure(1.24);
+    }
+    if (navTurnHints) navTurnHints.visible = look === 'walk';
     renderer.shadowMap.needsUpdate = true;
     markSceneDirty();
   }
@@ -1507,6 +1514,10 @@
       const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2 && !isCirculationRoom(r.room.name, r.room.roomType)).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
       navSigns = new NavSigns(doors, named, activeFloorElevation, links);
       scene.add(navSigns.group);
+      if (navVisualTrialActive(currentFloor)) {
+        applyTrialSurfaces(wallGroup, navDressing?.group ?? null);
+        applyTrialSigns(navSigns.group);
+      }
     }
     applyNavLook(navLook, true);
   }
@@ -2135,6 +2146,12 @@
         navRouteVisual = new NavRouteVisual(simRoute, { y: 4.6 });
         navRouteVisual.setWalk(navLook === 'walk');
         routeGroup.add(navRouteVisual.group);
+        if (navVisualTrialActive(currentFloor)) {
+          applyTrialRoute(navRouteVisual);
+          navTurnHints = buildTurnHints(simRoute, 0);
+          navTurnHints.visible = navLook === 'walk';
+          routeGroup.add(navTurnHints);
+        }
       }
       navRouteVisual?.setTraveled(simulating && traveledRatio > 0.001 ? traveledRatio * simTotalLen : -1);
       markSceneDirty();
@@ -2169,6 +2186,7 @@
     routeGroup.position.y = activeFloorElevation;
     navRouteVisual?.dispose();
     navRouteVisual = null;
+    navTurnHints = null;
     clearGroup(routeGroup);
     routeMarker = null;
     // Nav: ride the corridor centreline with rounded corners (2D map and floor stack untouched).
@@ -2398,6 +2416,8 @@
   }
 
   let navPlaceTs = 0;
+  /** Visual trial: floor turn arrows (lives in routeGroup, cleared with the route). */
+  let navTurnHints: THREE.Group | null = null;
   /**
    * First-person FOV: 62° vertical on landscape; portrait keeps ≥ 72° horizontal (a 390 px phone
    * at 50° vertical saw a 26° tunnel). Restored to the authored FOV outside walk mode.
@@ -2836,7 +2856,7 @@
       // Destination door stands open; doors the route passes through open on approach (≤2.5 m)
       // and close again behind; every other door stays shut.
       const near = walking && activeRouteDoorIds.has(leaf.doorId)
-        && Math.hypot(camera.position.x - leaf.center.x, camera.position.z - leaf.center.y) < 250;
+        && Math.hypot(camera.position.x - leaf.center.x, camera.position.z - leaf.center.y) < (navVisualTrialActive(currentFloor) ? 450 : 250);
       const target = leaf.doorId === navDestDoorId || near ? 1 : 0;
       if (leaf.t === target) continue;
       leaf.t = target > leaf.t ? Math.min(1, leaf.t + dtMs / 450) : Math.max(0, leaf.t - dtMs / 600);
