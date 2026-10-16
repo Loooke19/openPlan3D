@@ -253,14 +253,34 @@ function segmentClipsWall(a: P2, b: P2, walls: WallSeg[]): boolean {
   return false;
 }
 
-function pathClipsWall(pts: P2[], walls: WallSeg[]): boolean {
+export function pathClipsWall(pts: P2[], walls: WallSeg[]): boolean {
   for (let i = 0; i + 1 < pts.length; i++) if (segmentClipsWall(pts[i], pts[i + 1], walls)) return true;
   return false;
 }
 
+/**
+ * Drop interior points that do not turn (planner node chains like 3 -> -47 -> -164 on one line):
+ * otherwise each piece is a short leg below the centring threshold and the whole run stays on the
+ * planner's off-centre line (route hugging one wall, misaligned L-turn).
+ */
+export function mergeCollinear(points: P2[], tol = 2): P2[] {
+  const out: P2[] = [];
+  for (const p of points) {
+    if (out.length && Math.hypot(p.x - out[out.length - 1].x, p.y - out[out.length - 1].y) < 0.5) continue;
+    while (out.length >= 2) {
+      const a = out[out.length - 2], b = out[out.length - 1];
+      const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+      const dot = (b.x - a.x) * (p.x - b.x) + (b.y - a.y) * (p.y - b.y);
+      if (Math.abs(cross) / (Math.hypot(p.x - a.x, p.y - a.y) || 1) < tol && dot >= 0) out.pop(); else break;
+    }
+    out.push(p);
+  }
+  return out;
+}
+
 export function centerRoute(points: P2[], walls: WallSeg[], opts: { maxWidth?: number; radius?: number } = {}): P2[] {
   const raw = points.slice();
-  if (points.length >= 2 && walls.length) points = orthogonalize(points, walls);
+  if (points.length >= 2 && walls.length) { const o = orthogonalize(points, walls); points = o.length > 3 ? [o[0], ...mergeCollinear(o.slice(1, -1)), o[o.length - 1]] : o; } // end legs stay (destination stubs)
   if (points.length < 4 || !walls.length) return pathClipsWall(points, walls) ? raw : points.slice();
   // Wide halls are centred too (route must not hug a wall); door gaps give outlier widths.
   const maxWidth = opts.maxWidth ?? 1600;
@@ -284,21 +304,42 @@ export function centerRoute(points: P2[], walls: WallSeg[], opts: { maxWidth?: n
     if (offs.length >= 3) shift[i] = median(offs);
   }
   const lineP = (i: number) => ({ x: points[i].x - dirs[i].y * shift[i], y: points[i].y + dirs[i].x * shift[i] });
-  const out: P2[] = [points[0]];
-  for (let k = 1; k < n; k++) {
-    const hit = lineIntersect(lineP(k - 1), dirs[k - 1], lineP(k), dirs[k]);
-    const orig = points[k];
-    if (hit && Math.hypot(hit.x - orig.x, hit.y - orig.y) < 800) { out.push(hit); continue; }
-    // Collinear neighbours (e.g. an unshifted end leg): ease onto the shifted run instead.
-    if (shift[k]) out.push(lineP(k));
-    else if (shift[k - 1]) out.push({ x: orig.x - dirs[k - 1].y * shift[k - 1], y: orig.y + dirs[k - 1].x * shift[k - 1] });
-    else out.push(orig);
+  const build = () => {
+    const out: P2[] = [points[0]];
+    for (let k = 1; k < n; k++) {
+      const hit = lineIntersect(lineP(k - 1), dirs[k - 1], lineP(k), dirs[k]);
+      const orig = points[k];
+      if (hit && Math.hypot(hit.x - orig.x, hit.y - orig.y) < 800) { out.push(hit); continue; }
+      // Collinear neighbours (e.g. an unshifted end leg): ease onto the shifted run instead.
+      if (shift[k]) out.push(lineP(k));
+      else if (shift[k - 1]) out.push({ x: orig.x - dirs[k - 1].y * shift[k - 1], y: orig.y + dirs[k - 1].x * shift[k - 1] });
+      else out.push(orig);
+    }
+    out.push(points[n]);
+    return out;
+  };
+  // Per leg: a shift that makes its (or a neighbour's) segment cut a wall the planner's segment did
+  // not cut is dropped, the rest stay centred. (All-or-nothing used to throw away every shift as
+  // soon as the planner's own path grazed one wall, so whole routes stayed off-centre.)
+  const rawClip = (i: number) => pathClipsWall([points[i], points[i + 1]], walls);
+  let out = build();
+  for (let guard = 0; guard < n; guard++) {
+    const bad: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const reversed = (out[i + 1].x - out[i].x) * dirs[i].x + (out[i + 1].y - out[i].y) * dirs[i].y < 1;
+      if (reversed || (pathClipsWall([out[i], out[i + 1]], walls) && !rawClip(i))) bad.push(i);
+    }
+    if (!bad.length) break;
+    let changed = false;
+    for (const i of bad) for (const j of [i, i + 1, i - 1]) if (j >= 0 && j < n && shift[j]) { shift[j] = 0; changed = true; break; }
+    if (!changed) return raw;
+    out = build();
   }
-  out.push(points[n]);
-  // Rounding / centering must never invent a wall clip the planner did not have.
-  if (pathClipsWall(out, walls)) return raw;
+  const clips = (pts: P2[]) => pts.slice(1).filter((p, i) => pathClipsWall([pts[i], p], walls)).length;
+  const base = clips(points);
+  if (clips(out) > base) return raw;
   const rounded = roundCorners(out, opts.radius ?? 70);
-  return pathClipsWall(rounded, walls) ? out : rounded;
+  return clips(rounded) > base ? out : rounded;
 }
 
 export function roundCorners(points: P2[], radius: number, steps = 6): P2[] {
