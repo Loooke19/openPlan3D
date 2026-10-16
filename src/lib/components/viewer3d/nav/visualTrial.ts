@@ -33,8 +33,6 @@ export function applyTrialLights(rig: LightRig, walk: boolean) {
   rig.ambient.color.set('#dfe9e7'); rig.ambient.intensity = 0.22;
   rig.hemi.color.set('#eef6f5'); rig.hemi.groundColor.set('#8ea3a0'); rig.hemi.intensity = 0.95;
   rig.fill.color.set('#e6f1f0'); rig.fill.intensity = 0.16;
-  rig.sun.intensity *= 0.55; rig.sun.shadow.radius = Math.max(rig.sun.shadow.radius, 6);
-  rig.rim.intensity *= 0.5;
 }
 
 const TRIAL_TAG = '__navTrial';

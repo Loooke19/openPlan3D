@@ -10,20 +10,23 @@
  */
 import * as THREE from 'three';
 
-export const MH01_TILE_CM = 200;
+/** Module drawn at 0.8 m (user choice: 60% smaller than the kit's 2 m); pattern scales with it. */
+export const MH01_TILE_CM = 80;
+const KIT_CM = 200; // pattern is authored in the kit's 2 m module units
 const lin = (r: number, g: number, b: number) => '#' + new THREE.Color().setRGB(r, g, b, THREE.LinearSRGBColorSpace).getHexString(THREE.SRGBColorSpace);
 export const MH01 = {
   cream: lin(0.54, 0.58, 0.55),
   white: lin(0.78, 0.82, 0.8),
-  teal: lin(0.02, 0.42, 0.38),
-  tealDark: lin(0.018, 0.15, 0.15),
+  // Kit strips are teal (#27ada6 / #246c6c); recoloured to light blue-grey accents per user.
+  teal: '#a9b8c6',
+  tealDark: '#7f93a6',
 };
 
 let tex: THREE.CanvasTexture | null = null;
 export function mh01Texture(): THREE.CanvasTexture {
   if (tex) return tex;
   const S = 1024, c = document.createElement('canvas'); c.width = c.height = S;
-  const g = c.getContext('2d')!; const px = (cm: number) => (cm / MH01_TILE_CM) * S;
+  const g = c.getContext('2d')!; const px = (cm: number) => (cm / KIT_CM) * S;
   g.fillStyle = MH01.cream; g.fillRect(0, 0, S, S);
   g.fillStyle = MH01.white; g.fillRect(px(11), px(11), S - 2 * px(11), S - 2 * px(11));
   // strips: centre 10 cm from the tile edge, 186 cm long (7 cm short of each corner)

@@ -1413,7 +1413,12 @@
     // Opt-in visual trial (?visualTrial=<floor>) — only on that floor, only in first person.
     if (navVisualTrialActive(currentFloor)) {
       applyTrialLights({ ambient: ambientLight, hemi: hemiLight, fill: fillLight }, look === 'walk');
-      if (look === 'walk') navPipeline.setExposure(1.24);
+      if (look === 'walk') {
+        navPipeline.setExposure(1.24);
+        // kit preview: weak direct light, soft shadow edge (rig was just reset above, so no compounding)
+        sunLight.intensity *= 0.55; rimLight.intensity *= 0.5;
+        sunLight.shadow.radius = Math.max(sunLight.shadow.radius, 6);
+      }
     }
     if (navTurnHints) navTurnHints.visible = look === 'walk';
     renderer.shadowMap.needsUpdate = true;
@@ -1537,6 +1542,7 @@
         navKit = new NavKitDressing(floorRef.walls, kitDoors, kitRooms, null, activeFloorElevation, `${appBase}/nav-kit`, () => { if (currentFloor === floorRef) markSceneDirty(); }, [], []);
         navKit.setCut(navCut.y);
         scene.add(navKit.group);
+        if (import.meta.env.DEV) Object.assign(window, { __navKit: navKit });
       }
     }
     applyNavLook(navLook, true);

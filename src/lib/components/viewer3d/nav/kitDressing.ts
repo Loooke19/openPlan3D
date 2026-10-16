@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { inside, rayToWall } from './layout';
-import { mh01Texture } from './clinicFloor';
+import { mh01Texture, MH01_TILE_CM } from './clinicFloor';
 import type { Floor } from '$lib/models/types';
 
 export type P = { x: number; y: number };
@@ -114,9 +114,9 @@ export function regularizeWalls<T extends KitWall>(walls: T[]): { walls: T[]; sq
 // ---------- plan-space layout ----------
 /** One oriented box in plan space: centre, unit axis u (length dir), half sizes, y range. */
 export type KitBox = { kind: string; asset: string; c: P; u: P; hl: number; hd: number; y0: number; y1: number; wall?: number; room?: string; corner?: boolean };
-const FACE = { panel: 1, skirt: 2, rail: 5, post: 5 };
+const FACE = { panel: 1, skirt: 2, rail: 5, post: 3 };
 const BAY = 240; // module length (cm)
-const POST_W = 12;
+const POST_W = 6; // MH02 Wall_Post is a slim 6 cm-ish teal-dark strip, not a block
 
 function rectOf(w: KitWall, pad = 0): KitBox {
   const dx = w.end.x - w.start.x, dy = w.end.y - w.start.y, L = Math.hypot(dx, dy) || 1;
@@ -246,7 +246,7 @@ export function planKit(walls: KitWall[], doors: KitDoor[], rooms: KitRoom[], fo
           const u = { x: wb.u.x, y: wb.u.y };
           // (the kit's inset face panel is left out: flat-shaded it read darker than the painted wall)
           boxes.push({ kind: 'skirt', asset: 'skirt', c: at(FACE.skirt / 2), u, hl: bay / 2, hd: FACE.skirt / 2, y0: 0, y1: 12, wall: wi });
-          boxes.push({ kind: 'rail', asset: 'rail', c: at(FACE.panel + (FACE.rail - FACE.panel) / 2), u, hl: bay / 2, hd: (FACE.rail - FACE.panel) / 2, y0: 72, y1: 84, wall: wi });
+          boxes.push({ kind: 'rail', asset: 'rail', c: at(FACE.rail / 2), u, hl: bay / 2, hd: FACE.rail / 2, /* flush on the wall face (no panel behind it) */ y0: 72, y1: 84, wall: wi });
           if (k < nb - 1) {
             const pm = s0 + bay + POST_W / 2;
             boxes.push({ kind: 'post', asset: 'post', c: { x: w.start.x + wb.u.x * pm + n.x * (half + FACE.post / 2), y: w.start.y + wb.u.y * pm + n.y * (half + FACE.post / 2) }, u, hl: POST_W / 2, hd: FACE.post / 2, y0: 5, y1: 277, wall: wi });
@@ -474,7 +474,7 @@ export function createKitFloorMesh(footprint: P[], exclusions: FloorExclusions =
   const tex = mh01Texture();
   const geo = kitFloorGeometry(footprint, exclusions, regions);
   const pos = geo.getAttribute('position'), uv = geo.getAttribute('uv');
-  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / 200, pos.getY(i) / 200);
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / MH01_TILE_CM, pos.getY(i) / MH01_TILE_CM);
   geo.rotateX(Math.PI / 2); // plan y -> world z
   const m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   m.side = THREE.DoubleSide;
@@ -505,10 +505,16 @@ export class NavKitDressing {
   }
   private buildTrims() {
     const unit = new THREE.BoxGeometry(1, 1, 1); this.disposables.push(unit);
-    for (const kind of ['panel', 'skirt', 'rail', 'post']) {
-      const list = this.plan.boxes.filter(b => b.kind === kind);
+    // Outer-corner posts wrap the wall end: painted like the MH02 white face so they read as a
+    // corner guard, not a dark block; in-wall posts stay slim teal-dark strips.
+    const groups: [string, KitBox[]][] = [
+      ...['panel', 'skirt', 'rail'].map(k => [k, this.plan.boxes.filter(b => b.kind === k)] as [string, KitBox[]]),
+      ['post', this.plan.boxes.filter(b => b.kind === 'post' && !b.corner)],
+      ['cornerPost', this.plan.boxes.filter(b => b.kind === 'post' && b.corner)],
+    ];
+    for (const [kind, list] of groups) {
       if (!list.length) continue;
-      const im = new THREE.InstancedMesh(unit, this.material(TRIM_COLORS[kind]), list.length);
+      const im = new THREE.InstancedMesh(unit, this.material(kind === 'cornerPost' ? KIT_PALETTE.MAT_WHITE : TRIM_COLORS[kind]), list.length);
       this.trims.push({ mesh: im, boxes: list });
       im.receiveShadow = true; im.userData.navDressing = true; im.name = 'kit-' + kind;
       this.group.add(im);
