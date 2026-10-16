@@ -120,3 +120,19 @@ describe('corridor lights outside room faces', () => {
     expect(enclosedRooms([{ polygon: top }, { polygon: bottom }, wrap]).length).toBe(2);
   });
 });
+
+import { alignLightRuns, polygonCorridorSpots } from '../src/lib/components/viewer3d/nav/layout';
+describe('corridor light rows', () => {
+  it('snaps a row to one centreline with even spacing', () => {
+    const r = alignLightRuns([{ x: 0, z: 100, long: true }, { x: 290, z: 112, long: true }, { x: 610, z: 98, long: true }]);
+    expect(new Set(r.map(s => s.z)).size).toBe(1);
+    expect(r[1].x - r[0].x).toBeCloseTo(r[2].x - r[1].x);
+  });
+  it('lights an L-shaped corridor along both legs on their centrelines', () => {
+    const L = [{ x: 0, y: 0 }, { x: 1500, y: 0 }, { x: 1500, y: 1500 }, { x: 1300, y: 1500 }, { x: 1300, y: 200 }, { x: 0, y: 200 }];
+    const r = polygonCorridorSpots(L)!;
+    expect(r.filter(s => s.long).every(s => Math.abs(s.z - 100) < 1)).toBe(true);
+    expect(r.filter(s => !s.long).every(s => Math.abs(s.x - 1400) < 1)).toBe(true);
+    expect(r.length).toBeGreaterThanOrEqual(8);
+  });
+});
