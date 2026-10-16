@@ -77,7 +77,7 @@
   import { NavPipeline, type NavLook } from './nav/pipeline';
   import { NavRouteVisual } from './nav/route';
   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
-  import { createClinicFloorMaterial, mh01WorldUv } from './nav/clinicFloor';
+  import { createNavFloorMaterial, navFloorUv } from './nav/clinicFloor';
   import { NavKitDressing } from './nav/kitDressing';
   import { NavSigns, isCirculationRoom, type SignDoor } from './nav/signs';
   import { NAV_FONT, navFontLoaded, navFontReady } from '$lib/utils/navFonts';
@@ -2944,6 +2944,10 @@
     });
     return out;
   }
+  /** Test hook: centred route polyline (plan cm) and how many zero-height (virtual) walls the floor has. */
+  export function debugSimRoute() {
+    return { route: simRoute.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })), virtualWalls: (currentFloor?.walls ?? []).filter(w => w.height === 0).length, walls: currentFloor?.walls.length ?? 0 };
+  }
   export function debugCamera() {
     const d = new THREE.Vector3(); camera.getWorldDirection(d);
     return { x: camera.position.x, y: camera.position.z, dx: d.x, dy: d.z, walk: walkthroughMode, floor: currentFloor?.id };
@@ -3517,9 +3521,9 @@
       // Use room's floor material or fallback to color coding
       let material: THREE.MeshStandardMaterial;
       if (navShell) {
-        // Nav preview: every room floor uses the clinic kit MH01 2 m floor module look.
-        mh01WorldUv(geo);
-        material = createClinicFloorMaterial();
+        // Nav preview: one floor finish for every room (PVC default; ?floorFinish=grid kit MH01 / ?floorFinish=stone).
+        navFloorUv(geo);
+        material = createNavFloorMaterial();
       } else if (isHospitalFloorTexture(room.floorTexture)) {
         material = createHospitalSurfaceMaterial(
           'floor',
