@@ -237,6 +237,7 @@ export interface Floor {
   level: number;
   /** Floor surface above ground in cm; omitted in legacy projects (level × 300). */
   elevation?: number;
+  height?: number;
   /** Room slab depth below the floor surface in cm; defaults to 5. */
   slabThickness?: number;
   walls: Wall[];
