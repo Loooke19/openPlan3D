@@ -1,0 +1,8 @@
+99s loaded
+353s 约 21 米
+376s poses 102
+376s ext {"x":280.5,"y":1846.9,"dx":-0.9992976157091807,"dy":0,"walk":true,"floor":"floor-0"} 14.299999999999955 mid {"x":-99.8,"y":1083.24,"dx":-0.32490463420014315,"dy":-0.9453254258344984,"walk":true,"floor":"floor-0"} 777.96
+384s saved /workspace/navi-progress-1014/fp-corridor.png
+390s saved /workspace/navi-progress-1014/fp-exterior-a.png
+397s saved /workspace/navi-progress-1014/fp-exterior-b.png
+397s pick ["[{\"type\":\"Mesh\",\"name\":\"\",\"y\":159.6,\"ud\":[\"wallId\",\"navTopMaterial\",\"kitBaked\"],\"mat\":\"multi\",\"face\":[0,0,1]},{\"type\":\"Mesh\",\"name\":\"\",\"y\":159.6,\"ud\":[\"wallId\",\"navTopMaterial\",\"kitBaked\"],\"mat\":\"multi\",\"face\":[-1,0,0]},{\"type\":\"Mesh\",\"name\":\"\",\"y\":157,\"ud\":[\"wallId\",\"navTopMaterial\",\"kitBaked\"],\"mat\":\"multi\",\"face\":[0,0,-1]},{\"type\":\"Mesh\",\"name\":\"\",\"y\":156.8,\"ud\":[\"wallId\",\"navTopMaterial\",\"kitBaked\"],\"mat\":\"multi\",\"face\":[0,0,1]}]","[{\"type\":\"Mesh\",\"name\":\"\",\"y\":159.4,\"ud\":[\"wallId\",\"navTopMaterial\",\"kitBaked\"],\"mat\":\"multi\",\"face\":[0,0,1]},{\"type\":\"Mesh\",\"name\":\"\",\"y\":159.4,\"ud\":[\"wallId\",\"navTopMaterial\",\"kitBaked\"],\"mat\":\"multi\",\"face\":[-1,

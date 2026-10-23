@@ -1,0 +1,17 @@
+ data/overrides/P1-1F.json        | 210 ++++++++++++++++++++++++++++++++++
+ data/overrides/P1-2F.json        | 164 ++++++++++++++++++++++++++
+ data/overrides/P1-3F.json        | 111 ++++++++++++++++++
+ data/overrides/P2-3F.json        |  32 ++++++
+ data/overrides/P3-1F.json        |   2 +
+ data/overrides/P3-2F.json        |   3 +
+ data/overrides/P3-3F.json        |   2 +
+ data/overrides/P3-4F.json        |   1 +
+ data/overrides/pdf_truth.json    |   7 ++
+ scripts/floor_nav.py             | 997 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--------------------
+ scripts/floor_overrides.py       | 274 ++++++++++++++++++++++++++++++++++++++++++++
+ scripts/kujiale_import_server.py |  19 +++-
+ scripts/maker_cad.py             |  89 +++++++++++++++
+ scripts/openplan_project.py      | 134 ++++++++++++++++++++--
+ scripts/pdf_building.py          |  19 +++-
+ scripts/verify_import.py         | 142 +++++++++++++++++++++++
+ 16 files changed, 2064 insertions(+), 142 deletions(-)

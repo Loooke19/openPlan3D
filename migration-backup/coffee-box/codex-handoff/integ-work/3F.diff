@@ -1,0 +1,1549 @@
+diff -ruN -x .git -x var -x __pycache__ -x node_modules -x verification-p1-2f merge-wt/data/overrides/P1-3F.json codex-p1-fix-3F/repo/data/overrides/P1-3F.json
+--- merge-wt/data/overrides/P1-3F.json	2026-10-13 18:12:20.578149980 +0800
++++ codex-p1-fix-3F/repo/data/overrides/P1-3F.json	2026-10-13 20:53:48.495607690 +0800
+@@ -61,6 +61,432 @@
+    "y": 1008,
+    "tol": 4,
+    "_why": "走廊南墙门洞处门框细线（PDF 为门）"
++  },
++  {
++   "x": -1715.99,
++   "y": -309.27,
++   "tol": 1,
++   "_why": "细菌室窗带碎面"
++  },
++  {
++   "x": 282.43,
++   "y": -325.14,
++   "tol": 1,
++   "_why": "男卫内部伪隔墙"
++  },
++  {
++   "x": -830.14,
++   "y": 498.86,
++   "tol": 1,
++   "_why": "体检窗口中间伪隔墙"
++  },
++  {
++   "x": -731.63,
++   "y": 250.7,
++   "tol": 1,
++   "_why": "体检窗口右侧门框窄带"
++  },
++  {
++   "x": -731.63,
++   "y": 631.42,
++   "tol": 1,
++   "_why": "体检窗口右侧门框窄带"
++  },
++  {
++   "x": -741.68,
++   "y": 46.72,
++   "tol": 1,
++   "_why": "主走廊家具延长线"
++  },
++  {
++   "x": -666.36,
++   "y": -43.51,
++   "tol": 1,
++   "_why": "体检B超室门侧延长线"
++  },
++  {
++   "x": -666.36,
++   "y": 21.3,
++   "tol": 1,
++   "_why": "主走廊家具延长线"
++  },
++  {
++   "x": -666.36,
++   "y": 137.56,
++   "tol": 1,
++   "_why": "主走廊家具延长线"
++  },
++  {
++   "x": -928.65,
++   "y": -140.55,
++   "tol": 1,
++   "_why": "中医体质辨识室内家具延长线"
++  },
++  {
++   "x": -928.65,
++   "y": -48.02,
++   "tol": 1,
++   "_why": "中医体质辨识室内家具延长线"
++  },
++  {
++   "x": -1702.98,
++   "y": 459.06,
++   "tol": 1,
++   "_why": "检验无名区伪隔墙"
++  },
++  {
++   "x": -1776.73,
++   "y": 1263.15,
++   "tol": 1,
++   "_why": "内窥镜室内部伪隔墙"
++  },
++  {
++   "x": 1511.33,
++   "y": 1168.21,
++   "tol": 1,
++   "_why": "门诊妇科门侧窄带"
++  },
++  {
++   "x": 1511.33,
++   "y": 1327.37,
++   "tol": 1,
++   "_why": "门诊妇科门侧窄带"
++  },
++  {
++   "x": 1448.24,
++   "y": 1314.09,
++   "tol": 1,
++   "_why": "妇科检查门框延长线"
++  },
++  {
++   "x": 1385.14,
++   "y": 1327.37,
++   "tol": 1,
++   "_why": "妇科检查门框封线"
++  },
++  {
++   "x": 1177.22,
++   "y": 1364.1,
++   "tol": 1,
++   "_why": "产科检查门框延长线"
++  },
++  {
++   "x": 1225.12,
++   "y": 1352.37,
++   "tol": 1,
++   "_why": "产科检查门框封线"
++  },
++  {
++   "x": 1508.69,
++   "y": 1624.92,
++   "tol": 1,
++   "_why": "谈话室角部伪隔墙"
++  },
++  {
++   "x": 1980.14,
++   "y": 580.03,
++   "tol": 1,
++   "_why": "休息南墙沿原PDF范围补回，去掉登记医生更衣侧和外墙外延长线"
++  },
++  {
++   "x": 1980.14,
++   "y": 569.24,
++   "tol": 1,
++   "_why": "休息/计生手术室双开门框细线，真实墙以y=580.03表达"
++  },
++  {
++   "x": 2264.83,
++   "y": 574.63,
++   "tol": 1,
++   "_why": "门框伪封线"
++  },
++  {
++   "x": 2264.83,
++   "y": 574.63,
++   "tol": 1,
++   "_why": "门框伪封线"
++  },
++  {
++   "x": 1695.46,
++   "y": 672.01,
++   "tol": 1,
++   "_why": "登记医生更衣侧伪隔墙"
++  },
++  {
++   "start": {
++    "x": -1785.19,
++    "y": -383.92
++   },
++   "end": {
++    "x": -1646.8,
++    "y": -383.92
++   },
++   "tol": 1,
++   "_why": "细菌室顶部窗带；保留仪器室北墙"
++  },
++  {
++   "start": {
++    "x": -1016.37,
++    "y": -200.49
++   },
++   "end": {
++    "x": -928.65,
++    "y": -200.49
++   },
++   "tol": 1,
++   "_why": "中医体质辨识室内伪隔墙；不裁楼梯内部分"
++  },
++  {
++   "start": {
++    "x": -1016.37,
++    "y": -141.61
++   },
++   "end": {
++    "x": -741.68,
++    "y": -141.61
++   },
++   "tol": 1,
++   "_why": "中医体质辨识室内伪隔墙；不裁楼梯内部分"
++  },
++  {
++   "start": {
++    "x": -1016.37,
++    "y": -15.44
++   },
++   "end": {
++    "x": -928.65,
++    "y": -15.44
++   },
++   "tol": 1,
++   "_why": "中医体质辨识室内伪隔墙；不裁楼梯内部分"
++  },
++  {
++   "start": {
++    "x": -1016.37,
++    "y": 40.06
++   },
++   "end": {
++    "x": -709.77,
++    "y": 40.06
++   },
++   "tol": 1,
++   "_why": "主走廊家具延长线；不裁楼梯内部分"
++  },
++  {
++   "start": {
++    "x": -928.65,
++    "y": 2.54
++   },
++   "end": {
++    "x": -928.65,
++    "y": 235.06
++   },
++   "tol": 1,
++   "_why": "北侧走廊内部延长线，保留体检窗口左墙"
++  },
++  {
++   "start": {
++    "x": 1695.46,
++    "y": -160.4
++   },
++   "end": {
++    "x": 1805.99,
++    "y": -160.4
++   },
++   "tol": 1,
++   "_why": "手术室内伪隔墙"
++  },
++  {
++   "start": {
++    "x": 1805.99,
++    "y": -160.4
++   },
++   "end": {
++    "x": 1995.52,
++    "y": -160.4
++   },
++   "tol": 1,
++   "_why": "手术室内伪隔墙"
++  },
++  {
++   "start": {
++    "x": 2004.74,
++    "y": 2.54
++   },
++   "end": {
++    "x": 2190.25,
++    "y": 2.54
++   },
++   "tol": 1,
++   "_why": "附属卫生间内伪隔墙；保留手术室双开门边界"
++  },
++  {
++   "start": {
++    "x": 1695.46,
++    "y": 128.56
++   },
++   "end": {
++    "x": 2190.25,
++    "y": 128.56
++   },
++   "tol": 1,
++   "_why": "休息区内水平延长线"
++  },
++  {
++   "start": {
++    "x": 1695.46,
++    "y": 319.47
++   },
++   "end": {
++    "x": 1995.52,
++    "y": 319.47
++   },
++   "tol": 1,
++   "_why": "休息区内水平延长线"
++  },
++  {
++   "start": {
++    "x": 2004.74,
++    "y": 319.47
++   },
++   "end": {
++    "x": 2190.25,
++    "y": 319.47
++   },
++   "tol": 1,
++   "_why": "休息区内水平延长线"
++  },
++  {
++   "start": {
++    "x": 1695.46,
++    "y": 528.91
++   },
++   "end": {
++    "x": 2190.25,
++    "y": 528.91
++   },
++   "tol": 1,
++   "_why": "打包南墙延长线，休息区真实南墙在y=580.03"
++  },
++  {
++   "start": {
++    "x": 1805.99,
++    "y": -160.4
++   },
++   "end": {
++    "x": 1805.99,
++    "y": 2.54
++   },
++   "tol": 1,
++   "_why": "手术室内纵向伪隔墙；保留休息区真实西墙"
++  },
++  {
++   "start": {
++    "x": 1995.52,
++    "y": -160.4
++   },
++   "end": {
++    "x": 1995.52,
++    "y": 319.47
++   },
++   "tol": 1,
++   "_why": "卫生间西侧门框窄带；保留冲洗、手术室分隔"
++  },
++  {
++   "start": {
++    "x": 2004.74,
++    "y": 100.59
++   },
++   "end": {
++    "x": 2004.74,
++    "y": 319.47
++   },
++   "tol": 1,
++   "_why": "卫生间南侧延长线"
++  },
++  {
++   "start": {
++    "x": 2004.74,
++    "y": 2.54
++   },
++   "end": {
++    "x": 2190.25,
++    "y": 2.54
++   },
++   "tol": 1,
++   "_why": "卫生间内伪隔墙"
++  },
++  {
++   "start": {
++    "x": 1695.46,
++    "y": -160.4
++   },
++   "end": {
++    "x": 1695.46,
++    "y": 2.54
++   },
++   "tol": 1,
++   "_why": "手术室内纵向伪隔墙；保留无菌包室边界"
++  },
++  {
++   "start": {
++    "x": 1695.46,
++    "y": 528.91
++   },
++   "end": {
++    "x": 1695.46,
++    "y": 569.24
++   },
++   "tol": 1,
++   "_why": "登记医生更衣通行带伪隔墙"
++  },
++  {
++   "start": {
++    "x": -1776.73,
++    "y": 1022.34
++   },
++   "end": {
++    "x": -1776.73,
++    "y": 1198.78
++   },
++   "tol": 1,
++   "_why": "内窥镜室入口侧伪隔墙；保留免疫室与无名检验区的隔墙"
++  },
++  {
++   "start": {
++    "x": -709.77,
++    "y": 2.54
++   },
++   "end": {
++    "x": -709.77,
++    "y": 235.06
++   },
++   "tol": 1,
++   "_why": "北侧走廊内体检B超室/体检区墙的延长线"
++  },
++  {
++   "start": {
++    "x": -1776.73,
++    "y": 548.78
++   },
++   "end": {
++    "x": -1629.23,
++    "y": 548.78
++   },
++   "tol": 1,
++   "_why": "生化室/免疫室横墙延伸进无名检验区"
++  },
++  {
++   "start": {
++    "x": -1776.73,
++    "y": 763.99
++   },
++   "end": {
++    "x": -1629.23,
++    "y": 763.99
++   },
++   "tol": 1,
++   "_why": "标本接收南墙向左的延长线，连回无名检验区"
+   }
+  ],
+  "doors_add": [
+@@ -81,6 +507,29 @@
+    "y": 90,
+    "width": 80,
+    "_why": "仪器室 PDF 有门（东南角）"
++  },
++  {
++   "x": -1170.44,
++   "y": 763.99,
++   "width": 483.58,
++   "type": "opening",
++   "tol": 1,
++   "_why": "主走廊北段与南段的敞开连接"
++  },
++  {
++   "x": 1290,
++   "y": 763.99,
++   "width": 90,
++   "tol": 2,
++   "_why": "控制室PDF南墙门"
++  },
++  {
++   "x": 1969.44,
++   "y": 580.03,
++   "width": 120,
++   "type": "double",
++   "tol": 1,
++   "_why": "休息/计划生育手术室之间的PDF双开门（恢复原door-42门位，不在休息西墙虚补门）"
+   }
+  ],
+  "walls_remove_box": [
+@@ -91,5 +540,547 @@
+    "y1": -1270,
+    "_why": "BYC1212 采光顶/排烟窗分格线，不是房间"
+   }
++ ],
++ "walls_add": [
++  {
++   "start": {
++    "x": -1785.19,
++    "y": 93.18
++   },
++   "end": {
++    "x": -1776.73,
++    "y": 93.18
++   },
++   "thickness": 12,
++   "_why": "细菌室/生化室墙端相差8.46cm，补齐交点"
++  },
++  {
++   "start": {
++    "x": -1519.77,
++    "y": 105.17
++   },
++   "end": {
++    "x": -1412.23,
++    "y": 105.17
++   },
++   "thickness": 2,
++   "_why": "PDF药剂存放处原有柜体边线，独立储存区域"
++  },
++  {
++   "start": {
++    "x": -1412.23,
++    "y": 228.77
++   },
++   "end": {
++    "x": -1519.77,
++    "y": 228.77
++   },
++   "thickness": 2,
++   "_why": "PDF药剂存放处原有柜体边线，独立储存区域"
++  },
++  {
++   "start": {
++    "x": -1519.77,
++    "y": 228.77
++   },
++   "end": {
++    "x": -1519.77,
++    "y": 105.17
++   },
++   "thickness": 2,
++   "_why": "PDF药剂存放处原有柜体边线，独立储存区域"
++  },
++  {
++   "start": {
++    "x": -1519.77,
++    "y": 264.33
++   },
++   "end": {
++    "x": -1412.23,
++    "y": 264.33
++   },
++   "thickness": 2,
++   "_why": "PDF药剂存放处原有柜体边线，独立储存区域"
++  },
++  {
++   "start": {
++    "x": -1412.23,
++    "y": 420.11
++   },
++   "end": {
++    "x": -1519.77,
++    "y": 420.11
++   },
++   "thickness": 2,
++   "_why": "PDF药剂存放处原有柜体边线，独立储存区域"
++  },
++  {
++   "start": {
++    "x": -1519.77,
++    "y": 420.11
++   },
++   "end": {
++    "x": -1519.77,
++    "y": 264.33
++   },
++   "thickness": 2,
++   "_why": "PDF药剂存放处原有柜体边线，独立储存区域"
++  },
++  {
++   "start": {
++    "x": 1242.06,
++    "y": 596.18
++   },
++   "end": {
++    "x": 1242.06,
++    "y": 763.99
++   },
++   "thickness": 12,
++   "_why": "控制室缺失西墙，按PDF补齐"
++  },
++  {
++   "start": {
++    "x": 2004.74,
++    "y": 100.59
++   },
++   "end": {
++    "x": 2190.25,
++    "y": 100.59
++   },
++   "thickness": 12,
++   "_why": "附属卫生间南墙按PDF墙线"
++  },
++  {
++   "start": {
++    "x": -1412.23,
++    "y": 763.99
++   },
++   "end": {
++    "x": -928.65,
++    "y": 763.99
++   },
++   "thickness": 12,
++   "_why": "主走廊与北侧通行带敞开连接，用全宽opening表达"
++  },
++  {
++   "start": {
++    "x": 2190.25,
++    "y": 2.54
++   },
++   "end": {
++    "x": 2190.25,
++    "y": 128.56
++   },
++   "thickness": 12,
++   "_why": "手术区东外墙缺段，按PDF补齐（不涉及楼梯）"
++  },
++  {
++   "start": {
++    "x": -1028.15,
++    "y": 245.97
++   },
++   "end": {
++    "x": -1016.37,
++    "y": 245.97
++   },
++   "thickness": 12,
++   "_why": "北侧走廊左上角11.78cm断口，接齐现有墙端（平台轮廓保持原样）"
++  },
++  {
++   "start": {
++    "x": 1805.99,
++    "y": 580.03
++   },
++   "end": {
++    "x": 2190.25,
++    "y": 580.03
++   },
++   "thickness": 19.26,
++   "_why": "休息与计划生育手术室/库房南北分隔，按PDF真实墙线而非打包南墙延长线"
++  }
++ ],
++ "rooms": [
++  {
++   "x": -1980.19,
++   "y": -145.37,
++   "roomType": "examination",
++   "name": "仪器室"
++  },
++  {
++   "x": -1975.96,
++   "y": 785.565,
++   "roomType": "examination",
++   "name": "免疫室"
++  },
++  {
++   "x": -529.43,
++   "y": -210.57999999999998,
++   "roomType": "examination",
++   "name": "体检B超室"
++  },
++  {
++   "x": -173.69499999999996,
++   "y": -210.57999999999998,
++   "roomType": "examination",
++   "name": "B超一室"
++  },
++  {
++   "x": -469.875,
++   "y": 366.96000000000004,
++   "roomType": "examination",
++   "name": "骨密度检测"
++  },
++  {
++   "x": -469.875,
++   "y": 631.425,
++   "roomType": "examination",
++   "name": "体检眼科耳鼻喉科"
++  },
++  {
++   "x": 1722.335,
++   "y": -210.57999999999998,
++   "roomType": "examination",
++   "name": "手术室"
++  },
++  {
++   "x": 1905.365,
++   "y": 672.01,
++   "roomType": "examination",
++   "name": "计划生育手术室"
++  },
++  {
++   "x": -1669.05,
++   "y": 1174.935,
++   "roomType": "examination",
++   "name": "内窥镜室"
++  },
++  {
++   "x": -1732.495,
++   "y": 1494.925,
++   "roomType": "examination",
++   "name": "内窥镜室"
++  },
++  {
++   "x": -2039.405,
++   "y": 1513.53,
++   "roomType": "examination",
++   "name": "内窥镜室"
++  },
++  {
++   "x": -1052.79,
++   "y": 1342.33,
++   "roomType": "examination",
++   "name": "门诊B超室"
++  },
++  {
++   "x": -713.105,
++   "y": 1342.33,
++   "roomType": "examination",
++   "name": "体检心电图室"
++  },
++  {
++   "x": 1304.195,
++   "y": 1181.49,
++   "roomType": "examination",
++   "name": "妇科检查"
++  },
++  {
++   "x": 1304.195,
++   "y": 1501.48,
++   "roomType": "examination",
++   "name": "产科检查"
++  },
++  {
++   "x": -863.07,
++   "y": -210.57999999999998,
++   "roomType": "examination",
++   "name": "中医体质辨识室"
++  },
++  {
++   "x": -1520.73,
++   "y": 611.525,
++   "roomType": "examination",
++   "name": "标本接收抽血"
++  },
++  {
++   "x": -403.42999999999995,
++   "y": 1425.31,
++   "roomType": "consultation",
++   "name": "体检外科"
++  },
++  {
++   "x": -90.54000000000002,
++   "y": 1342.33,
++   "roomType": "consultation",
++   "name": "体检内科"
++  },
++  {
++   "x": 259.315,
++   "y": 1342.33,
++   "roomType": "consultation",
++   "name": "计生咨询指挥室"
++  },
++  {
++   "x": 606.31,
++   "y": 1342.33,
++   "roomType": "consultation",
++   "name": "妇科门诊一"
++  },
++  {
++   "x": 955.28,
++   "y": 1342.33,
++   "roomType": "consultation",
++   "name": "妇科门诊一"
++  },
++  {
++   "x": 1687.32,
++   "y": 1304.935,
++   "roomType": "consultation",
++   "name": "门诊妇科"
++  },
++  {
++   "x": -1600,
++   "y": -100,
++   "roomType": "examination",
++   "name": "细菌室"
++  },
++  {
++   "x": -2000,
++   "y": 320,
++   "roomType": "examination",
++   "name": "生化室"
++  },
++  {
++   "x": -1470,
++   "y": 165,
++   "roomType": "storage",
++   "attachedTo": "检验区（无名称）",
++   "name": "药剂存放处"
++  },
++  {
++   "x": -1470,
++   "y": 330,
++   "roomType": "storage",
++   "attachedTo": "检验区（无名称）",
++   "name": "药剂存放处"
++  },
++  {
++   "x": -1710,
++   "y": 350,
++   "roomType": "other",
++   "standalone": true,
++   "name": ""
++  },
++  {
++   "x": -1529.5149999999999,
++   "y": -366.485,
++   "roomType": "shaft"
++  },
++  {
++   "x": 142.065,
++   "y": -210.57999999999998,
++   "roomType": "toilet",
++   "name": "男卫"
++  },
++  {
++   "x": 607.42,
++   "y": -210.57999999999998,
++   "roomType": "toilet",
++   "name": "女卫"
++  },
++  {
++   "x": 374.675,
++   "y": -112.02000000000001,
++   "roomType": "toilet",
++   "attachedTo": "男女卫",
++   "name": ""
++  },
++  {
++   "x": -830.14,
++   "y": 366.96000000000004,
++   "roomType": "service",
++   "name": "体检窗口"
++  },
++  {
++   "x": 1085.69,
++   "y": 170.145,
++   "roomType": "other",
++   "name": "健康教育室"
++  },
++  {
++   "x": 1340,
++   "y": 680,
++   "roomType": "other",
++   "attachedTo": "健康教育室",
++   "name": "控制室"
++  },
++  {
++   "x": -98.13499999999999,
++   "y": 499.525,
++   "roomType": "other",
++   "name": "公共卫生管理科"
++  },
++  {
++   "x": 1572.305,
++   "y": 65.55,
++   "roomType": "other",
++   "name": "无菌包室"
++  },
++  {
++   "x": -1389.635,
++   "y": 1342.33,
++   "roomType": "other",
++   "name": "恢复室"
++  },
++  {
++   "x": 1910,
++   "y": 300,
++   "roomType": "other",
++   "name": "休息"
++  },
++  {
++   "x": 1520,
++   "y": 675,
++   "roomType": "other",
++   "name": "登记 医生更衣"
++  },
++  {
++   "x": -2039.405,
++   "y": 1110.565,
++   "roomType": "other",
++   "attachedTo": "免疫室",
++   "name": "洗涤间"
++  },
++  {
++   "x": 2092.885,
++   "y": -292.05,
++   "roomType": "other",
++   "attachedTo": "手术室",
++   "name": "冲洗"
++  },
++  {
++   "x": 2097.495,
++   "y": -78.93,
++   "roomType": "toilet",
++   "attachedTo": "手术室",
++   "name": "卫生间"
++  },
++  {
++   "x": 1572.305,
++   "y": 224.01500000000001,
++   "roomType": "other",
++   "attachedTo": "手术区",
++   "name": "洗手"
++  },
++  {
++   "x": 1572.305,
++   "y": 424.19,
++   "roomType": "other",
++   "attachedTo": "手术区",
++   "name": "打包"
++  },
++  {
++   "x": 2097.495,
++   "y": 672.01,
++   "roomType": "storage",
++   "attachedTo": "计划生育手术室",
++   "name": "库房"
++  },
++  {
++   "x": 1702.13,
++   "y": 1707.905,
++   "roomType": "other",
++   "attachedTo": "门诊妇科",
++   "name": "谈话室"
++  },
++  {
++   "x": -1749.775,
++   "y": 1745.3,
++   "roomType": "other",
++   "attachedTo": "内窥镜室",
++   "name": ""
++  },
++  {
++   "x": -1394.87,
++   "y": 1745.3,
++   "roomType": "other",
++   "attachedTo": "恢复室",
++   "name": ""
++  },
++  {
++   "x": -1067.5900000000001,
++   "y": 1745.3,
++   "roomType": "other",
++   "attachedTo": "门诊B超室",
++   "name": ""
++  },
++  {
++   "x": -713.105,
++   "y": 1745.3,
++   "roomType": "other",
++   "attachedTo": "体检心电图室",
++   "name": ""
++  },
++  {
++   "x": -108.74,
++   "y": 1745.3,
++   "roomType": "other",
++   "attachedTo": "体检内科",
++   "name": ""
++  },
++  {
++   "x": 259.315,
++   "y": 1745.3,
++   "roomType": "other",
++   "attachedTo": "计生咨询指挥室",
++   "name": ""
++  },
++  {
++   "x": 590.355,
++   "y": 1745.3,
++   "roomType": "other",
++   "attachedTo": "妇科门诊一",
++   "name": ""
++  },
++  {
++   "x": 951.095,
++   "y": 1745.3,
++   "roomType": "other",
++   "attachedTo": "妇科门诊一",
++   "name": ""
++  },
++  {
++   "x": 1304.195,
++   "y": 1745.3,
++   "roomType": "other",
++   "attachedTo": "产科检查",
++   "name": ""
++  },
++  {
++   "x": 377.97,
++   "y": 499.525,
++   "roomType": "void",
++   "floorOpening": true,
++   "floorTexture": "none",
++   "name": "上空"
++  },
++  {
++   "x": -450,
++   "y": 120,
++   "roomType": "corridor",
++   "name": ""
++  },
++  {
++   "x": 400,
++   "y": 880,
++   "roomType": "corridor",
++   "name": ""
++  },
++  {
++   "x": -1080,
++   "y": 600,
++   "roomType": "corridor",
++   "name": ""
++  }
+  ]
+-}
+\ No newline at end of file
++}
+diff -ruN -x .git -x var -x __pycache__ -x node_modules -x verification-p1-2f merge-wt/scripts/floor_nav.py codex-p1-fix-3F/repo/scripts/floor_nav.py
+--- merge-wt/scripts/floor_nav.py	2026-10-13 18:07:01.686149980 +0800
++++ codex-p1-fix-3F/repo/scripts/floor_nav.py	2026-10-13 20:29:09.511201129 +0800
+@@ -227,6 +227,9 @@
+             if _pip(cx, cy, poly) and 0.55 <= farea / max(rarea, 1) <= 1.8:
+                 return room
+     keys = set(face.get("walls") or [])
++    for room in rooms:
++        if not room.get("drawn") and keys == set(room.get("walls") or []):
++            return room
+     best = None
+     score = 0
+     for room in rooms:
+@@ -265,6 +268,8 @@
+         if min(max(xs) - min(xs), max(ys) - min(ys)) < MIN_ROOM_CM:
+             continue
+         room = _match_room(face, rooms)
++        if (room or {}).get("floorOpening"):
++            continue
+         room_id = str(room.get("id") or "") if room else ""
+         matched = bool(room_id and room_id not in used_ids)
+         if not matched:
+@@ -477,6 +482,10 @@
+ def _is_corridor(face: dict, room: dict | None, door_count: int) -> bool:
+     """Corridors / halls are the primary walkable network."""
+     name = str((room or {}).get("name") or "")
++    if (room or {}).get("floorOpening"):
++        return False
++    if (room or {}).get("roomType") == "corridor":
++        return True
+     if _CORRIDOR_RE.search(name):
+         return True
+     # A printed room name (诊室/急诊/化验室/残卫…) is the PDF saying "enclosed room": the shape
+@@ -813,7 +822,7 @@
+     #    in-room A* reaches the center without cutting internal wall bands.
+     access_by_face: dict[int, dict] = {}
+     for face, room, face_doors, is_corridor, polygon in classified:
+-        if is_corridor or not face_doors:
++        if (room or {}).get("floorOpening") or is_corridor or not face_doors:
+             continue
+         cx, cy = _face_centroid(face)
+         access = _access_door(face_doors, cx, cy, corridor_polygons, walls, openings_early)
+@@ -826,6 +835,14 @@
+                 face.get("polygon") or polygon,
+                 door, cx, cy, walls, openings_early,
+             )
++    voids = Image.new("L", (cols, rows))
++    void_draw = ImageDraw.Draw(voids)
++    for face, room, _, _, polygon in classified:
++        if (room or {}).get("floorOpening"):
++            void_draw.polygon(_px(min_x, min_y, cell, polygon), fill=255)
++    for index, value in enumerate(voids.tobytes()):
++        if value:
++            walk[index] = 0
+     clearance = _clearance_map(walk, cols, rows)
+     private = _private_faces(classified)
+     destinations = []
+@@ -839,6 +856,8 @@
+     free_notes = [n for n in (floor.get("textAnnotations") or [])
+                   if n.get("poi") and str(n.get("text") or "").strip() and not str(n.get("id") or "").startswith("entrance")]
+     for face in faces:
++        if (_match_room(face, rooms) or {}).get("floorOpening"):
++            continue
+         polygon = face.get("polygon") or []
+         if len(polygon) < 3:
+             continue
+@@ -2300,7 +2319,8 @@
+ 
+ 
+ def is_destination(name) -> bool:
+-    return not NON_DESTINATION_RE.search(str(name or ""))
++    name = str(name or "").strip()
++    return bool(name) and not _is_placeholder_name(name) and not NON_DESTINATION_RE.search(name)
+ 
+ 
+ def all_places(project: dict) -> list[dict]:
+diff -ruN -x .git -x var -x __pycache__ -x node_modules -x verification-p1-2f merge-wt/scripts/floor_overrides.py codex-p1-fix-3F/repo/scripts/floor_overrides.py
+--- merge-wt/scripts/floor_overrides.py	2026-10-13 18:07:02.366149980 +0800
++++ codex-p1-fix-3F/repo/scripts/floor_overrides.py	2026-10-13 21:06:32.046516109 +0800
+@@ -6,10 +6,12 @@
+ 
+     {
+       "walls_remove": [{"x": .., "y": .., "tol": 30}],            # walls passing within tol of the point
++      # Or {"start": {"x":..,"y":..}, "end": {..}, "tol": 1}: trim only that collinear stretch.
+       "walls_remove_box": [{"x0":..,"y0":..,"x1":..,"y1":..}],   # all walls wholly inside
+       "walls_add":    [{"start": {"x":..,"y":..}, "end": {..}, "thickness": 15}],
+       "doors_add":    [{"x": .., "y": .., "width": 90}],            # on the nearest wall
+-      "rooms":        [{"x": .., "y": .., "name": "卫生间", "roomType": "indoor"}],
++      "rooms":        [{"x": .., "y": .., "name": "卫生间", "roomType": "toilet"}],
++      # Room entries also accept floorOpening, floorTexture, attachedTo and standalone.
+       "vertical_remove": [{"kind": "stairs", "x": .., "y": .., "tol": 150}],
+       "vertical_add": [{"kind": "stairs"|"elevator", "link": "P1-stair-east",
+                         "polygon": [{"x":..,"y":..}, ...]}],     # or "x"/"y"; drawn from the PDF
+@@ -78,42 +80,132 @@
+     return best[1] if best else None
+ 
+ 
+-def _rebuild_rooms(floor, old_faces):
+-    """Walls changed: re-detect faces, keep names/types of the old room at each new centroid."""
++def _rebuild_rooms(floor, old_faces, old_rooms=None, labels=()):
++    """Match faces by overlap, retaining each old ID and its metadata at most once."""
++    from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
+     from openplan_project import detect_closed_rooms
+-    old = [(r, old_faces.get(r.get("id"))) for r in floor.get("rooms") or []]
++    old_rooms = (floor.get("rooms") or []) if old_rooms is None else old_rooms
++    faces = detect_closed_rooms(floor["walls"])
++    polygons = [[(p["x"], p["y"]) for p in face["polygon"]] for face in faces]
++    old = [(r, old_faces[r["id"]]) for r in old_rooms if r["id"] in old_faces]
++    points = [p for poly in polygons + [p for _, p in old] for p in poly]
++    if not points:
++        floor["rooms"] = [r for r in old_rooms if r.get("drawn")]
++        return
++    x0, y0 = min(x for x, _ in points), min(y for _, y in points)
++    size = (int((max(x for x, _ in points) - x0) / 5) + 2,
++            int((max(y for _, y in points) - y0) / 5) + 2)
++
++    def mask(poly):
++        im = Image.new("1", size)
++        ImageDraw.Draw(im).polygon([((x - x0) / 5, (y - y0) / 5) for x, y in poly], fill=1)
++        return im
++
++    old_masks = [mask(poly) for _, poly in old]
++    old_boxes = [im.getbbox() for im in old_masks]
++    candidates = []
++    for i, (face, poly) in enumerate(zip(faces, polygons)):
++        im = mask(poly)
++        box = im.getbbox()
++        names = {item["name"] for item in labels if item.get("name") and _pip(item["x"], item["y"], poly)}
++        for j, (room, _) in enumerate(old):
++            ob = old_boxes[j]
++            intersection = (max(box[0], ob[0]), max(box[1], ob[1]), min(box[2], ob[2]), min(box[3], ob[3]))
++            if intersection[0] >= intersection[2] or intersection[1] >= intersection[3]:
++                continue
++            overlap = ImageChops.logical_and(im.crop(intersection), old_masks[j].crop(intersection))
++            overlap = ImageOps.expand(overlap, 1).filter(ImageFilter.MinFilter(3)).histogram()[255]
++            exact = set(face["walls"]) == set(room.get("walls") or [])
++            if overlap or exact:
++                same_name = bool(names & {room.get("name"), room.get("displayName")})
++                candidates.append((exact, same_name, overlap, bool(room.get("drawn") or room.get("displayName")), i, j))
++    matched, used = {}, set()
++    for _, _, _, _, i, j in sorted(candidates, reverse=True):
++        if i not in matched and j not in used:
++            matched[i] = old[j][0]
++            used.add(j)
++    ids = {r["id"] for r in old_rooms}
++    number = max((int(rid[5:]) for rid in ids if rid.startswith("room-") and rid[5:].isdigit()), default=0)
+     rooms = []
+-    for n, face in enumerate(detect_closed_rooms(floor["walls"]), start=1):
+-        poly = [(p["x"], p["y"]) for p in face["polygon"]]
+-        cx = sum(p[0] for p in poly) / len(poly)
+-        cy = sum(p[1] for p in poly) / len(poly)
+-        if not _pip(cx, cy, poly):  # concave face: any interior point
+-            cx, cy = poly[0][0] * 0.5 + poly[len(poly) // 2][0] * 0.5, poly[0][1] * 0.5 + poly[len(poly) // 2][1] * 0.5
+-        src = None
+-        for room, opoly in old:
+-            if opoly and _pip(cx, cy, opoly) and (src is None or _area(opoly) < _area(src[1])):
+-                src = (room, opoly)
+-        base = dict(src[0]) if src else {"floorTexture": "hospital-floor", "color": "#dce8df", "roomType": "indoor"}
+-        base.pop("floorOpening", None)
+-        base.update({"id": f"room-{n}", "walls": face["walls"], "area": round(face["area"] / 10000.0, 2)})
+-        if src and _area(poly) < 0.5 * _area(src[1]):
+-            base["name"] = ""  # a piece split off a named room does not inherit its name
++    for i, face in enumerate(faces):
++        src = matched.get(i)
++        if src:
++            base = dict(src)
++        else:
++            number += 1
++            base = {"id": f"room-{number}", "name": "", "floorTexture": "hospital-floor",
++                    "color": "#dce8df", "roomType": "indoor"}
++        if not base.get("drawn"):
++            base.update({"walls": face["walls"], "area": round(face["area"] / 10000.0, 2)})
+         rooms.append(base)
++    retained = {r["id"] for r in rooms}
++    rooms.extend(r for r in old_rooms if r.get("drawn") and r["id"] not in retained)
+     floor["rooms"] = rooms
+ 
+ 
+-def apply(floor: dict, vertical: list[dict], ov: dict | None) -> dict:
++def apply(floor: dict, vertical: list[dict], ov: dict | None, previous_floor=None) -> dict:
+     """Mutate ``floor`` and ``vertical`` in place; return a count of applied edits."""
+     stats = {}
+     if not ov:
+         return stats
+     walls = floor.setdefault("walls", [])
+-    old_faces = _faces(floor)
++    previous_floor = previous_floor if previous_floor is not None else floor
++    old_faces = _faces(previous_floor)
++    old_rooms = list(previous_floor.get("rooms") or [])
++    if previous_floor is not floor:
++        drawn = {w["id"]: w for w in previous_floor.get("walls") or [] if w.get("drawn")}
++        floor["walls"] = walls = [w for w in walls if w["id"] not in drawn] + list(drawn.values())
++        drawn_doors = {d["id"]: d for d in previous_floor.get("doors") or [] if d.get("drawn")}
++        floor["doors"] = [d for d in floor.get("doors") or [] if d["id"] not in drawn_doors] + list(drawn_doors.values())
+     changed = False
+     for item in ov.get("walls_remove") or []:
+         tol = float(item.get("tol", 30))
++        if "start" in item:
++            a, b = item["start"], item["end"]
++            dx, dy = b["x"] - a["x"], b["y"] - a["y"]
++            length = math.hypot(dx, dy)
++            ux, uy = dx / length, dy / length
++            kept = []
++            for wall in walls:
++                s, e = wall["start"], wall["end"]
++                if wall.get("drawn") or any(d.get("drawn") and d.get("wallId") == wall["id"] for d in floor.get("doors") or []):
++                    kept.append(wall)
++                    continue
++                if max(abs((p["x"] - a["x"]) * uy - (p["y"] - a["y"]) * ux) for p in (s, e)) > tol:
++                    kept.append(wall)
++                    continue
++                t0, t1 = ((p["x"] - a["x"]) * ux + (p["y"] - a["y"]) * uy for p in (s, e))
++                lo, hi = sorted((t0, t1))
++                cut0, cut1 = max(0, lo), min(length, hi)
++                if cut1 <= cut0:
++                    kept.append(wall)
++                    continue
++                pieces = []
++                for k, (p, q) in enumerate(((lo, cut0), (cut1, hi))):
++                    if q - p > 1:
++                        piece = {**wall, "id": wall["id"] if not pieces else f"{wall['id']}~{k}",
++                                 "start": {"x": a["x"] + ux * p, "y": a["y"] + uy * p},
++                                 "end": {"x": a["x"] + ux * q, "y": a["y"] + uy * q}}
++                        pieces.append((p, q, piece))
++                        kept.append(piece)
++                doors = []
++                for door in floor.get("doors") or []:
++                    if door.get("wallId") != wall["id"]:
++                        doors.append(door)
++                        continue
++                    at = t0 + (t1 - t0) * float(door["position"])
++                    for p, q, piece in pieces:
++                        if p <= at <= q:
++                            doors.append({**door, "wallId": piece["id"], "position": (at - p) / (q - p)})
++                floor["doors"] = doors
++                changed = True
++                stats["walls_remove"] = stats.get("walls_remove", 0) + 1
++            floor["walls"] = walls = kept
++            continue
+         drop = {w["id"] for w in walls
+-                if _seg_dist(item["x"], item["y"], w["start"]["x"], w["start"]["y"], w["end"]["x"], w["end"]["y"])[0] <= tol}
++                if not w.get("drawn")
++                and not any(d.get("drawn") and d.get("wallId") == w["id"] for d in floor.get("doors") or [])
++                and _seg_dist(item["x"], item["y"], w["start"]["x"], w["start"]["y"], w["end"]["x"], w["end"]["y"])[0] <= tol}
+         if drop:
+             changed = True
+             floor["walls"] = walls = [w for w in walls if w["id"] not in drop]
+@@ -122,7 +214,8 @@
+     for item in ov.get("walls_remove_box") or []:  # every wall lying wholly inside the box
+         x0, y0, x1, y1 = (float(item[k]) for k in ("x0", "y0", "x1", "y1"))
+         inside = lambda p: x0 <= p["x"] <= x1 and y0 <= p["y"] <= y1  # noqa: E731
+-        drop = {w["id"] for w in walls if inside(w["start"]) and inside(w["end"])}
++        drop = {w["id"] for w in walls if not w.get("drawn") and inside(w["start"]) and inside(w["end"])
++                and not any(d.get("drawn") and d.get("wallId") == w["id"] for d in floor.get("doors") or [])}
+         if drop:
+             changed = True
+             floor["walls"] = walls = [w for w in walls if w["id"] not in drop]
+@@ -134,8 +227,8 @@
+                       "thickness": float(item.get("thickness", 15)), "height": style.get("height", 280.0)})
+         changed = True
+         stats["walls_add"] = n
+-    if changed:
+-        _rebuild_rooms(floor, old_faces)
++    if changed or previous_floor is not floor:
++        _rebuild_rooms(floor, old_faces, old_rooms, ov.get("rooms") or [])
+     for n, item in enumerate(ov.get("doors_add") or [], start=1):
+         best = None
+         for w in walls:
+@@ -151,9 +244,11 @@
+     faces = _faces(floor)
+     for item in ov.get("rooms") or []:
+         room = _room_at(floor, item["x"], item["y"], faces)
+-        if room:
+-            for key in ("name", "roomType", "floorTexture"):
++        if room and not room.get("drawn"):
++            for key in ("name", "roomType", "floorTexture", "floorOpening", "attachedTo", "standalone"):
+                 if key in item:
++                    if key == "name" and (room.get("drawn") or room.get("displayName") or room.get("nameSource") == "manual"):
++                        continue
+                     room[key] = item[key]
+             stats["rooms"] = stats.get("rooms", 0) + 1
+     for item in ov.get("vertical_remove") or []:
+diff -ruN -x .git -x var -x __pycache__ -x node_modules -x verification-p1-2f merge-wt/scripts/pdf_building.py codex-p1-fix-3F/repo/scripts/pdf_building.py
+--- merge-wt/scripts/pdf_building.py	2026-10-13 18:07:01.718149980 +0800
++++ codex-p1-fix-3F/repo/scripts/pdf_building.py	2026-10-13 21:07:14.066516109 +0800
+@@ -9,6 +9,7 @@
+ """
+ from __future__ import annotations
+ 
++import copy
+ import math
+ import re
+ import tempfile
+@@ -817,8 +818,11 @@
+     return None
+ 
+ 
+-def import_building(pdf_path, *, scale=None, name="", floor_height=FLOOR_HEIGHT_CM, progress=None, room_names=None) -> dict:
+-    """``room_names``: optional ``{floor name: [room names]}`` uploaded at import for OCR correction."""
++def import_building(pdf_path, *, scale=None, name="", floor_height=FLOOR_HEIGHT_CM, progress=None, room_names=None,
++                    previous_project=None) -> dict:
++    """``room_names`` supplies OCR corrections; ``previous_project`` retains room identities,
++    manual edits and the existing vertical graph on re-import.
++    """
+     """Return ``{project, floors, links, scale}`` for every page of ``pdf_path``.
+ 
+     ``scale`` is centimetres per PDF point; without it the sheets' ``1:N`` is used.
+@@ -849,8 +853,9 @@
+         floor["level"] = row["level"]
+         floor["elevation"] = round(row["level"] * floor_height, 1)
+         vertical = result["vertical"]
+-        override_stats = floor_overrides.apply(floor, vertical, floor_overrides.load(name, row["name"]))
+-        shafts = connect_shafts(floor, vertical)
++        previous_floor = next((f for f in (previous_project or {}).get("floors", []) if f["name"] == row["name"]), None)
++        override_stats = floor_overrides.apply(floor, vertical, floor_overrides.load(name, row["name"]), previous_floor)
++        shafts = {"doors": [], "landings": 0} if previous_floor is not None else connect_shafts(floor, vertical)
+         inferred = infer_room_doors(floor)
+         if row["level"] == min(r["level"] for r in titles):
+             add_entrances(floor)
+@@ -869,10 +874,13 @@
+             "shaftLandings": shafts["landings"],
+             "inferredDoors": inferred,
+             "overrides": override_stats,
+-            **{key: result["stats"][key] for key in ("walls", "rooms", "doors", "namedRooms")},
++            "walls": len(floor.get("walls") or []),
++            "rooms": len(floor.get("rooms") or []),
++            "doors": len(floor.get("doors") or []),
++            "namedRooms": sum(bool(r.get("displayName") or r.get("name")) for r in floor.get("rooms") or []),
+         })
+     floors.sort(key=lambda item: item["level"])
+-    links = link_shafts(floors, vertical_by_floor)
++    links = copy.deepcopy(previous_project.get("verticalLinks") or []) if previous_project is not None else link_shafts(floors, vertical_by_floor)
+     ground = next((floor for floor in floors if floor["level"] >= 0), floors[0])
+     now = datetime.now(timezone.utc).isoformat()
+     try:
+diff -ruN -x .git -x var -x __pycache__ -x node_modules -x verification-p1-2f merge-wt/scripts/verify_import.py codex-p1-fix-3F/repo/scripts/verify_import.py
+--- merge-wt/scripts/verify_import.py	2026-10-13 18:07:02.282149980 +0800
++++ codex-p1-fix-3F/repo/scripts/verify_import.py	2026-10-13 20:47:36.487607690 +0800
+@@ -5,7 +5,8 @@
+ Each dir holds P1.json / P2.json / P3.json as written by import_building.  Checks:
+   1. per floor: indoor stairs / elevators >= PDF truth, linked stops >= PDF, stairs/elevators >= HEAD
+   2. vertical links: every PDF link exists with all its floors; link count/stops >= HEAD
+-  3. rooms (faces >= 1.5 m², not floor openings) per floor >= HEAD
++  3. independent named rooms (or explicitly standalone unnamed rooms) >= HEAD,
++     applying the same attachment/type corrections to HEAD; fragment faces do not count
+   4. every pair of stair/elevator stops on different floors routes (cross-floor all-pairs)
+   5. 3x10 seeded route sample: 30/30, no diagonal / wall-crossing segment
+ """
+@@ -22,17 +23,28 @@
+ 
+ sys.path.insert(0, str(Path(__file__).resolve().parent))
+ import floor_nav as fn  # noqa: E402
+-from pdf_building import _room_faces  # noqa: E402
++from pdf_building import _room_faces, _CIRCULATION_RE  # noqa: E402
+ 
+ 
+ def area(p):
+     return abs(sum(p[i][0] * p[i - 1][1] - p[i - 1][0] * p[i][1] for i in range(len(p)))) / 2
+ 
+ 
+-def real_rooms(floor):
++def real_rooms(floor, semantics=None):
+     faces = _room_faces(floor)
+-    return sum(1 for r in floor.get("rooms") or [] if not r.get("floorOpening") and r["id"] in faces
+-               and area(faces[r["id"]]) >= 1.5e4)
++    semantics = {r["id"]: r for r in (semantics or floor).get("rooms") or []}
++    count = 0
++    for room in floor.get("rooms") or []:
++        corrected = semantics.get(room["id"], room)
++        name = room.get("displayName") or room.get("name") or ""
++        if room["id"] not in faces or area(faces[room["id"]]) < 1.5e4:
++            continue
++        if corrected.get("floorOpening") or corrected.get("attachedTo") or corrected.get("roomType") in ("void", "corridor", "shaft"):
++            continue
++        if _CIRCULATION_RE.search(name) or not (corrected.get("standalone") or fn.is_destination(name)):
++            continue
++        count += 1
++    return count
+ 
+ 
+ def main():
+@@ -59,7 +71,7 @@
+             t = truth[b]["floors"].get(n, {})
+             linked = {k: sum(1 for l in links if l["kind"] == k and len(l["stops"]) >= 2
+                              for s in l["stops"] if s["floorId"] == floor["id"]) for k in ("stairs", "elevator")}
+-            rooms_new, rooms_head = real_rooms(floor), real_rooms(hfloors[n]) if n in hfloors else 0
++            rooms_new, rooms_head = real_rooms(floor), real_rooms(hfloors[n], floor) if n in hfloors else 0
+             row = {"b": b, "f": n, "pdf_st": t.get("stairs", 0), "pdf_el": t.get("elevator", 0),
+                    "mdl_st": rep["stairs"], "mdl_el": rep["elevators"], "lnk_st": linked["stairs"], "lnk_el": linked["elevator"],
+                    "head_st": hrep.get(n, {}).get("stairs", 0), "head_el": hrep.get(n, {}).get("elevators", 0),
+@@ -125,7 +137,7 @@
+                         print("  碰墙", b, f["name"], pa.get("name"), "->", pc.get("name"), [round(v) for v in (*p, *q)])
+     if sample["diag"] or sample["hits"]:
+         fails.append(f"抽样斜段 {sample['diag']} 碰墙 {sample['hits']}")
+-    print("楼栋 楼层 | PDF楼梯/电梯 | 模型楼梯/电梯(识别+补画) | 跨层连通楼梯/电梯 | HEAD楼梯/电梯 | 房间(≥1.5㎡) 新/HEAD")
++    print("楼栋 楼层 | PDF楼梯/电梯 | 模型楼梯/电梯(识别+补画) | 跨层连通楼梯/电梯 | HEAD楼梯/电梯 | 独立房间(≥1.5㎡，排除附属/碎面) 新/HEAD")
+     for r in table:
+         print(f"{r['b']} {r['f']} | {r['pdf_st']}/{r['pdf_el']} | {r['mdl_st']}/{r['mdl_el']} | {r['lnk_st']}/{r['lnk_el']} | {r['head_st']}/{r['head_el']} | {r['rooms']}/{r['rooms_head']}")
+     for b, ok, n in pair_rows:
+diff -ruN -x .git -x var -x __pycache__ -x node_modules -x verification-p1-2f merge-wt/tests/test_floor_nav.py codex-p1-fix-3F/repo/tests/test_floor_nav.py
+--- merge-wt/tests/test_floor_nav.py	2026-10-13 18:06:39.594149980 +0800
++++ codex-p1-fix-3F/repo/tests/test_floor_nav.py	2026-10-13 20:25:11.967201129 +0800
+@@ -142,6 +142,22 @@
+ 
+ 
+ class FloorNavTests(unittest.TestCase):
++    def test_void_is_neither_walkable_nor_a_destination(self):
++        f = two_rooms()
++        f["rooms"][1].update(name="上空", floorOpening=True, floorTexture="none")
++        p = project_with(f)
++        g = floor_nav.grid_for(p, f["id"])
++        for x, y in [(450, 150), (600, 150), (750, 150)]:
++            col, row = g.cell_at(x, y)
++            self.assertFalse(g.walkable(col, row))
++        self.assertNotIn("room-b", [r["id"] for r in floor_nav.nav_view(p, f["id"])["rooms"]])
++        self.assertNotIn("上空", [r["name"] for r in g.destinations])
++
++    def test_placeholder_and_empty_names_are_not_searchable(self):
++        for name in ["", "房间 3", "房间3", "Room 14", "room14"]:
++            self.assertFalse(floor_nav.is_destination(name))
++        self.assertTrue(floor_nav.is_destination("内窥镜室"))
++
+     def test_grid_cache_rebuilds_when_door_moves_without_count_change(self):
+         project = project_with(two_rooms(True))
+         first = floor_nav.grid_for(project, "floor-0")
+@@ -225,7 +241,7 @@
+         self.assertEqual({item["name"] for item in opened["destinations"]}, {"甲", "卫生间"})
+         self.assertEqual(other["floorId"], "floor-1")
+         self.assertEqual(len(other["walls"]), 4)
+-        self.assertTrue(other["destinations"])
++        self.assertEqual(other["destinations"], [])
+         blocked = floor_nav.route_view(project, "floor-1", {"x": 150, "y": 150}, {"x": 600, "y": 150})
+         self.assertFalse(blocked["ok"])
+         self.assertEqual(floor_nav.nav_view(project, None)["floorId"], "floor-0")
+diff -ruN -x .git -x var -x __pycache__ -x node_modules -x verification-p1-2f merge-wt/tests/test_pdf_building.py codex-p1-fix-3F/repo/tests/test_pdf_building.py
+--- merge-wt/tests/test_pdf_building.py	2026-10-13 18:06:39.638149980 +0800
++++ codex-p1-fix-3F/repo/tests/test_pdf_building.py	2026-10-13 21:07:14.066516109 +0800
+@@ -11,10 +11,11 @@
+ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+ 
+ import floor_nav
++import floor_overrides
+ import kujiale_import_server as server
+ import pdf_building
+ from openplan_project import _elevator_crosses
+-from test_floor_nav import rooms_off_corridor
++from test_floor_nav import rooms_off_corridor, two_rooms, wall
+ 
+ 
+ def storey_floor(level, name=None):
+@@ -277,5 +278,82 @@
+         self.assertEqual(response.status_code, 400)
+ 
+ 
++class FloorOverrideTests(unittest.TestCase):
++    def test_named_split_keeps_the_original_id_on_the_correct_small_piece(self):
++        f = two_rooms(False)
++        f["walls"] = [w for w in f["walls"] if w["id"] != "mid"]
++        f["rooms"] = [{"id": "room-20", "name": "细菌室", "walls": [w["id"] for w in f["walls"]]}]
++        floor_overrides.apply(f, [], {
++            "walls_add": [{"start": {"x": 200, "y": 0}, "end": {"x": 200, "y": 300}}],
++            "rooms": [{"x": 100, "y": 150, "name": "细菌室"}, {"x": 600, "y": 150, "name": "生化室"}],
++        })
++        r = next(r for r in f["rooms"] if r["id"] == "room-20")
++        self.assertEqual((r["name"], r["area"]), ("细菌室", 6))
++
++    def test_previous_manual_geometry_and_cleared_name_survive_a_fresh_import(self):
++        previous = two_rooms()
++        previous["walls"][-1]["drawn"] = True
++        previous["doors"][0]["drawn"] = True
++        previous["rooms"][0].update(name="", nameSource="manual")
++        fresh = two_rooms()
++        fresh["rooms"][0]["id"] = "room-new"
++        floor_overrides.apply(fresh, [], {"rooms": [{"x": 200, "y": 150, "name": "错误恢复"}]}, previous)
++        self.assertIn(previous["walls"][-1], fresh["walls"])
++        self.assertIn(previous["doors"][0], fresh["doors"])
++        room = next(r for r in fresh["rooms"] if r["id"] == "room-a")
++        self.assertEqual((room["name"], room["nameSource"]), ("", "manual"))
++        self.assertEqual(set(room["walls"]), set(previous["rooms"][0]["walls"]))
++
++    def test_merge_keeps_the_named_room_id_and_manual_name(self):
++        f = two_rooms()
++        f["rooms"][0].update(displayName="人工名称", nameSource="manual")
++        f["rooms"][1]["name"] = ""
++        floor_overrides.apply(f, [], {"walls_remove": [{"x": 400, "y": 150, "tol": 1}],
++                                      "rooms": [{"x": 200, "y": 150, "name": "自动名称"}]})
++        self.assertEqual(len(f["rooms"]), 1)
++        r = f["rooms"][0]
++        self.assertEqual(r["id"], "room-a")
++        self.assertEqual(r["name"], "甲")
++        self.assertEqual(r["displayName"], "人工名称")
++        self.assertEqual(r["area"], 24)
++
++    def test_split_never_duplicates_ids_names_or_opening_metadata(self):
++        f = two_rooms(False)
++        f["walls"] = [w for w in f["walls"] if w["id"] != "mid"]
++        f["rooms"] = [{"id": "room-20", "name": "上空", "floorOpening": True,
++                       "floorTexture": "none", "walls": [w["id"] for w in f["walls"]]}]
++        floor_overrides.apply(f, [], {"walls_add": [{"start": {"x": 200, "y": 0}, "end": {"x": 200, "y": 300}}]})
++        self.assertEqual({r["id"] for r in f["rooms"]}, {"room-20", "room-21"})
++        old = next(r for r in f["rooms"] if r["id"] == "room-20")
++        self.assertTrue(old["floorOpening"])
++        self.assertEqual(old["floorTexture"], "none")
++        self.assertEqual(sum(r.get("name") == "上空" for r in f["rooms"]), 1)
++
++    def test_trim_keeps_stair_side_and_repositions_a_door_on_a_reversed_wall(self):
++        w = wall("long", 1000, 0, 0, 0)
++        f = {"walls": [w], "rooms": [], "doors": [{"id": "d", "wallId": "long", "position": .9}]}
++        with mock.patch.object(floor_overrides, "_rebuild_rooms"):
++            floor_overrides.apply(f, [], {"walls_remove": [{"start": {"x": 400, "y": 0}, "end": {"x": 1000, "y": 0}, "tol": 1}]})
++        self.assertEqual(len(f["walls"]), 1)
++        self.assertEqual(f["walls"][0]["start"], {"x": 0, "y": 0})
++        self.assertEqual(f["walls"][0]["end"], {"x": 400, "y": 0})
++        self.assertEqual(f["doors"][0]["position"], .25)
++        self.assertEqual(f["doors"][0]["wallId"], f["walls"][0]["id"])
++
++    def test_drawn_room_walls_and_doors_are_unchanged(self):
++        f = two_rooms()
++        f["walls"][-1]["drawn"] = True
++        f["doors"][0]["drawn"] = True
++        f["rooms"][1].update(drawn=True, floorPolygon=[{"x": 400, "y": 0}, {"x": 800, "y": 0},
++                                                     {"x": 800, "y": 300}, {"x": 400, "y": 300}])
++        old = copy.deepcopy(f)
++        floor_overrides.apply(f, [], {"walls_remove": [{"x": 400, "y": 150, "tol": 1}],
++                                      "walls_add": [{"start": {"x": 100, "y": 0}, "end": {"x": 100, "y": 300}}],
++                                      "rooms": [{"x": 600, "y": 150, "name": "错误覆盖", "roomType": "corridor"}]})
++        self.assertIn(old["walls"][-1], f["walls"])
++        self.assertIn(old["doors"][0], f["doors"])
++        self.assertIn(old["rooms"][1], f["rooms"])
++
++
+ if __name__ == "__main__":
+     unittest.main()

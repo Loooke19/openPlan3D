@@ -1,0 +1,129 @@
+--- a/src/lib/components/viewer3d/nav/signs.ts
++++ b/src/lib/components/viewer3d/nav/signs.ts
+@@ -9,8 +9,12 @@
+ 
+ type P = { x: number; y: number };
+ export type SignDoor = { center: P; along: P; normal: P; width: number; wallThickness: number; height: number; wallHeight?: number };
+-export type SignRoom = { name: string; displayName?: string; polygon: P[] };
++export type SignRoom = { name: string; displayName?: string; labelIcon?: string; polygon: P[] };
+ 
++export function isStairSign(place: { name?: string; displayName?: string; labelIcon?: string | null; kind?: string }) {
++  return place.kind === 'stairs' || place.labelIcon === 'stairs' || /楼梯|\bstair(?:s|case|well)?\b/i.test(`${place.name || ''} ${place.displayName || ''}`);
++}
++
+ /** Auto-generated placeholder labels (「Room 12」) are not names: corridors on upper floors carry them. */
+ export function isPlaceholderRoomName(name?: string | null) {
+   return !name || /^\s*(room|房间)\s*\d+\s*$/i.test(name);
+@@ -240,7 +244,7 @@
+  * dropped (the room keeps its other door's sign, or none rather than a clash). Stair/lift
+  * banners are one board facing along the passage, never a crossed pair.
+  */
+-export function planSigns(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string }[] = [], walls: SignWall[] = []): SignPlacement[] {
++export function planSigns(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string; kind?: string }[] = [], walls: SignWall[] = []): SignPlacement[] {
+   const placed: SignPlacement[] = [];
+   const fits = (s: SignPlacement) => !signHitsWall(s, walls) && !placed.some((t) => signsOverlap(s, t));
+   const byRoom = new Map<SignRoom, { d: SignDoor; outward: P; rank: number }[]>();
+@@ -360,7 +364,9 @@
+       if (fits(s)) { placed.push(s); break; }
+     }
+   }
+-  return placed;
++  const stairLabels = new Set(rooms.filter(isStairSign).map(r => r.displayName || r.name));
++  for (const link of links) if (isStairSign(link)) stairLabels.add(link.name);
++  return placed.filter(p => !stairLabels.has(p.name));
+ }
+ 
+ export class NavSigns {
+@@ -368,7 +374,7 @@
+   placements: SignPlacement[] = [];
+   private disposables: { dispose(): void }[] = [];
+ 
+-  constructor(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string }[] = [], walls: SignWall[] = []) {
++  constructor(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string; kind?: string }[] = [], walls: SignWall[] = []) {
+     this.group.userData.navDressing = true;
+     const edge = new THREE.MeshStandardMaterial({ color: '#cfd4d2', metalness: 0.6, roughness: 0.35 });
+     const bracketMat = new THREE.MeshStandardMaterial({ color: '#9aa2a0', metalness: 0.7, roughness: 0.3 });
+--- a/src/lib/components/viewer3d/ThreeViewer.svelte
++++ b/src/lib/components/viewer3d/ThreeViewer.svelte
+@@ -78,7 +78,7 @@
+   import { NavPipeline, type NavLook } from './nav/pipeline';
+   import { NavRouteVisual, transferStepPose } from './nav/route';
+   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
+-  import { NavSigns, isPlaceholderRoomName, type SignDoor } from './nav/signs';
++  import { NavSigns, isPlaceholderRoomName, isStairSign, type SignDoor } from './nav/signs';
+   import { NAV_FONT, navFontLoaded, navFontReady } from '$lib/utils/navFonts';
+   import { hospitalFloorY } from '$lib/utils/hospitalMaterials';
+   import { centerRoute, enclosedRooms, inside as layoutInside } from './nav/layout';
+@@ -1549,7 +1549,7 @@
+       const links = navLinkSigns.filter(l => l.floorId === fid);
+       // A stair/lift room's door sign carries the same patient name as banner and steps.
+       const linkName = (poly: { x: number; y: number }[]) => links.find(l => insidePoly(l, poly))?.name;
+-      const named = roomFaces(currentFloor).filter(r => !isPlaceholderRoomName(r.room.name) && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
++      const named = roomFaces(currentFloor).filter(r => !isPlaceholderRoomName(r.room.name) && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, labelIcon: r.room.labelIcon, polygon: r.polygon }));
+       navSigns = new NavSigns(doors, named, activeFloorElevation, links, currentFloor.walls);
+       scene.add(navSigns.group);
+     }
+@@ -1654,6 +1654,7 @@
+       const stackNames = mapLabels(faces.map(f => ({ name: f.room.displayName || toiletDisplay(f.room.name || '') || f.room.name, polygon: f.polygon })));
+       for (const [fi, { room, polygon }] of faces.entries()) {
+         if (!room.name || /^Room \d+$/.test(room.name) || polygon.length < 3) continue; // auto-detected unnamed faces carry a placeholder name
++        if (isStairSign(room)) continue;
+         const baked = bakeNavRoomLabelSprite({ name: stackNames[fi] || room.name, style: room.labelStyle, labelColor: room.labelColor ?? '#000000' });
+         if (!baked) continue;
+         const tex = new THREE.CanvasTexture(baked.canvas);
+@@ -2255,7 +2256,7 @@
+   }
+ 
+   /** Public nav API — called from /nav shell. */
+-  let navLinkSigns: { floorId: string; x: number; y: number; name: string }[] = [];
++  let navLinkSigns: { floorId: string; x: number; y: number; name: string; kind?: string }[] = [];
+   function insidePoly(p: { x: number; y: number }, poly: { x: number; y: number }[]) {
+     let c = false;
+     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+@@ -2271,7 +2272,7 @@
+     if (navKitOn) rebuildNavDressing();
+   }
+ 
+-  export function setNavLinkSigns(list: { floorId: string; x: number; y: number; name: string }[]) {
++  export function setNavLinkSigns(list: { floorId: string; x: number; y: number; name: string; kind?: string }[]) {
+     navLinkSigns = list;
+     rebuildNavDressing();
+   }
+@@ -3410,7 +3411,7 @@
+         const labelFields = lookupRoomLabelFields(savedWithPolys, room, centroid);
+         const baked = bakeNavRoomLabelSprite({
+           name: (mapNames[ri] && mapNames[ri] !== room.name ? mapNames[ri] : '') || labelFields.name || room.name,
+-          style: labelFields.labelStyle ?? room.labelStyle,
++          style: isStairSign(room) || isStairSign(labelFields) ? 'hidden' : labelFields.labelStyle ?? room.labelStyle,
+           icon: labelFields.labelIcon ?? room.labelIcon,
+           iconColor: labelFields.labelIconColor ?? room.labelIconColor,
+           labelColor: labelFields.labelColor ?? room.labelColor ?? '#000000',
+@@ -3441,7 +3442,7 @@
+           sprite.userData.navLabel = { sx: sprite.scale.x, sy: sprite.scale.y, fit: navLabelFit(poly), poly };
+           wallGroup.add(sprite);
+         }
+-      } else {
++      } else if (!isStairSign(room)) {
+         const canvas = document.createElement('canvas');
+         const ctx2 = canvas.getContext('2d')!;
+         canvas.width = 256; canvas.height = 64;
+--- a/src/routes/nav/+page.svelte
++++ b/src/routes/nav/+page.svelte
+@@ -163,7 +163,7 @@
+     openings?: any[];
+     bounds?: { minX: number; minY: number; maxX: number; maxY: number };
+     empty?: boolean;
+-    verticalLinks?: { name?: string; stops: { floorId: string; x: number; y: number }[] }[];
++    verticalLinks?: { name?: string; kind?: string; stops: { floorId: string; x: number; y: number }[] }[];
+   };
+ 
+   let view = $state<NavView | null>(null);
+@@ -228,7 +228,7 @@
+   $effect(() => {
+     const links = view?.verticalLinks || [];
+     if (!viewer) return;
+-    const list = links.flatMap((l) => l.name ? l.stops.map((st) => ({ floorId: st.floorId, x: st.x, y: st.y, name: l.name! })) : []);
++    const list = links.flatMap((l) => l.name ? l.stops.map((st) => ({ floorId: st.floorId, x: st.x, y: st.y, name: l.name!, kind: l.kind })) : []);
+     untrack(() => viewer?.setNavLinkSigns?.(list));
+     // Route end points (destinations, landings) stay clear of placed props.
+     const keep = [...allPlaces().map((p) => ({ floorId: p.floorId || view?.floorId || '', x: p.x, y: p.y })), ...list];

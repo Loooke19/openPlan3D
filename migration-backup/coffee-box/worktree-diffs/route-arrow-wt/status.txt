@@ -1,0 +1,3 @@
+ M src/lib/components/viewer3d/ThreeViewer.svelte
+ M src/lib/components/viewer3d/nav/route.ts
+ M src/lib/components/viewer3d/nav/signs.ts

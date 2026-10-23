@@ -1,0 +1,477 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - generic [ref=f1e8]:
+      - heading "院内WAYFINDING" [level=1] [ref=f1e9]
+      - paragraph [ref=f1e10]: 岐阜大学医院 · 一楼导览
+    - generic [ref=f1e11]: 找到方向，安心前往。
+    - generic [ref=f1e13]:
+      - button "路线规划" [ref=f1e14] [cursor=pointer]: 路线规划 ↗
+      - button "导入图纸" [ref=f1e15] [cursor=pointer]
+      - button "地图工具" [ref=f1e16] [cursor=pointer]
+      - generic [ref=f1e17]: DEMO
+  - main [ref=f1e18]:
+    - region "医院室内地图" [ref=f1e19]:
+      - generic:
+        - generic:
+          - generic: FLOOR
+          - strong: "01"
+          - generic: 一楼门诊与公共服务
+        - generic [ref=f1e22]:
+          - button "平面 2D" [ref=f1e23] [cursor=pointer]
+          - button "立体 3D" [pressed] [ref=f1e24] [cursor=pointer]
+      - generic [ref=f1e25]:
+        - button "查看完整地图" [ref=f1e26] [cursor=pointer]
+        - generic [ref=f1e29]:
+          - button "放大" [ref=f1e30] [cursor=pointer]: ＋
+          - button "缩小" [ref=f1e31] [cursor=pointer]: －
+      - generic "默认视角上方为北":
+        - text: "N"
+        - generic: ↑
+      - paragraph: 拖动旋转 · 右键平移 · 滚轮缩放
+      - generic:
+        - generic: 诊疗区域
+        - generic: 公共服务
+        - generic: 导航路线
+      - generic [ref=f1e32]:
+        - generic [ref=f1e33]:
+          - generic [ref=f1e34]:
+            - generic [ref=f1e35]:
+              - generic [ref=f1e36]: 从
+              - combobox "选择起点" [ref=f1e38]:
+                - option "主入口 / 出口" [selected]
+                - option "急诊入口"
+                - option "下班时间入口"
+                - option "南侧入口 / 出口"
+                - option "北门诊楼 · 内窥镜检查中心"
+                - option "内窥镜检查中心接待处"
+                - option "综合内科"
+                - option "综合内科接待处"
+                - option "急救部"
+                - option "放射线部"
+                - option "放射线部接待处"
+                - option "核磁共振成像"
+                - option "药品柜台（营业时）"
+                - option "下班时间药房"
+                - option "药剂部"
+                - option "便利店 LAWSON"
+                - option "咖啡店 TULLY'S COFFEE"
+                - option "邮局"
+                - option "住院中心"
+                - option "多功能室"
+                - option "信息咨询处"
+                - option "初诊 / 复诊 / 预约 / 缴费窗口"
+                - option "出院窗口"
+                - option "医事课"
+                - option "医疗支援课"
+                - option "医疗合作中心与患者咨询窗口"
+                - option "咨询室（北）"
+                - option "咨询室（南）"
+                - option "急诊等候室"
+                - option "下班时间接待处"
+                - option "门卫室"
+                - option "担架和轮椅储存区"
+                - option "院外处方服务"
+                - option "停车费缴费机（主入口）"
+                - option "停车费缴费机（下班入口）"
+                - option "自动售货机（病房通道北侧）"
+                - option "自动售货机（病房通道南侧）"
+                - option "电梯（1楼—2楼）"
+                - option "病房电梯"
+                - option "中央扶梯"
+                - option "中央楼梯"
+                - option "西北侧楼梯"
+                - option "东北侧楼梯"
+                - option "挂号区西侧楼梯"
+                - option "病房通道北侧楼梯"
+                - option "病房电梯旁楼梯"
+                - option "卫生间（放射线部）"
+                - option "无障碍卫生间（放射线部）"
+                - option "卫生间（中央大厅）"
+                - option "无障碍卫生间（中央大厅）"
+                - option "卫生间（药剂部东侧）"
+                - option "无障碍卫生间（药剂部东侧）"
+                - option "AED（中央扶梯旁）"
+                - option "AED（内窥镜检查中心）"
+                - option "AED（多功能室旁）"
+                - option "AED（放射线部接待处）"
+                - option "AED（放射线部东侧）"
+                - option "公共电话（主入口）"
+                - option "公共电话（急诊等候区）"
+                - option "传真服务角"
+                - option "医疗费缴费机（中央大厅）"
+                - option "医疗费缴费机（出院窗口旁）"
+                - option "书写台"
+                - option "无障碍乘降处"
+            - generic "途径点列表"
+            - button "＋ 途径点" [ref=f1e39] [cursor=pointer]
+            - generic [ref=f1e40]:
+              - generic [ref=f1e41]: 到
+              - combobox "选择终点" [ref=f1e43]:
+                - option "请选择目的地" [selected]
+                - option "主入口 / 出口"
+                - option "急诊入口"
+                - option "下班时间入口"
+                - option "南侧入口 / 出口"
+                - option "北门诊楼 · 内窥镜检查中心"
+                - option "内窥镜检查中心接待处"
+                - option "综合内科"
+                - option "综合内科接待处"
+                - option "急救部"
+                - option "放射线部"
+                - option "放射线部接待处"
+                - option "核磁共振成像"
+                - option "药品柜台（营业时）"
+                - option "下班时间药房"
+                - option "药剂部"
+                - option "便利店 LAWSON"
+                - option "咖啡店 TULLY'S COFFEE"
+                - option "邮局"
+                - option "住院中心"
+                - option "多功能室"
+                - option "信息咨询处"
+                - option "初诊 / 复诊 / 预约 / 缴费窗口"
+                - option "出院窗口"
+                - option "医事课"
+                - option "医疗支援课"
+                - option "医疗合作中心与患者咨询窗口"
+                - option "咨询室（北）"
+                - option "咨询室（南）"
+                - option "急诊等候室"
+                - option "下班时间接待处"
+                - option "门卫室"
+                - option "担架和轮椅储存区"
+                - option "院外处方服务"
+                - option "停车费缴费机（主入口）"
+                - option "停车费缴费机（下班入口）"
+                - option "自动售货机（病房通道北侧）"
+                - option "自动售货机（病房通道南侧）"
+                - option "电梯（1楼—2楼）"
+                - option "病房电梯"
+                - option "中央扶梯"
+                - option "中央楼梯"
+                - option "西北侧楼梯"
+                - option "东北侧楼梯"
+                - option "挂号区西侧楼梯"
+                - option "病房通道北侧楼梯"
+                - option "病房电梯旁楼梯"
+                - option "卫生间（放射线部）"
+                - option "无障碍卫生间（放射线部）"
+                - option "卫生间（中央大厅）"
+                - option "无障碍卫生间（中央大厅）"
+                - option "卫生间（药剂部东侧）"
+                - option "无障碍卫生间（药剂部东侧）"
+                - option "AED（中央扶梯旁）"
+                - option "AED（内窥镜检查中心）"
+                - option "AED（多功能室旁）"
+                - option "AED（放射线部接待处）"
+                - option "AED（放射线部东侧）"
+                - option "公共电话（主入口）"
+                - option "公共电话（急诊等候区）"
+                - option "传真服务角"
+                - option "医疗费缴费机（中央大厅）"
+                - option "医疗费缴费机（出院窗口旁）"
+                - option "书写台"
+                - option "无障碍乘降处"
+          - button "交换起终点" [ref=f1e44] [cursor=pointer]: ⇅
+        - generic [ref=f1e45]:
+          - generic [ref=f1e46]:
+            - strong [ref=f1e47]: 选择目的地，开始导航
+            - paragraph [ref=f1e48]: 点击地图中的名称，或搜索目的地。
+          - paragraph [ref=f1e49]: 以医院一楼官方图纸为布局依据。
+        - button "模拟行走" [disabled] [ref=f1e51]: 模拟行走 ↗
+    - complementary "地点与路线" [ref=f1e52]:
+      - generic [ref=f1e53]:
+        - text: YOUR NEXT STOP
+        - heading "这次， 要去哪里？" [level=2] [ref=f1e54]: 这次，要去哪里？
+        - paragraph [ref=f1e55]: 找科室、取药，或先喝杯咖啡。
+      - paragraph: 一楼 · 64 个地点 · 演示地图
+      - generic [ref=f1e56]: 查找目的地
+      - generic [ref=f1e57]:
+        - textbox "搜索科室或设施" [ref=f1e61]:
+          - /placeholder: 科室、房间或设施
+        - button "清除搜索" [ref=f1e62] [cursor=pointer]: ×
+      - navigation "设施分类" [ref=f1e63]:
+        - button "出入口" [ref=f1e64] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f1e65]: →
+          - text: 出入口
+        - button "卫生间" [ref=f1e66] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f1e67]: WC
+          - text: 卫生间
+        - button "电梯" [ref=f1e68] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f1e69]: ↕
+          - text: 电梯
+        - button "便民服务" [ref=f1e70] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f1e71]: i
+          - text: 便民服务
+        - button "楼梯" [ref=f1e72] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f1e73]: ↗
+          - text: 楼梯
+        - button "扶梯" [ref=f1e74] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f1e75]: ↗
+          - text: 扶梯
+      - generic [ref=f1e76]:
+        - heading "科室与设施" [level=3] [ref=f1e77]
+        - button "全部地点" [pressed] [ref=f1e78] [cursor=pointer]
+      - generic "地点列表" [ref=f1e79]:
+        - button "导航到北门诊楼 · 内窥镜检查中心" [ref=f1e80] [cursor=pointer]:
+          - generic [ref=f1e81]: i
+          - generic [ref=f1e82]: 北门诊楼 · 内窥镜检查中心
+          - generic [ref=f1e83]: ›
+        - button "导航到综合内科" [ref=f1e84] [cursor=pointer]:
+          - generic [ref=f1e85]: i
+          - generic [ref=f1e86]: 综合内科
+          - generic [ref=f1e87]: ›
+        - button "导航到急救部" [ref=f1e88] [cursor=pointer]:
+          - generic [ref=f1e89]: i
+          - generic [ref=f1e90]: 急救部
+          - generic [ref=f1e91]: ›
+        - button "导航到放射线部" [ref=f1e92] [cursor=pointer]:
+          - generic [ref=f1e93]: i
+          - generic [ref=f1e94]: 放射线部
+          - generic [ref=f1e95]: ›
+        - button "导航到核磁共振成像" [ref=f1e96] [cursor=pointer]:
+          - generic [ref=f1e97]: i
+          - generic [ref=f1e98]: 核磁共振成像
+          - generic [ref=f1e99]: ›
+        - button "导航到药剂部" [ref=f1e100] [cursor=pointer]:
+          - generic [ref=f1e101]: i
+          - generic [ref=f1e102]: 药剂部
+          - generic [ref=f1e103]: ›
+        - button "导航到便利店 LAWSON" [ref=f1e104] [cursor=pointer]:
+          - generic [ref=f1e105]: i
+          - generic [ref=f1e106]: 便利店 LAWSON
+          - generic [ref=f1e107]: ›
+        - button "导航到咖啡店 TULLY'S COFFEE" [ref=f1e108] [cursor=pointer]:
+          - generic [ref=f1e109]: i
+          - generic [ref=f1e110]: 咖啡店 TULLY'S COFFEE
+          - generic [ref=f1e111]: ›
+        - button "导航到邮局" [ref=f1e112] [cursor=pointer]:
+          - generic [ref=f1e113]: i
+          - generic [ref=f1e114]: 邮局
+          - generic [ref=f1e115]: ›
+        - button "导航到住院中心" [ref=f1e116] [cursor=pointer]:
+          - generic [ref=f1e117]: i
+          - generic [ref=f1e118]: 住院中心
+          - generic [ref=f1e119]: ›
+        - button "导航到多功能室" [ref=f1e120] [cursor=pointer]:
+          - generic [ref=f1e121]: i
+          - generic [ref=f1e122]: 多功能室
+          - generic [ref=f1e123]: ›
+        - button "导航到信息咨询处" [ref=f1e124] [cursor=pointer]:
+          - generic [ref=f1e125]: i
+          - generic [ref=f1e126]: 信息咨询处
+          - generic [ref=f1e127]: ›
+        - button "导航到初诊 / 复诊 / 预约 / 缴费窗口" [ref=f1e128] [cursor=pointer]:
+          - generic [ref=f1e129]: i
+          - generic [ref=f1e130]: 初诊 / 复诊 / 预约 / 缴费窗口
+          - generic [ref=f1e131]: ›
+        - button "导航到医事课" [ref=f1e132] [cursor=pointer]:
+          - generic [ref=f1e133]: i
+          - generic [ref=f1e134]: 医事课
+          - generic [ref=f1e135]: ›
+        - button "导航到医疗支援课" [ref=f1e136] [cursor=pointer]:
+          - generic [ref=f1e137]: i
+          - generic [ref=f1e138]: 医疗支援课
+          - generic [ref=f1e139]: ›
+        - button "导航到医疗合作中心与患者咨询窗口" [ref=f1e140] [cursor=pointer]:
+          - generic [ref=f1e141]: i
+          - generic [ref=f1e142]: 医疗合作中心与患者咨询窗口
+          - generic [ref=f1e143]: ›
+        - button "导航到咨询室（北）" [ref=f1e144] [cursor=pointer]:
+          - generic [ref=f1e145]: i
+          - generic [ref=f1e146]: 咨询室（北）
+          - generic [ref=f1e147]: ›
+        - button "导航到咨询室（南）" [ref=f1e148] [cursor=pointer]:
+          - generic [ref=f1e149]: i
+          - generic [ref=f1e150]: 咨询室（南）
+          - generic [ref=f1e151]: ›
+        - button "导航到门卫室" [ref=f1e152] [cursor=pointer]:
+          - generic [ref=f1e153]: i
+          - generic [ref=f1e154]: 门卫室
+          - generic [ref=f1e155]: ›
+        - button "导航到主入口 / 出口" [ref=f1e156] [cursor=pointer]:
+          - generic [ref=f1e157]: →
+          - generic [ref=f1e158]: 主入口 / 出口
+          - generic [ref=f1e159]: ›
+        - button "导航到急诊入口" [ref=f1e160] [cursor=pointer]:
+          - generic [ref=f1e161]: →
+          - generic [ref=f1e162]: 急诊入口
+          - generic [ref=f1e163]: ›
+        - button "导航到下班时间入口" [ref=f1e164] [cursor=pointer]:
+          - generic [ref=f1e165]: →
+          - generic [ref=f1e166]: 下班时间入口
+          - generic [ref=f1e167]: ›
+        - button "导航到南侧入口 / 出口" [ref=f1e168] [cursor=pointer]:
+          - generic [ref=f1e169]: →
+          - generic [ref=f1e170]: 南侧入口 / 出口
+          - generic [ref=f1e171]: ›
+        - button "导航到内窥镜检查中心接待处" [ref=f1e172] [cursor=pointer]:
+          - generic [ref=f1e173]: i
+          - generic [ref=f1e174]: 内窥镜检查中心接待处
+          - generic [ref=f1e175]: ›
+        - button "导航到综合内科接待处" [ref=f1e176] [cursor=pointer]:
+          - generic [ref=f1e177]: i
+          - generic [ref=f1e178]: 综合内科接待处
+          - generic [ref=f1e179]: ›
+        - button "导航到放射线部接待处" [ref=f1e180] [cursor=pointer]:
+          - generic [ref=f1e181]: i
+          - generic [ref=f1e182]: 放射线部接待处
+          - generic [ref=f1e183]: ›
+        - button "导航到药品柜台（营业时）" [ref=f1e184] [cursor=pointer]:
+          - generic [ref=f1e185]: i
+          - generic [ref=f1e186]: 药品柜台（营业时）
+          - generic [ref=f1e187]: ›
+        - button "导航到下班时间药房" [ref=f1e188] [cursor=pointer]:
+          - generic [ref=f1e189]: i
+          - generic [ref=f1e190]: 下班时间药房
+          - generic [ref=f1e191]: ›
+        - button "导航到出院窗口" [ref=f1e192] [cursor=pointer]:
+          - generic [ref=f1e193]: i
+          - generic [ref=f1e194]: 出院窗口
+          - generic [ref=f1e195]: ›
+        - button "导航到急诊等候室" [ref=f1e196] [cursor=pointer]:
+          - generic [ref=f1e197]: i
+          - generic [ref=f1e198]: 急诊等候室
+          - generic [ref=f1e199]: ›
+        - button "导航到下班时间接待处" [ref=f1e200] [cursor=pointer]:
+          - generic [ref=f1e201]: i
+          - generic [ref=f1e202]: 下班时间接待处
+          - generic [ref=f1e203]: ›
+        - button "导航到担架和轮椅储存区" [ref=f1e204] [cursor=pointer]:
+          - generic [ref=f1e205]: i
+          - generic [ref=f1e206]: 担架和轮椅储存区
+          - generic [ref=f1e207]: ›
+        - button "导航到院外处方服务" [ref=f1e208] [cursor=pointer]:
+          - generic [ref=f1e209]: i
+          - generic [ref=f1e210]: 院外处方服务
+          - generic [ref=f1e211]: ›
+        - button "导航到停车费缴费机（主入口）" [ref=f1e212] [cursor=pointer]:
+          - generic [ref=f1e213]: i
+          - generic [ref=f1e214]: 停车费缴费机（主入口）
+          - generic [ref=f1e215]: ›
+        - button "导航到停车费缴费机（下班入口）" [ref=f1e216] [cursor=pointer]:
+          - generic [ref=f1e217]: i
+          - generic [ref=f1e218]: 停车费缴费机（下班入口）
+          - generic [ref=f1e219]: ›
+        - button "导航到自动售货机（病房通道北侧）" [ref=f1e220] [cursor=pointer]:
+          - generic [ref=f1e221]: i
+          - generic [ref=f1e222]: 自动售货机（病房通道北侧）
+          - generic [ref=f1e223]: ›
+        - button "导航到自动售货机（病房通道南侧）" [ref=f1e224] [cursor=pointer]:
+          - generic [ref=f1e225]: i
+          - generic [ref=f1e226]: 自动售货机（病房通道南侧）
+          - generic [ref=f1e227]: ›
+        - button "导航到电梯（1楼—2楼）" [ref=f1e228] [cursor=pointer]:
+          - generic [ref=f1e229]: ↕
+          - generic [ref=f1e230]: 电梯（1楼—2楼）
+          - generic [ref=f1e231]: ›
+        - button "导航到病房电梯" [ref=f1e232] [cursor=pointer]:
+          - generic [ref=f1e233]: ↕
+          - generic [ref=f1e234]: 病房电梯
+          - generic [ref=f1e235]: ›
+        - button "导航到中央扶梯" [ref=f1e236] [cursor=pointer]:
+          - generic [ref=f1e237]: ↗
+          - generic [ref=f1e238]: 中央扶梯
+          - generic [ref=f1e239]: ›
+        - button "导航到中央楼梯" [ref=f1e240] [cursor=pointer]:
+          - generic [ref=f1e241]: ↗
+          - generic [ref=f1e242]: 中央楼梯
+          - generic [ref=f1e243]: ›
+        - button "导航到西北侧楼梯" [ref=f1e244] [cursor=pointer]:
+          - generic [ref=f1e245]: ↗
+          - generic [ref=f1e246]: 西北侧楼梯
+          - generic [ref=f1e247]: ›
+        - button "导航到东北侧楼梯" [ref=f1e248] [cursor=pointer]:
+          - generic [ref=f1e249]: ↗
+          - generic [ref=f1e250]: 东北侧楼梯
+          - generic [ref=f1e251]: ›
+        - button "导航到挂号区西侧楼梯" [ref=f1e252] [cursor=pointer]:
+          - generic [ref=f1e253]: ↗
+          - generic [ref=f1e254]: 挂号区西侧楼梯
+          - generic [ref=f1e255]: ›
+        - button "导航到病房通道北侧楼梯" [ref=f1e256] [cursor=pointer]:
+          - generic [ref=f1e257]: ↗
+          - generic [ref=f1e258]: 病房通道北侧楼梯
+          - generic [ref=f1e259]: ›
+        - button "导航到病房电梯旁楼梯" [ref=f1e260] [cursor=pointer]:
+          - generic [ref=f1e261]: ↗
+          - generic [ref=f1e262]: 病房电梯旁楼梯
+          - generic [ref=f1e263]: ›
+        - button "导航到卫生间（放射线部）" [ref=f1e264] [cursor=pointer]:
+          - generic [ref=f1e265]: WC
+          - generic [ref=f1e266]: 卫生间（放射线部）
+          - generic [ref=f1e267]: ›
+        - button "导航到无障碍卫生间（放射线部）" [ref=f1e268] [cursor=pointer]:
+          - generic [ref=f1e269]: WC
+          - generic [ref=f1e270]: 无障碍卫生间（放射线部）
+          - generic [ref=f1e271]: ›
+        - button "导航到卫生间（中央大厅）" [ref=f1e272] [cursor=pointer]:
+          - generic [ref=f1e273]: WC
+          - generic [ref=f1e274]: 卫生间（中央大厅）
+          - generic [ref=f1e275]: ›
+        - button "导航到无障碍卫生间（中央大厅）" [ref=f1e276] [cursor=pointer]:
+          - generic [ref=f1e277]: WC
+          - generic [ref=f1e278]: 无障碍卫生间（中央大厅）
+          - generic [ref=f1e279]: ›
+        - button "导航到卫生间（药剂部东侧）" [ref=f1e280] [cursor=pointer]:
+          - generic [ref=f1e281]: WC
+          - generic [ref=f1e282]: 卫生间（药剂部东侧）
+          - generic [ref=f1e283]: ›
+        - button "导航到无障碍卫生间（药剂部东侧）" [ref=f1e284] [cursor=pointer]:
+          - generic [ref=f1e285]: WC
+          - generic [ref=f1e286]: 无障碍卫生间（药剂部东侧）
+          - generic [ref=f1e287]: ›
+        - button "导航到AED（中央扶梯旁）" [ref=f1e288] [cursor=pointer]:
+          - generic [ref=f1e289]: i
+          - generic [ref=f1e290]: AED（中央扶梯旁）
+          - generic [ref=f1e291]: ›
+        - button "导航到AED（内窥镜检查中心）" [ref=f1e292] [cursor=pointer]:
+          - generic [ref=f1e293]: i
+          - generic [ref=f1e294]: AED（内窥镜检查中心）
+          - generic [ref=f1e295]: ›
+        - button "导航到AED（多功能室旁）" [ref=f1e296] [cursor=pointer]:
+          - generic [ref=f1e297]: i
+          - generic [ref=f1e298]: AED（多功能室旁）
+          - generic [ref=f1e299]: ›
+        - button "导航到AED（放射线部接待处）" [ref=f1e300] [cursor=pointer]:
+          - generic [ref=f1e301]: i
+          - generic [ref=f1e302]: AED（放射线部接待处）
+          - generic [ref=f1e303]: ›
+        - button "导航到AED（放射线部东侧）" [ref=f1e304] [cursor=pointer]:
+          - generic [ref=f1e305]: i
+          - generic [ref=f1e306]: AED（放射线部东侧）
+          - generic [ref=f1e307]: ›
+        - button "导航到公共电话（主入口）" [ref=f1e308] [cursor=pointer]:
+          - generic [ref=f1e309]: i
+          - generic [ref=f1e310]: 公共电话（主入口）
+          - generic [ref=f1e311]: ›
+        - button "导航到公共电话（急诊等候区）" [ref=f1e312] [cursor=pointer]:
+          - generic [ref=f1e313]: i
+          - generic [ref=f1e314]: 公共电话（急诊等候区）
+          - generic [ref=f1e315]: ›
+        - button "导航到传真服务角" [ref=f1e316] [cursor=pointer]:
+          - generic [ref=f1e317]: i
+          - generic [ref=f1e318]: 传真服务角
+          - generic [ref=f1e319]: ›
+        - button "导航到医疗费缴费机（中央大厅）" [ref=f1e320] [cursor=pointer]:
+          - generic [ref=f1e321]: i
+          - generic [ref=f1e322]: 医疗费缴费机（中央大厅）
+          - generic [ref=f1e323]: ›
+        - button "导航到医疗费缴费机（出院窗口旁）" [ref=f1e324] [cursor=pointer]:
+          - generic [ref=f1e325]: i
+          - generic [ref=f1e326]: 医疗费缴费机（出院窗口旁）
+          - generic [ref=f1e327]: ›
+        - button "导航到书写台" [ref=f1e328] [cursor=pointer]:
+          - generic [ref=f1e329]: i
+          - generic [ref=f1e330]: 书写台
+          - generic [ref=f1e331]: ›
+        - button "导航到无障碍乘降处" [ref=f1e332] [cursor=pointer]:
+          - generic [ref=f1e333]: i
+          - generic [ref=f1e334]: 无障碍乘降处
+          - generic [ref=f1e335]: ›
+      - paragraph [ref=f1e336]:
+        - generic [aria-hidden] [ref=f1e337]: ＋
+        - text: 每一段路，都更清楚一点。
+  - contentinfo [ref=f1e338]:
+    - generic [ref=f1e339]: GIFU UNIVERSITY HOSPITAL 室内导览演示
+    - generic [ref=f1e341]: 演示门位 · 非实时定位 · 以现场标识为准

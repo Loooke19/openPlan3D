@@ -1,0 +1,17 @@
+ package.json                                   |   2 +-
+ playwright.config.ts                           |   8 +-
+ src/lib/components/viewer3d/ThreeViewer.svelte | 591 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++----------------------------------------------
+ src/lib/components/viewer3d/nav/dressing.ts    |  43 ++++-------
+ src/lib/components/viewer3d/nav/layout.ts      |  43 ++++++++++-
+ src/lib/components/viewer3d/nav/pipeline.ts    |  43 +++++++++--
+ src/lib/components/viewer3d/nav/route.ts       |  55 ++++++++++----
+ src/lib/components/viewer3d/nav/signs.ts       | 297 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++----------
+ src/lib/models/types.ts                        |   3 +
+ src/lib/utils/floors.ts                        |   9 +++
+ src/lib/utils/hospitalMaterials.ts             |  45 +++++------
+ src/lib/utils/wallJoints.ts                    |  15 +++-
+ src/routes/nav/+page.svelte                    | 154 ++++++++++++++++++++++----------------
+ tests/floors.test.ts                           |  16 +++-
+ tests/nav-layout.test.ts                       |  10 +++
+ tests/nav-route-depth.test.ts                  |  38 +++++++++-
+ 16 files changed, 1007 insertions(+), 365 deletions(-)

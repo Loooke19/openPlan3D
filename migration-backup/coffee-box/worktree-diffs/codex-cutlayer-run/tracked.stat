@@ -1,0 +1,327 @@
+ be/.cursor/skills/recover-cad-pdf-layers/SKILL.md                                                                             |    99 +
+ be/.cursor/skills/recover-cad-pdf-layers/scripts/inspect_cad_pdf.py                                                           |   317 +
+ be/.gitignore                                                                                                                 |     5 +
+ be/.impeccable.md                                                                                                             |    18 +
+ be/.playwright-mcp/console-2026-09-10T04-09-23-866Z.log                                                                       |     2 +
+ be/.playwright-mcp/console-2026-09-10T04-11-19-212Z.log                                                                       |     1 +
+ be/.playwright-mcp/console-2026-09-10T06-04-33-709Z.log                                                                       |     1 +
+ be/.playwright-mcp/maker-two-page.pdf                                                                                         |   Bin 0 -> 371035 bytes
+ be/.playwright-mcp/not-a-map.pdf                                                                                              |     1 +
+ be/.playwright-mcp/page-2026-09-10T04-09-25-518Z.yml                                                                          |   473 +
+ be/.playwright-mcp/page-2026-09-10T04-09-30-922Z.yml                                                                          |   520 +
+ be/.playwright-mcp/page-2026-09-10T04-09-38-154Z.yml                                                                          |   529 +
+ be/.playwright-mcp/page-2026-09-10T04-09-58-115Z.yml                                                                          |     0
+ be/.playwright-mcp/page-2026-09-10T04-10-13-006Z.yml                                                                          |   530 +
+ be/.playwright-mcp/page-2026-09-10T04-10-24-844Z.yml                                                                          |     0
+ be/.playwright-mcp/page-2026-09-10T04-10-29-299Z.yml                                                                          |   549 +
+ be/.playwright-mcp/page-2026-09-10T04-10-32-376Z.yml                                                                          |   549 +
+ be/.playwright-mcp/page-2026-09-10T04-10-40-409Z.yml                                                                          |   549 +
+ be/.playwright-mcp/page-2026-09-10T04-10-43-536Z.yml                                                                          |   549 +
+ be/.playwright-mcp/page-2026-09-10T04-11-06-681Z.yml                                                                          |   549 +
+ be/.playwright-mcp/page-2026-09-10T04-11-19-409Z.yml                                                                          |   520 +
+ be/.playwright-mcp/page-2026-09-10T04-11-36-292Z.yml                                                                          |   521 +
+ be/.playwright-mcp/page-2026-09-10T04-11-44-966Z.yml                                                                          |   549 +
+ be/.playwright-mcp/page-2026-09-10T04-11-47-947Z.yml                                                                          |   549 +
+ be/.playwright-mcp/page-2026-09-10T04-12-07-946Z.yml                                                                          |   521 +
+ be/.playwright-mcp/page-2026-09-10T04-12-19-217Z.yml                                                                          |   545 +
+ be/.playwright-mcp/page-2026-09-10T04-12-29-469Z.yml                                                                          |   563 +
+ be/.playwright-mcp/page-2026-09-10T06-04-33-910Z.yml                                                                          |   473 +
+ be/.playwright-mcp/page-2026-09-10T06-04-37-066Z.yml                                                                          |   520 +
+ be/.playwright-mcp/page-2026-09-10T06-45-02-034Z.yml                                                                          |   477 +
+ be/.playwright-mcp/page-2026-09-10T06-45-14-988Z.yml                                                                          |   524 +
+ be/.playwright-mcp/page-2026-09-10T06-45-24-242Z.yml                                                                          |   522 +
+ be/.playwright-mcp/page-2026-09-10T06-45-37-099Z.yml                                                                          |   591 +
+ be/.playwright-mcp/page-2026-09-10T07-55-47-644Z.yml                                                                          |   524 +
+ be/.playwright-mcp/page-2026-09-10T07-55-53-970Z.yml                                                                          |   524 +
+ be/README.md                                                                                                                  |    97 +
+ be/VERIFICATION.md                                                                                                            |    64 +
+ be/assets/fonts/OFL.txt                                                                                                       |    93 +
+ be/assets/fonts/noto-sans-sc-demo.woff2                                                                                       |   Bin 0 -> 186316 bytes
+ be/assets/vendor/README.md                                                                                                    |    19 +
+ be/assets/vendor/ambientcss/LICENSE                                                                                           |    21 +
+ be/assets/vendor/ambientcss/ambient.css                                                                                       |     1 +
+ be/assets/vendor/ambientcss/package.json                                                                                      |    47 +
+ be/assets/vendor/pdfjs/README.md                                                                                              |     4 +
+ be/assets/vendor/pdfjs/pdf.min.mjs                                                                                            |    21 +
+ be/assets/vendor/pdfjs/pdf.worker.min.mjs                                                                                     |    21 +
+ be/assets/vendor/tabler-icons/LICENSE                                                                                         |    21 +
+ be/assets/vendor/tabler-icons/README.md                                                                                       |     7 +
+ be/assets/vendor/tabler-icons/icons/badge-wc.svg                                                                              |    17 +
+ be/assets/vendor/tabler-icons/icons/desk.svg                                                                                  |    19 +
+ be/assets/vendor/tabler-icons/icons/door-enter.svg                                                                            |    18 +
+ be/assets/vendor/tabler-icons/icons/elevator.svg                                                                              |    17 +
+ be/assets/vendor/tabler-icons/icons/escalator.svg                                                                             |    15 +
+ be/assets/vendor/tabler-icons/icons/first-aid-kit.svg                                                                         |    18 +
+ be/assets/vendor/tabler-icons/icons/info-circle.svg                                                                           |    17 +
+ be/assets/vendor/tabler-icons/icons/shopping-bag.svg                                                                          |    16 +
+ be/assets/vendor/tabler-icons/icons/stairs.svg                                                                                |    15 +
+ be/assets/vendor/tabler-icons/icons/wheelchair.svg                                                                            |    20 +
+ be/assets/vendor/three/LICENSE                                                                                                |    21 +
+ be/assets/vendor/three/addons/controls/OrbitControls.js                                                                       |  1860 ++
+ be/assets/vendor/three/three.core.js                                                                                          | 58773 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ be/assets/vendor/three/three.module.js                                                                                        | 18251 ++++++++++++++++++++
+ be/data/cross-floor-fixture.json                                                                                              |    51 +
+ be/data/gifu-1f-poi-annotations.json                                                                                          |    70 +
+ be/data/gifu-1f-profile.json                                                                                                  |    32 +
+ be/data/map-types.ts                                                                                                          |    75 +
+ be/data/map.json                                                                                                              |     1 +
+ be/data/overrides/P1-1F.json                                                                                                  |   227 +
+ be/data/overrides/P1-2F.json                                                                                                  |   164 +
+ be/data/overrides/P1-3F.json                                                                                                  |   111 +
+ be/data/overrides/P2-3F.json                                                                                                  |    32 +
+ be/data/overrides/P3-1F.json                                                                                                  |     2 +
+ be/data/overrides/P3-2F.json                                                                                                  |     3 +
+ be/data/overrides/P3-3F.json                                                                                                  |     2 +
+ be/data/overrides/P3-4F.json                                                                                                  |     1 +
+ be/data/overrides/pdf_truth.json                                                                                              |     7 +
+ be/data/safe-mask.png                                                                                                         |   Bin 0 -> 3162 bytes
+ be/data/sample-map-draft.json                                                                                                 |    48 +
+ be/data/sample-routes.json                                                                                                    |     1 +
+ be/data/text-extraction.json                                                                                                  |     1 +
+ be/data/validation-report.json                                                                                                |     1 +
+ be/data/walkable-mask.png                                                                                                     |   Bin 0 -> 3173 bytes
+ be/data/walkable-overlay.png                                                                                                  |   Bin 0 -> 6479 bytes
+ be/docs/openplan-nav-handoff.md                                                                                               |   190 +
+ be/maker-panel-restored.png                                                                                                   |   Bin 0 -> 35641 bytes
+ be/preview/appearance.js                                                                                                      |    11 +
+ be/preview/edit.html                                                                                                          |    96 +
+ be/preview/editor.js                                                                                                          |   820 +
+ be/preview/facility-icons.js                                                                                                  |   129 +
+ be/preview/files.css                                                                                                          |    28 +
+ be/preview/files.html                                                                                                         |    24 +
+ be/preview/files.js                                                                                                           |   172 +
+ be/preview/index.html                                                                                                         |   151 +
+ be/preview/institutions.js                                                                                                    |   354 +
+ be/preview/interface.css                                                                                                      |   276 +
+ be/preview/kujiale-display.html                                                                                               |    64 +
+ be/preview/kujiale-import.css                                                                                                 |    41 +
+ be/preview/kujiale-import.html                                                                                                |    57 +
+ be/preview/kujiale-import.js                                                                                                  |   283 +
+ be/preview/maker.js                                                                                                           |   837 +
+ be/preview/map-art.js                                                                                                         |   125 +
+ be/preview/map-coords.js                                                                                                      |   272 +
+ be/preview/nav-marker.js                                                                                                      |   166 +
+ be/preview/nav.css                                                                                                            |    87 +
+ be/preview/nav.html                                                                                                           |    79 +
+ be/preview/nav.js                                                                                                             |   643 +
+ be/preview/routing.js                                                                                                         |   392 +
+ be/preview/scene3d.js                                                                                                         |  1018 ++
+ be/preview/status.js                                                                                                          |    23 +
+ be/preview/styles.css                                                                                                         |     9 +
+ be/preview/viewer.js                                                                                                          |   981 ++
+ be/preview/walk-look.js                                                                                                       |    21 +
+ be/preview/wall-signs.js                                                                                                      |    37 +
+ be/requirements.txt                                                                                                           |    11 +
+ be/scripts/build_map.py                                                                                                       |   338 +
+ be/scripts/cad_visocr.swift                                                                                                   |   114 +
+ be/scripts/draw_rooms.py                                                                                                      |   234 +
+ be/scripts/floor_nav.py                                                                                                       |  3189 ++++
+ be/scripts/floor_overrides.py                                                                                                 |   281 +
+ be/scripts/hospital_lexicon.py                                                                                                |   115 +
+ be/scripts/kujiale_import_server.py                                                                                           |   905 +
+ be/scripts/maker_app.py                                                                                                       |   270 +
+ be/scripts/maker_build.py                                                                                                     |  1662 ++
+ be/scripts/maker_cad.py                                                                                                       |  1854 ++
+ be/scripts/maker_ocr.py                                                                                                       |  1039 ++
+ be/scripts/maker_pdf.py                                                                                                       |    37 +
+ be/scripts/maker_server.py                                                                                                    |    17 +
+ be/scripts/maker_store.py                                                                                                     |   788 +
+ be/scripts/name_overrides.py                                                                                                  |   480 +
+ be/scripts/north_arrow.py                                                                                                     |   100 +
+ be/scripts/openplan_editor_mcp.py                                                                                             |   554 +
+ be/scripts/openplan_editor_session.py                                                                                         |   671 +
+ be/scripts/openplan_project.py                                                                                                |  1723 ++
+ be/scripts/openplan_project_tools.py                                                                                          |   253 +
+ be/scripts/pdf_building.py                                                                                                    |   957 ++
+ be/scripts/seed_cross_floor_elevator.py                                                                                       |    94 +
+ be/scripts/subset_font.py                                                                                                     |    97 +
+ be/scripts/verify_import.py                                                                                                   |   142 +
+ be/source/gifu-1f.png                                                                                                         |   Bin 0 -> 318362 bytes
+ be/source/gifu-hospital-map.pdf                                                                                               |  3148 ++++
+ be/tests/e2e_pdf_import_multifloor.mjs                                                                                        |   120 +
+ be/tests/fixtures/make_synthetic_hospital_pdf.py                                                                              |    44 +
+ be/tests/fixtures/synthetic-hospital-2f.pdf                                                                                   |   Bin 0 -> 27608 bytes
+ be/tests/test_all_entrances_cross_floor.py                                                                                    |    56 +
+ be/tests/test_cross_floor_nav.py                                                                                              |   299 +
+ be/tests/test_drawn_rooms.py                                                                                                  |    36 +
+ be/tests/test_ensuite_real.py                                                                                                 |    29 +
+ be/tests/test_files_nav_entry.py                                                                                              |    32 +
+ be/tests/test_floor_nav.py                                                                                                    |   445 +
+ be/tests/test_kujiale_import_files.py                                                                                         |    53 +
+ be/tests/test_maker.py                                                                                                        |   575 +
+ be/tests/test_maker_build.py                                                                                                  |   795 +
+ be/tests/test_maker_cad_rulers.py                                                                                             |   130 +
+ be/tests/test_maker_ocr.py                                                                                                    |   162 +
+ be/tests/test_manual_edits.py                                                                                                 |   119 +
+ be/tests/test_misreads.py                                                                                                     |     9 +
+ be/tests/test_name_overrides.py                                                                                               |    46 +
+ be/tests/test_navigation.py                                                                                                   |   206 +
+ be/tests/test_ocr_lexicon_north.py                                                                                            |   125 +
+ be/tests/test_ocr_name_noise.py                                                                                               |    13 +
+ be/tests/test_openplan_editor_mcp.py                                                                                          |   381 +
+ be/tests/test_openplan_project.py                                                                                             |   152 +
+ be/tests/test_pdf_building.py                                                                                                 |   296 +
+ be/tests/test_pdf_import_e2e.py                                                                                               |    55 +
+ be/tests/test_preview.mjs                                                                                                     |  1008 ++
+ be/tests/test_project_writeback.py                                                                                            |    79 +
+ be/tests/test_restricted_zones.py                                                                                             |    81 +
+ "be/\346\235\220\350\264\250\344\270\216\345\205\211\347\205\247\345\256\236\347\216\260\350\257\264\346\230\216.md"          |   328 +
+ ...233\256\346\246\202\350\247\210\344\270\216PDF\345\257\274\345\205\245\346\212\200\346\234\257\350\256\241\345\210\222.md" |   264 +
+ guard.log                                                                                                                     |    50 +
+ playwright.config.ts                                                                                                          |    10 +-
+ report.md                                                                                                                     |    24 +
+ round5.md                                                                                                                     |    11 +
+ round6.md                                                                                                                     |     2 +
+ shots/B-switch-after-fp-down-production.png                                                                                   |   Bin 0 -> 119642 bytes
+ shots/B-switch-after-fp-up-production.png                                                                                     |   Bin 0 -> 63824 bytes
+ shots/B-switch-after-sim-up-production.png                                                                                    |   Bin 0 -> 140233 bytes
+ shots/B-switch-before-fp-down-production.png                                                                                  |   Bin 0 -> 74373 bytes
+ shots/B-switch-before-fp-up-production.png                                                                                    |   Bin 0 -> 111504 bytes
+ shots/B-switch-before-sim-up-production.png                                                                                   |   Bin 0 -> 175771 bytes
+ shots/P1-1F-fp-corridor.png                                                                                                   |   Bin 0 -> 197045 bytes
+ shots/P1-1F-fp-exterior.png                                                                                                   |   Bin 0 -> 146100 bytes
+ shots/P1-route-3d-overview.png                                                                                                |   Bin 0 -> 364177 bytes
+ shots/P1-route-stair-transfer.png                                                                                             |   Bin 0 -> 209295 bytes
+ shots/fade-after.png                                                                                                          |   Bin 0 -> 296268 bytes
+ shots/fade-before.png                                                                                                         |   Bin 0 -> 358707 bytes
+ shots/fade-middle.png                                                                                                         |   Bin 0 -> 52196 bytes
+ shots/stair-1F.png                                                                                                            |   Bin 0 -> 341622 bytes
+ shots/stair-2F.png                                                                                                            |   Bin 0 -> 298494 bytes
+ shots/stair-3F.png                                                                                                            |   Bin 0 -> 286300 bytes
+ shots/third-A1-west-stair.png                                                                                                 |   Bin 0 -> 349192 bytes
+ shots/third-A2-corridor-after.png                                                                                             |   Bin 0 -> 161320 bytes
+ shots/third-A2-corridor-kit-reference.png                                                                                     |   Bin 0 -> 161320 bytes
+ shots/third-A2-exterior-after.png                                                                                             |   Bin 0 -> 146392 bytes
+ shots/third-A2-exterior-kit-reference.png                                                                                     |   Bin 0 -> 146392 bytes
+ shots/third-B-switch-after-fp-down-production.png                                                                             |   Bin 0 -> 134479 bytes
+ shots/third-B-switch-after-fp-up-production.png                                                                               |   Bin 0 -> 112970 bytes
+ shots/third-B-switch-after-sim-up-production.png                                                                              |   Bin 0 -> 203590 bytes
+ shots/third-B-switch-before-fp-down-production.png                                                                            |   Bin 0 -> 124656 bytes
+ shots/third-B-switch-before-fp-up-production.png                                                                              |   Bin 0 -> 183101 bytes
+ shots/third-B-switch-before-sim-up-production.png                                                                             |   Bin 0 -> 257492 bytes
+ shots/third-fp-candidate-0.png                                                                                                |   Bin 0 -> 220353 bytes
+ shots/third-fp-candidate-1.png                                                                                                |   Bin 0 -> 177551 bytes
+ shots/third-fp-candidate-2.png                                                                                                |   Bin 0 -> 216856 bytes
+ shots/third-fp-candidate-3.png                                                                                                |   Bin 0 -> 181897 bytes
+ shots/third-fp-candidate-4.png                                                                                                |   Bin 0 -> 239807 bytes
+ shots/third-wall-corridor-after.png                                                                                           |   Bin 0 -> 197045 bytes
+ shots/third-wall-corridor-before.png                                                                                          |   Bin 0 -> 201285 bytes
+ shots/third-wall-exterior-after.png                                                                                           |   Bin 0 -> 146100 bytes
+ shots/third-wall-exterior-before.png                                                                                          |   Bin 0 -> 156469 bytes
+ src/lib/components/viewer3d/ThreeViewer.svelte                                                                                |   587 +-
+ src/lib/components/viewer3d/nav/dressing.ts                                                                                   |    43 +-
+ src/lib/components/viewer3d/nav/kitDressing.ts                                                                                |   634 +
+ src/lib/components/viewer3d/nav/layout.ts                                                                                     |    43 +-
+ src/lib/components/viewer3d/nav/openingAudit.ts                                                                               |    88 +
+ src/lib/components/viewer3d/nav/openingRules.ts                                                                               |   113 +
+ src/lib/components/viewer3d/nav/pipeline.ts                                                                                   |    43 +-
+ src/lib/components/viewer3d/nav/route.ts                                                                                      |    55 +-
+ src/lib/components/viewer3d/nav/signs.ts                                                                                      |   297 +-
+ src/lib/models/types.ts                                                                                                       |     1 +
+ src/lib/utils/floors.ts                                                                                                       |     9 +
+ src/lib/utils/hospitalMaterials.ts                                                                                            |    45 +-
+ src/lib/utils/wallJoints.ts                                                                                                   |    15 +-
+ src/routes/nav/+page.svelte                                                                                                   |   154 +-
+ static/nav-kit/MH04_Adjustable_Treatment_Bed.glb                                                                              |   Bin 0 -> 159236 bytes
+ static/nav-kit/MH05_Folding_Privacy_Screen.glb                                                                                |   Bin 0 -> 89524 bytes
+ static/nav-kit/MH06_IV_Stand_and_Fluid_Bag.glb                                                                                |   Bin 0 -> 158004 bytes
+ static/nav-kit/MH07_Vital_Signs_Monitor_Cart.glb                                                                              |   Bin 0 -> 195304 bytes
+ static/nav-kit/MH08_Defibrillator_Crash_Cart.glb                                                                              |   Bin 0 -> 217632 bytes
+ static/nav-kit/MH09_Medicine_Trolley.glb                                                                                      |   Bin 0 -> 213200 bytes
+ static/nav-kit/MH10_Examination_Table.glb                                                                                     |   Bin 0 -> 84200 bytes
+ static/nav-kit/MH11_Oxygen_Cylinder_Rack.glb                                                                                  |   Bin 0 -> 118524 bytes
+ static/nav-kit/MH13_Wheelchair.glb                                                                                            |   Bin 0 -> 199124 bytes
+ static/nav-kit/MH14_Emergency_Stretcher_Gurney.glb                                                                            |   Bin 0 -> 174172 bytes
+ static/nav-kit/MH15_Portable_Ultrasound_Cart.glb                                                                              |   Bin 0 -> 214096 bytes
+ static/nav-kit/MH16_Wall_First_Aid_Cabinet.glb                                                                                |   Bin 0 -> 151036 bytes
+ static/nav-kit/MH17_Clinical_Handwash_Sink_Unit.glb                                                                           |   Bin 0 -> 80848 bytes
+ static/nav-kit/MH19_Medical_Supply_Shelf.glb                                                                                  |   Bin 0 -> 251328 bytes
+ static/nav-kit/MH20_Triage_Reception_Station.glb                                                                              |   Bin 0 -> 166268 bytes
+ tests/browser/nav-floor-transfer.spec.ts                                                                                      |   118 +
+ tests/floors.test.ts                                                                                                          |    16 +-
+ tests/nav-layout.test.ts                                                                                                      |    10 +
+ tests/nav-route-depth.test.ts                                                                                                 |    38 +-
+ verification/A-generation.json                                                                                                |    47 +
+ verification/A-meshes.json                                                                                                    |   167 +
+ verification/backend-A.log                                                                                                    |    19 +
+ verification/backend-B.log                                                                                                    |    18 +
+ verification/backend-baseline-unit.log                                                                                        |    95 +
+ verification/backend-final-P1.log                                                                                             |     7 +
+ verification/backend-regression-B.log                                                                                         |     6 +
+ verification/backend-test-comparison.json                                                                                     |    19 +
+ verification/backend-unit-B.log                                                                                               |    87 +
+ verification/baseline/P1.json                                                                                                 |     1 +
+ verification/baseline/P2.json                                                                                                 |     1 +
+ verification/baseline/P3.json                                                                                                 |     1 +
+ verification/browser-B.log                                                                                                    |    47 +
+ verification/browser-cancel-final.log                                                                                         |     6 +
+ verification/browser-third-B1-retry.log                                                                                       |    11 +
+ verification/browser-third-B1.log                                                                                             |   104 +
+ verification/build-A.log                                                                                                      |   846 +
+ verification/build-B.log                                                                                                      |   846 +
+ verification/build-final.log                                                                                                  |   846 +
+ verification/build-third-A2.log                                                                                               |   845 +
+ verification/build-third-E1.log                                                                                               |   845 +
+ verification/build-third-final.log                                                                                            |   845 +
+ verification/check-third.log                                                                                                  |   369 +
+ verification/check.log                                                                                                        |   359 +
+ verification/current/P1.json                                                                                                  |     1 +
+ verification/current/P2.json                                                                                                  |     1 +
+ verification/current/P3.json                                                                                                  |     1 +
+ verification/fade-shots.json                                                                                                  |    91 +
+ verification/footprints-final.json                                                                                            |    52 +
+ verification/fp-down-production.json                                                                                          |   139 +
+ verification/fp-up-production.json                                                                                            |   159 +
+ verification/generation-final.json                                                                                            |    30 +
+ verification/guard-A.log                                                                                                      |     2 +
+ verification/guard-B.log                                                                                                      |     2 +
+ verification/guard-baseline.log                                                                                               |     2 +
+ verification/guard-final.log                                                                                                  |     2 +
+ verification/guard-pre-B.log                                                                                                  |     2 +
+ verification/guard-report.log                                                                                                 |     2 +
+ verification/guard-third-A1.log                                                                                               |     2 +
+ verification/guard-third-A2.log                                                                                               |     2 +
+ verification/guard-third-B1.log                                                                                               |     2 +
+ verification/guard-third-B2.log                                                                                               |     2 +
+ verification/guard-third-E1.log                                                                                               |     2 +
+ verification/guard-third-FPS.log                                                                                              |     3 +
+ verification/guard-third-baseline.log                                                                                         |     2 +
+ verification/guard-third-final.log                                                                                            |     3 +
+ verification/guard-third-report.log                                                                                           |     3 +
+ verification/guard-third-wall-final.log                                                                                       |     3 +
+ verification/guard-third-wall.log                                                                                             |     3 +
+ verification/kit-ThreeViewer.svelte                                                                                           |  4562 +++++
+ verification/kit-preservation.json                                                                                            |    16 +
+ verification/material-pixels.json                                                                                             |    89 +
+ verification/meshes-final.json                                                                                                |   142 +
+ verification/screenshot-project.json                                                                                          |     1 +
+ verification/shots-final.json                                                                                                 |    71 +
+ verification/sim-up-production.json                                                                                           |   159 +
+ verification/stair-shots.json                                                                                                 |   197 +
+ verification/tests-A.log                                                                                                      |    13 +
+ verification/tests-B.log                                                                                                      |    13 +
+ verification/tests-final.log                                                                                                  |    17 +
+ verification/tests-third-B2.log                                                                                               |    16 +
+ verification/tests-third-final.log                                                                                            |    13 +
+ verification/tests-third.log                                                                                                  |    13 +
+ verification/third-A1.json                                                                                                    |    17 +
+ verification/third-A2-pixels.json                                                                                             |   226 +
+ verification/third-A2.json                                                                                                    |    65 +
+ verification/third-B1-treads.json                                                                                             |   152 +
+ verification/third-B2.json                                                                                                    |    10 +
+ verification/third-B3-geometry-profile.json                                                                                   |    35 +
+ verification/third-B3-low.json                                                                                                |   177 +
+ verification/third-B3-transfer-times.json                                                                                     |    20 +
+ verification/third-E1.json                                                                                                    |   175 +
+ verification/third-fp-down-production.json                                                                                    |   139 +
+ verification/third-fp-poses.json                                                                                              |   197 +
+ verification/third-fp-up-production.json                                                                                      |   159 +
+ verification/third-kit-preservation.json                                                                                      |     7 +
+ verification/third-sim-up-production.json                                                                                     |   159 +
+ verification/third-wall-after.json                                                                                            |    97 +
+ verification/third-wall-before.json                                                                                           |   119 +
+ verification/third-wall-pixels.json                                                                                           |   114 +
+ verification/third-wall-source.json                                                                                           |    33 +
+ verification/west-contour-source.json                                                                                         |    46 +
+ verification/west-source.png                                                                                                  |   Bin 0 -> 39074 bytes
+ 326 files changed, 142144 insertions(+), 364 deletions(-)

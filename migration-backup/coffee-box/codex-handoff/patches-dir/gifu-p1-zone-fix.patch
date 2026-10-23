@@ -1,0 +1,236 @@
+diff --git a/scripts/floor_nav.py b/scripts/floor_nav.py
+index dfde04e..c6bed7f 100644
+--- a/scripts/floor_nav.py
++++ b/scripts/floor_nav.py
+@@ -454,11 +454,19 @@ def _doors_on_face(face: dict, doors: list[dict], by_id: dict) -> list[dict]:
+     return found
+ 
+ 
++def _is_placeholder_name(name: str) -> bool:
++    return bool(re.fullmatch(r"(?i)room\s*\d+|房间\s*\d+", name.strip()))
++
++
+ def _is_corridor(face: dict, room: dict | None, door_count: int) -> bool:
+     """Corridors / halls are the primary walkable network."""
+     name = str((room or {}).get("name") or "")
+     if _CORRIDOR_RE.search(name):
+         return True
++    # A printed room name (诊室/急诊/化验室/残卫…) is the PDF saying "enclosed room": the shape
++    # rules below are only for unnamed faces, else a 3-door clinic or a long toilet becomes corridor.
++    if re.search(r"[\u4e00-\u9fff]", name) and not re.search(r"(区|台|厅|廊|道|场|处)$", name) and not _is_placeholder_name(name):
++        return False
+     width, height, area = _face_bounds(face)
+     minor, major = sorted((width, height))
+     # Long circulation strip (same idea as openplan_project.room_floor_texture).
+diff --git a/scripts/openplan_project.py b/scripts/openplan_project.py
+index feb026a..497652f 100644
+--- a/scripts/openplan_project.py
++++ b/scripts/openplan_project.py
+@@ -107,7 +107,7 @@ def _free_spans(used, lo, hi):
+     return [(a, b) for a, b in free if b - a >= MIN_RUN_PT]
+ 
+ 
+-def centerlines_from_segments(segments) -> list[tuple[float, float, float, float, float]]:
++def centerlines_from_segments(segments, boundary=None) -> list[tuple[float, float, float, float, float]]:
+     """Axis-aligned double-line pairs → (x0, y0, x1, y1, thickness_pt).
+ 
+     A stroke at one coordinate can be the face of different walls along its
+@@ -117,6 +117,7 @@ def centerlines_from_segments(segments) -> list[tuple[float, float, float, float
+     if segments is None or len(segments) == 0:
+         return []
+     pairs = []
++    thin = []
+     for vertical in (True, False):
+         clusters = _wall_run_clusters(segments, vertical=vertical)
+         runs = []
+@@ -137,6 +138,10 @@ def centerlines_from_segments(segments) -> list[tuple[float, float, float, float
+                 if hi - lo < MIN_OVERLAP_PT:
+                     continue
+                 pairs.append((hi - lo, vertical, i, j, (fi + fj) / 2, thick, lo, hi))
++        # Thin partitions (glazed / light walls) are drawn as 2–4 strokes 1–3 pt apart; the
++        # cluster merge fuses them into one run, so they never pair. Recover them from the spread.
++        for fi, pieces in clusters:
++            thin.extend((vertical, fixed, lo, hi, spread) for fixed, lo, hi, spread in _thin_partition_runs(pieces))
+     pairs.sort(key=lambda item: item[0], reverse=True)
+     used = {}
+     raw = []
+@@ -154,9 +159,72 @@ def centerlines_from_segments(segments) -> list[tuple[float, float, float, float
+                     raw.append((fixed, start, fixed, end, thick))
+                 else:
+                     raw.append((start, fixed, end, fixed, thick))
++    for vertical, fixed, lo, hi, spread in thin:
++        mid = (fixed, (lo + hi) / 2) if vertical else ((lo + hi) / 2, fixed)
++        if boundary and len(boundary) >= 3 and not (
++                _point_in_poly(mid[0], mid[1], boundary) and _dist_to_poly(mid[0], mid[1], boundary) >= THIN_INSET_PT):
++            continue  # facade edges (canopy, planter curb, steps) are not interior partitions
++        spans = [(lo, hi)]
++        for x0, y0, x1, y1, thick in raw:  # a paired wall already covers this stroke bundle
++            if vertical != (abs(x1 - x0) < abs(y1 - y0)):
++                continue
++            f = (x0 + x1) / 2 if vertical else (y0 + y1) / 2
++            if abs(f - fixed) > thick / 2 + spread / 2 + 1.0:
++                continue
++            a, b = sorted((y0, y1) if vertical else (x0, x1))
++            spans = [piece for s0, s1 in spans for piece in ((s0, min(s1, a)), (max(s0, b), s1)) if piece[1] - piece[0] >= MIN_OVERLAP_PT]
++        for a, b in spans:
++            if _abuts_collinear_wall(raw, vertical, fixed, spread, a, b):
++                continue  # strokes inside a door / window break of a real wall: not a partition
++            raw.append((fixed, a, fixed, b, spread) if vertical else (a, fixed, b, fixed, spread))
+     return _heal_and_split(raw)
+ 
+ 
++THIN_SOLID_PT = 25.0  # one unbroken stroke at least this long (≈90 cm at 1:100)
++THIN_INSET_PT = 15.0  # recovered thin partitions must lie this far inside the footprint
++THIN_MIN_STROKES = 2  # strokes of one fused cluster that overlap along the run and sit ≥ MIN_THICK_PT apart
++
++
++def _abuts_collinear_wall(raw, vertical, fixed, spread, lo, hi, tol=3.0):
++    """Does a paired wall on the same line end at ``lo`` or ``hi`` (the span fills its gap)?"""
++    for x0, y0, x1, y1, thick in raw:
++        if vertical != (abs(x1 - x0) < abs(y1 - y0)):
++            continue
++        f = (x0 + x1) / 2 if vertical else (y0 + y1) / 2
++        if abs(f - fixed) > thick / 2 + spread / 2 + 1.0:
++            continue
++        a, b = sorted((y0, y1) if vertical else (x0, x1))
++        if abs(b - lo) <= tol or abs(a - hi) <= tol:
++            return True
++    return False
++
++
++def _thin_partition_runs(pieces):
++    """Spans where ≥2 distinct parallel strokes of one fused cluster overlap → (fixed, lo, hi, spread).
++
++    Clusters fuse by fixed coordinate over the whole sheet, so a stray stroke elsewhere (text,
++    hatch) can chain two wall faces into one cluster; the faces are still told apart here.
++    """
++    # Only solid strokes: dashed axis / hidden lines come as many short dashes and must not
++    # pair with the wall face they run along.
++    pieces = [piece for piece in pieces if piece[1] - piece[0] >= THIN_SOLID_PT]
++    events = sorted({p for a, b, _f in pieces for p in (a, b)})
++    out = []
++    for a, b in zip(events, events[1:]):
++        if b - a < 0.5:
++            continue
++        m = (a + b) / 2
++        lines = sorted({round(f, 1) for s0, s1, f in pieces if s0 - 0.3 <= m <= s1 + 0.3})
++        if len(lines) < THIN_MIN_STROKES or not MIN_THICK_PT <= lines[-1] - lines[0] <= MAX_THICK_PT:
++            continue
++        spread, fixed = lines[-1] - lines[0], (lines[-1] + lines[0]) / 2
++        if out and abs(out[-1][0] - fixed) < 0.6 and a - out[-1][2] <= 0.6:
++            out[-1] = (out[-1][0], out[-1][1], b, max(out[-1][3], spread))
++        else:
++            out.append((fixed, a, b, spread))
++    return [item for item in out if item[2] - item[1] >= MIN_OVERLAP_PT]
++
++
+ def _as_axes(lines):
+     horiz, vert = [], []
+     for x0, y0, x1, y1, thick in lines:
+@@ -381,6 +449,10 @@ def _capped(x, y, horizontal, cross):
+     return False
+ 
+ 
++_OPEN_FROM_ROUND = 2  # rounds before this stretch targets only by _TARGET_SLACK_CM
++_TARGET_SLACK_CM = 40.0  # corner stretch of the target wall that is always allowed
++
++
+ def _merge_axis(segments, horizontal, cross=()):
+     """Join collinear runs across door breaks.
+ 
+@@ -442,9 +514,35 @@ def _merge_axis(segments, horizontal, cross=()):
+     return merged
+ 
+ 
++def _stretch_crosses(segments, other, along, seg):
++    """Would stretching ``other`` to ``along`` cut through a wall parallel to ``seg``?"""
++    if other["h"]:
++        fixed, lo, hi = other["b"], other["a"], other["c"]
++    else:
++        fixed, lo, hi = other["a"], other["b"], other["d"]
++    a, b = (along, lo) if along < lo else (hi, along)
++    for wall in segments:
++        if wall is seg or wall is other or wall["h"] == other["h"]:
++            continue
++        if other["h"]:
++            pos, w0, w1 = wall["a"], wall["b"], wall["d"]
++        else:
++            pos, w0, w1 = wall["b"], wall["a"], wall["c"]
++        if a + 1.0 < pos < b - 1.0 and w0 - 1.0 <= fixed <= w1 + 1.0:
++            return True
++    return False
++
++
+ def _extend_corners(segments):
+-    """Lengthen a free end onto the nearest perpendicular wall. Never shorten."""
+-    for _ in range(4):
++    """Lengthen a free end onto the nearest perpendicular wall. Never shorten.
++
++    The wall it lands on may be stretched to meet it: freely by a corner's worth
++    (``_TARGET_SLACK_CM``), farther only through open space (the stretch crosses no wall).
++    Stretching through walls let extensions feed each other into a grid of phantom walls in
++    dense small-room blocks. The last round lifts the open-space test once.
++    """
++    for round_index in range(4):
++        wide = round_index >= _OPEN_FROM_ROUND
+         moved = False
+         for seg in segments:
+             limit = min(_EXTEND_MAX_CM, max(_EXTEND_MIN_CM, seg["thick"] * 3.5))
+@@ -480,8 +578,12 @@ def _extend_corners(segments):
+                         lo, hi = other["a"], other["c"]
+                     if dist < 0.5 or dist > limit:
+                         continue
++                    slack = min(limit, max(_TARGET_SLACK_CM, seg["thick"] * 2.0))
+                     if along < lo - limit or along > hi + limit:
+                         continue
++                    stretch = max(lo - along, along - hi, 0.0)
++                    if stretch > slack and (not wide or _stretch_crosses(segments, other, along, seg)):
++                        continue
+                     if best is None or dist < best[0]:
+                         best = (dist, other, along, target)
+                 if best:
+@@ -650,13 +752,20 @@ def _keep_main_building(segments, fenced=False):
+         if ri != rj:
+             parent[rj] = ri
+ 
+-    ends = []
+-    for seg in segments:
+-        x0, y0, x1, y1, _thick = seg
+-        ends.append({(round(x0, 2), round(y0, 2)), (round(x1, 2), round(y1, 2))})
++    def touches(p, seg, tol=_JOIN_CM):
++        # endpoint on (or within tol of) the other segment: corners, T-junctions and the
++        # cm-level rounding left by snapping all connect, not only bit-identical endpoints
++        x0, y0, x1, y1 = seg[:4]
++        dx, dy = x1 - x0, y1 - y0
++        length2 = dx * dx + dy * dy
++        t = 0.0 if length2 == 0 else max(0.0, min(1.0, ((p[0] - x0) * dx + (p[1] - y0) * dy) / length2))
++        return math.hypot(p[0] - x0 - dx * t, p[1] - y0 - dy * t) <= tol
++
+     for i in range(len(segments)):
++        a = segments[i]
+         for j in range(i + 1, len(segments)):
+-            if ends[i] & ends[j]:
++            b = segments[j]
++            if (touches(a[:2], b) or touches(a[2:4], b) or touches(b[:2], a) or touches(b[2:4], a)):
+                 union(i, j)
+     groups = {}
+     for index in range(len(segments)):
+@@ -1339,8 +1448,7 @@ def recognize_pdf(
+     structure = None
+     for crop in crops:
+         clipped = _clip_segments(content["segments"], crop)
+-        lines = centerlines_from_segments(clipped) if mode == "generate" else []
+-        candidate = {"crop": crop, "lines": lines, "clipped": clipped}
++        candidate = {"crop": crop, "clipped": clipped}
+         if mode == "generate" and len(clipped):
+             area = crop["width"] * crop["height"]
+             try:
+@@ -1350,6 +1458,8 @@ def recognize_pdf(
+             candidate["structure"] = structure_try
+         else:
+             candidate["structure"] = None
++        lines = centerlines_from_segments(clipped, (candidate["structure"] or {}).get("boundary")) if mode == "generate" else []
++        candidate["lines"] = lines
+         # A crop whose structure found rooms carries doors and stairs; fewer
+         # centerlines there beat more lines from a crop that found none.
+         # Rank by how much structure each crop explains: a crop that clips the plan can still

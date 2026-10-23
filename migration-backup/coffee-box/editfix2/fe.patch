@@ -1,0 +1,127 @@
+diff --git a/src/lib/i18n/locales/en.ts b/src/lib/i18n/locales/en.ts
+index 938fafc..7f7db92 100644
+--- a/src/lib/i18n/locales/en.ts
++++ b/src/lib/i18n/locales/en.ts
+@@ -154,6 +154,7 @@ export const en = {
+   "library.untitled": "Untitled Project",
+   "library.actions": "Project actions for {name}",
+   "library.open": "Open",
++  "library.edit": "Edit project",
+   "library.rename": "Rename",
+   "library.duplicate": "Duplicate",
+   "library.delete": "Delete",
+diff --git a/src/lib/i18n/locales/pt.ts b/src/lib/i18n/locales/pt.ts
+index 3c3d66b..4a31c0e 100644
+--- a/src/lib/i18n/locales/pt.ts
++++ b/src/lib/i18n/locales/pt.ts
+@@ -154,6 +154,7 @@ export const pt = {
+   "library.untitled": "Projeto sem título",
+   "library.actions": "Ações do projeto {name}",
+   "library.open": "Abrir",
++  "library.edit": "Editar projeto",
+   "library.rename": "Renomear",
+   "library.duplicate": "Duplicar",
+   "library.delete": "Excluir",
+diff --git a/src/lib/i18n/locales/zh.ts b/src/lib/i18n/locales/zh.ts
+index 4dcc1cc..545fcd0 100644
+--- a/src/lib/i18n/locales/zh.ts
++++ b/src/lib/i18n/locales/zh.ts
+@@ -154,6 +154,7 @@ export const zh = {
+   "library.untitled": "未命名项目",
+   "library.actions": "{name} 的项目操作",
+   "library.open": "打开",
++  "library.edit": "编辑项目",
+   "library.rename": "重命名",
+   "library.duplicate": "复制",
+   "library.delete": "删除",
+diff --git a/src/lib/utils/projectLibraryUrl.ts b/src/lib/utils/projectLibraryUrl.ts
+index e1aae88..2139eea 100644
+--- a/src/lib/utils/projectLibraryUrl.ts
++++ b/src/lib/utils/projectLibraryUrl.ts
+@@ -9,20 +9,23 @@ export function projectLibraryUrl(): string {
+   return root ? `${root}/` : '/';
+ }
+ 
+-/**
+- * Resolve a back-to-library href from nav query params.
+- * Accepts `libraryUrl`, or a same-origin `filesUrl` that is not API `/files`.
+- * Anything else (including `http://127.0.0.1:888x/files`) falls back to this app's `/`.
+- */
++/** Resolve a project's own library before considering a generic return URL. */
+ export function resolveProjectLibraryUrl(search: URLSearchParams, appOrigin: string): string {
++  const projectUrl = search.get('projectUrl');
++  const source = projectUrl || search.get('apiOrigin');
++  if (source) {
++    try {
++      const url = new URL(source, appOrigin);
++      const id = search.get('id') || (projectUrl && url.pathname.match(/\/api\/projects\/([^/]+)\.json$/)?.[1]);
++      return projectHomeUrl(id, url.origin);
++    } catch {
++      /* use the supplied return URL */
++    }
++  }
+   const library = search.get('libraryUrl');
+   if (library) {
+     try {
+-      const url = new URL(library, appOrigin);
+-      if (url.origin === appOrigin || url.pathname === '/' || url.pathname.endsWith('/')) {
+-        return url.href;
+-      }
+-      return url.href;
++      return new URL(library, appOrigin).href;
+     } catch {
+       /* fall through */
+     }
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index 6549a52..d72da8d 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -239,7 +239,10 @@
+               <a href={`${base}/editor?id=${encodeURIComponent(project.id)}`} class="block">
+                 <h3 class="font-semibold text-gray-800 text-sm truncate">{project.name || $t('library.untitled')}</h3>
+               </a>
+-              <p class="text-xs text-gray-400 mt-1">{formatDate(project.updatedAt, $locale)}</p>
++              <div class="flex items-center justify-between gap-2 mt-1">
++                <p class="text-xs text-gray-400">{formatDate(project.updatedAt, $locale)}</p>
++                <a href={`${base}/editor?id=${encodeURIComponent(project.id)}`} class="text-xs font-semibold text-blue-600 hover:underline">{$t('library.edit')}</a>
++              </div>
+             </div>
+ 
+             <ProjectActionsMenu name={project.name} disabled={duplicating}
+diff --git a/tests/projectLibraryUrl.test.ts b/tests/projectLibraryUrl.test.ts
+index 8bbb90a..f13e2ee 100644
+--- a/tests/projectLibraryUrl.test.ts
++++ b/tests/projectLibraryUrl.test.ts
+@@ -20,11 +20,17 @@ describe('projectLibraryUrl', () => {
+     expect(projectHomeUrl('abc', null)).toBe('/');
+   });
+ 
+-  it('honors an explicit libraryUrl', () => {
++  it('uses the imported project source even when an old libraryUrl points to the local library', () => {
+     const params = new URLSearchParams({
+       libraryUrl: 'http://127.0.0.1:5175/',
+-      filesUrl: 'http://127.0.0.1:8884/files',
++      filesUrl: 'http://127.0.0.1:5175/',
++      projectUrl: 'http://127.0.0.1:8884/api/projects/abc.json',
+     });
+-    expect(resolveProjectLibraryUrl(params, 'http://127.0.0.1:5175')).toBe('http://127.0.0.1:5175/');
++    expect(resolveProjectLibraryUrl(params, 'http://127.0.0.1:5175')).toBe('http://127.0.0.1:8884/files#p-abc');
++  });
++
++  it('honors an explicit libraryUrl for a local project', () => {
++    const params = new URLSearchParams({ libraryUrl: 'http://127.0.0.1:5175/projects' });
++    expect(resolveProjectLibraryUrl(params, 'http://127.0.0.1:5175')).toBe('http://127.0.0.1:5175/projects');
+   });
+ });
+diff --git a/src/routes/nav/+page.svelte b/src/routes/nav/+page.svelte
+index 3d6deeb..f6403e3 100644
+--- a/src/routes/nav/+page.svelte
++++ b/src/routes/nav/+page.svelte
+@@ -1074,7 +1077,6 @@
+         const projectHint = url.searchParams.get('id') || url.searchParams.get('projectUrl')?.match(/\/projects\/([0-9a-f]{32})/i)?.[1];
+         apiOrigin = (url.searchParams.get('apiOrigin') || originOf(url.searchParams.get('projectUrl')) || projectImportOrigin(projectHint) || importOrigin()).replace(/\/$/, '');
+         libraryUrl = resolveProjectLibraryUrl(url.searchParams, url.origin);
+-        if (libraryUrl === '/' && apiOrigin) libraryUrl = projectHomeUrl(projectHint, apiOrigin);
+         projectId = url.searchParams.get('id') || '';
+         const projectUrl = url.searchParams.get('projectUrl');
+         if (!projectUrl && !projectId) {

@@ -1,0 +1,5 @@
+path: /workspace/gifu-qa
+remote: https://origin.cursor.com/loooke19/gifu-hospital-3d-tour.git
+branch: HEAD
+HEAD: ac55632205a553585469169207aa97b289d4e365
+HEAD subject: Files page: ID suffix on same-named project cards

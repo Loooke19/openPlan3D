@@ -1,0 +1,7 @@
+{"_note": "逐层对照 PDF 人工核对的室内楼梯/电梯数（室外台阶不计）与跨层连接（楼层名列表）",
+ "P1": {"floors": {"1F": {"stairs": 2, "elevator": 0}, "2F": {"stairs": 2, "elevator": 0}, "3F": {"stairs": 2, "elevator": 0}},
+        "links": [["stairs", ["1F", "2F", "3F"]], ["stairs", ["1F", "2F", "3F"]]]},
+ "P2": {"floors": {"1F": {"stairs": 2, "elevator": 1}, "2F": {"stairs": 2, "elevator": 1}, "3F": {"stairs": 2, "elevator": 1}, "4F": {"stairs": 2, "elevator": 1}, "5F": {"stairs": 2, "elevator": 1}},
+        "links": [["elevator", ["1F", "2F", "3F", "4F", "5F"]], ["stairs", ["1F", "2F", "3F", "4F", "5F"]], ["stairs", ["1F", "2F", "3F", "4F", "5F"]]]},
+ "P3": {"floors": {"1F": {"stairs": 2, "elevator": 0}, "2F": {"stairs": 3, "elevator": 0}, "3F": {"stairs": 2, "elevator": 0}, "4F": {"stairs": 1, "elevator": 0}},
+        "links": [["stairs", ["1F", "2F", "3F", "4F"]], ["stairs", ["1F", "2F"]], ["stairs", ["2F", "3F"]]]}}

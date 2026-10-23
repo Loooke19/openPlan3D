@@ -1,0 +1,256 @@
+6f0b55a Stop browsers serving a stale files page after editor return
+
+ preview/files.js                 |  4 ++++
+ scripts/kujiale_import_server.py | 11 +++++++++++
+ 2 files changed, 15 insertions(+)
+7911ae7 Accept editor write-back with revisions and conflict checks
+
+ scripts/kujiale_import_server.py | 78 ++++++++++++++++++++++++++++++++++++++-
+ tests/test_project_writeback.py  | 79 ++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 155 insertions(+), 2 deletions(-)
+aaba2ef PDF import: lift stop lands in front of a sealed shaft, never in the room across its wall
+
+ scripts/pdf_building.py    | 137 ++++++++++++++++++++++++++++++++++++++-------
+ tests/test_pdf_building.py |  46 +++++++++++++++
+ 2 files changed, 163 insertions(+), 20 deletions(-)
+9a40ed4 Close the nav handoff known issues: e2e PDF import test, doc status
+
+ docs/openplan-nav-handoff.md                  |  15 +++----
+ tests/fixtures/make_synthetic_hospital_pdf.py |  44 +++++++++++++++++++++
+ tests/fixtures/synthetic-hospital-2f.pdf      | Bin 0 -> 27608 bytes
+ tests/test_pdf_import_e2e.py                  |  55 ++++++++++++++++++++++++++
+ 4 files changed, 107 insertions(+), 7 deletions(-)
+ac55632 Files page: ID suffix on same-named project cards
+
+ preview/files.css             | 16 +++++++++-------
+ preview/files.js              | 28 +++++++++++++++++++++++++---
+ tests/test_files_nav_entry.py | 32 ++++++++++++++++++++++++++++++++
+ 3 files changed, 66 insertions(+), 10 deletions(-)
+d8b3100 OCR room names: strip glued areas, box glyphs, stray symbol letters; close dropped brackets
+
+ scripts/maker_ocr.py         | 15 ++++++++++++++-
+ tests/test_ocr_name_noise.py | 13 +++++++++++++
+ 2 files changed, 27 insertions(+), 1 deletion(-)
+885cd4e Nav places: use room displayName, expose originalName + aliases for search
+
+ scripts/floor_nav.py | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+3dba4ec Import server: EXTRA_CORS_ORIGINS for extra preview origins
+
+ scripts/kujiale_import_server.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+fd50ecd MCP: project_* file-level tools (export, rooms displayName/aliases, vertical links, orientation, scale calibration) via import server with optimistic concurrency; stale editor sessions fail fast. Server: PUT vertical-links/orientation, northBearing server-owned
+
+ scripts/kujiale_import_server.py   |  40 +++++++-
+ scripts/openplan_editor_mcp.py     |  10 ++
+ scripts/openplan_editor_session.py |   5 +-
+ scripts/openplan_project_tools.py  | 189 +++++++++++++++++++++++++++++++++++++
+ tests/test_openplan_editor_mcp.py  |  30 +++++-
+ 5 files changed, 271 insertions(+), 3 deletions(-)
+a5ee1b9 Import: tiled 300dpi OCR + cache, multi-line label grouping, generic hospital lexicon (low-confidence reads only), optional per-floor room list, open-space labels as POIs, crop ranking fix (P1 2F doors), north-arrow detection, centroids/POIs in project_export
+
+ preview/kujiale-import.css        |   2 +
+ preview/kujiale-import.html       |   5 +
+ preview/kujiale-import.js         |   8 ++
+ scripts/floor_nav.py              |  18 ++++
+ scripts/hospital_lexicon.py       |  98 +++++++++++++++++++
+ scripts/kujiale_import_server.py  |  36 ++++++-
+ scripts/maker_ocr.py              | 191 +++++++++++++++++++++++++++++++++++++-
+ scripts/north_arrow.py            | 100 ++++++++++++++++++++
+ scripts/openplan_project.py       |  76 ++++++++++++---
+ scripts/openplan_project_tools.py |   9 +-
+ scripts/pdf_building.py           |  21 ++++-
+ tests/test_ocr_lexicon_north.py   |  92 ++++++++++++++++++
+ tests/test_pdf_building.py        |   2 +-
+ 13 files changed, 634 insertions(+), 24 deletions(-)
+55e48df Import page: explicit calibrate-with-a-door prompt when the sheet has no readable scale
+
+ preview/kujiale-import.js | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+f792f1f Import: ground-floor exterior doors become 出入口 POIs (aliases 大门/入口; lobby fallback), lexicon 体检抽血
+
+ scripts/floor_nav.py        |  1 +
+ scripts/hospital_lexicon.py |  2 +-
+ scripts/pdf_building.py     | 56 +++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 58 insertions(+), 1 deletion(-)
+97f6fc4 Test: entrance POI from exterior door
+
+ tests/test_ocr_lexicon_north.py | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+1f7e20d Import: en-suite/twin rooms, non-destination filter, stair dedupe, 女卫 restore
+
+ scripts/floor_nav.py            | 77 ++++++++++++++++++++++++++++++++-
+ scripts/hospital_lexicon.py     |  2 +-
+ scripts/maker_cad.py            |  8 +++-
+ scripts/maker_ocr.py            | 13 ++++--
+ scripts/openplan_project.py     | 95 +++++++++++++++++++++++++++++++++++++++++
+ scripts/pdf_building.py         |  8 ++--
+ tests/test_ocr_lexicon_north.py |  4 +-
+ 7 files changed, 194 insertions(+), 13 deletions(-)
+2aeb50b Import: primary entrance 大门（出入口 A）, lettered entrances
+
+ scripts/pdf_building.py         | 22 +++++++++++++++++++---
+ tests/test_ocr_lexicon_north.py |  3 ++-
+ 2 files changed, 21 insertions(+), 4 deletions(-)
+fcfab52 Import: chain a stairwell detected as two shafts (1-2F + 2-3F) into one link; test
+
+ scripts/pdf_building.py         | 30 ++++++++++++++++++++++++++++++
+ tests/test_ocr_lexicon_north.py | 13 +++++++++++++
+ 2 files changed, 43 insertions(+)
+23fac6a Nav: a face opening only into a same-named room is a split (twin), not an en-suite child
+
+ scripts/floor_nav.py | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+b99b353 Nav: attached small rooms (卫/值班/更衣/冲洗…) behind a larger named room hidden from destinations even if host flagged corridor; 室/柜子 non-destinations
+
+ scripts/floor_nav.py        | 40 +++++++++++++++++++++++++++++++++-------
+ scripts/hospital_lexicon.py |  1 +
+ 2 files changed, 34 insertions(+), 7 deletions(-)
+6140874 Nav: a POI label inside an unnamed closed face names that face
+
+ scripts/floor_nav.py | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+9e2daf3 Nav: entrance/POI and sealed-room destinations snap into the main walkable region (fixes 大门 → blocked); test every POI routable from every entrance
+
+ scripts/floor_nav.py    | 51 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ tests/test_floor_nav.py | 22 +++++++++++++++++++++
+ 2 files changed, 72 insertions(+), 1 deletion(-)
+91d0ae3 Manual room names (editor/MCP write-back) persist per source PDF keyed by geometry and are re-applied after every import; sealed-room fallback keeps interior point for door/landing repair; tests
+
+ scripts/floor_nav.py             |   6 +-
+ scripts/kujiale_import_server.py |   7 ++-
+ scripts/name_overrides.py        | 131 +++++++++++++++++++++++++++++++++++++++
+ scripts/pdf_building.py          |   4 ++
+ tests/test_name_overrides.py     |  46 ++++++++++++++
+ 5 files changed, 192 insertions(+), 2 deletions(-)
+6ce2c34 Route: re-plan around raster leaks through thin walls; sealed targets fall back to nearest reachable spot (P3 门厅→2F 女卫 was 'blocked'); cross-floor all-entrances test
+
+ scripts/floor_nav.py                    | 61 ++++++++++++++++++++++++++++++---
+ tests/test_all_entrances_cross_floor.py | 56 ++++++++++++++++++++++++++++++
+ tests/test_floor_nav.py                 | 12 ++++---
+ 3 files changed, 120 insertions(+), 9 deletions(-)
+d17728a Import: rooms with no door on their outline get one on the corridor-facing edge (own wall)
+
+ scripts/pdf_building.py | 102 +++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 101 insertions(+), 1 deletion(-)
+61d178d 限制通行区 (auto-suggested, provisional; endpoint+MCP; persists across re-import); router avoids zones and their stairs; no name-only stair pairing on imported projects; main lobby + 门厅（北·主入口）/（西南）; en-suite rule broadened; identical toilet rows deduped; tests (re-commit after reboot)
+
+ scripts/floor_nav.py              | 136 ++++++++++++++++++++++++++++++-----
+ scripts/kujiale_import_server.py  |  28 +++++++-
+ scripts/name_overrides.py         |  55 ++++++++++++---
+ scripts/openplan_project_tools.py |   8 +++
+ scripts/pdf_building.py           | 144 ++++++++++++++++++++++++++++++++++----
+ tests/test_ensuite_real.py        |  29 ++++++++
+ tests/test_restricted_zones.py    |  73 +++++++++++++++++++
+ 7 files changed, 434 insertions(+), 39 deletions(-)
+066a8cf Import: patient stair/lift names (楼梯 A/B left→right without north arrow, 楼梯（北）with one) + onlyTo floors; carried through nav transfers
+
+ scripts/floor_nav.py        |  2 ++
+ scripts/openplan_project.py | 73 ++++++++++++++++++++++++++++++++++++++++++++-
+ scripts/pdf_building.py     | 41 +++++++++++++++++++++++++
+ 3 files changed, 115 insertions(+), 1 deletion(-)
+97aca48 Segmentation: default min wall thickness 1.4pt (P1 83→93 inventory match, P2/P3 unchanged); thickness/overlap/gap tunable via env for sweeps
+
+ scripts/openplan_project.py | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+0dafbad Manually drawn rooms: MCP project_draw_room/remove_drawn_room (rect snapped to imported walls, missing sides + corner stubs as partitions, door), persisted per PDF and re-applied on import; nav matches faces to drawn rooms; tool save without revision
+
+ scripts/draw_rooms.py             | 149 ++++++++++++++++++++++++++++++++++++++
+ scripts/floor_nav.py              |  31 ++++++++
+ scripts/kujiale_import_server.py  |   2 +
+ scripts/name_overrides.py         |  48 ++++++++++++
+ scripts/openplan_project_tools.py |  37 +++++++++-
+ tests/test_drawn_rooms.py         |  36 +++++++++
+ 6 files changed, 302 insertions(+), 1 deletion(-)
+661dad5 Restricted zones: stair/lift landing within 3 m of a zone is restricted with it (P1 SW stair sat 1.2 m outside the zone box, main-entrance routes used it)
+
+ scripts/floor_nav.py           | 18 ++++++++++++++++--
+ tests/test_restricted_zones.py |  8 ++++++++
+ 2 files changed, 24 insertions(+), 2 deletions(-)
+a84519f Server: cache nav.json per project.json version, gzip responses, warm recent projects in background (first open was 10–25 s)
+
+ scripts/kujiale_import_server.py | 48 ++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 46 insertions(+), 2 deletions(-)
+ca8b550 Ward en-suite: bare 卫 with a door into a 病房 and none onto circulation is attached to the ward; drawn rooms can leave sides open (openSides, e.g. a hall entered straight from the corridor), persisted for re-import
+
+ scripts/draw_rooms.py             | 7 ++++++-
+ scripts/floor_nav.py              | 9 +++++++++
+ scripts/name_overrides.py         | 6 ++++--
+ scripts/openplan_project_tools.py | 8 +++++---
+ 4 files changed, 24 insertions(+), 6 deletions(-)
+234cee8 Rooms: manual attachedTo (not a destination, listed under its host) and standalone (never hidden as attached) via project_rooms_update; persisted across re-import
+
+ scripts/floor_nav.py              |  8 +++++++-
+ scripts/name_overrides.py         |  9 +++++++--
+ scripts/openplan_project_tools.py | 11 +++++++++++
+ 3 files changed, 25 insertions(+), 3 deletions(-)
+a0c244b Nav faces: drop zero-width spikes (partition stubs traced out and back) from room outlines
+
+ scripts/floor_nav.py | 34 +++++++++++++++++++++++++++++++---
+ 1 file changed, 31 insertions(+), 3 deletions(-)
+8663195 Drawn open sides: keep the outline closed with a full-width 'opening' (no leaf) so the hall stays a room and routes pass; openings may be up to 4 m wide
+
+ scripts/draw_rooms.py | 16 +++++++++++++---
+ scripts/floor_nav.py  |  4 ++--
+ 2 files changed, 15 insertions(+), 5 deletions(-)
+edf2521 Drawn open side: the opening covers only the stretch with no imported wall (P1 输液大厅 west: 2.28 m at y -0.2..229.8)
+
+ scripts/draw_rooms.py | 26 +++++++++++++++++++++++---
+ 1 file changed, 23 insertions(+), 3 deletions(-)
+fa65e97 Drawn rooms: clearInside removes the importer's misplaced axis walls strictly inside the traced room (outside parts kept, doors re-homed); persisted for re-import
+
+ scripts/draw_rooms.py             | 52 ++++++++++++++++++++++++++++++++++++++-
+ scripts/name_overrides.py         |  4 +--
+ scripts/openplan_project_tools.py |  7 +++---
+ 3 files changed, 57 insertions(+), 6 deletions(-)
+950b684 Nav: doors pierce a parallel twin wall 8-45 cm away (drawn room edge beside imported wall sealed 治疗室1/收费处); OCR POI inside a same-named room is not a second destination
+
+ scripts/floor_nav.py | 42 ++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+1c84506 Nav: entrance labels on the forecourt arrive at the nearest building-edge door within 6 m (P2 大门 snapped to a room by 楼梯B)
+
+ scripts/floor_nav.py | 34 +++++++++++++++++++++++++++++++++-
+ 1 file changed, 33 insertions(+), 1 deletion(-)
+d4cdbb1 Cross-floor: a walk that only reaches near its stop (pocket/leak fallback) costs +500 m, so a sealed stair stop can't shortcut the real lift path (P2 5F→3F ended 6–9 m off through a wall)
+
+ scripts/floor_nav.py | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+4b0e644 Re-import keeps manual wall/door edits: added walls, drawn doors (re-attached by plan point), removed doors/walls (tombstones), rooms re-bounded by added walls, name field synced to displayName
+
+ scripts/kujiale_import_server.py |   2 +
+ scripts/name_overrides.py        | 201 +++++++++++++++++++++++++++++++++++++++
+ tests/test_manual_edits.py       |  85 +++++++++++++++++
+ 3 files changed, 288 insertions(+)
+ba5989c Re-import: a name a person cleared (mis-read fragment / corridor strip) stays cleared
+
+ scripts/name_overrides.py  |  7 ++++++-
+ tests/test_manual_edits.py | 10 ++++++++++
+ 2 files changed, 16 insertions(+), 1 deletion(-)
+ba675f0 Re-import names: an equal-sized neighbour can't take another room's manual name (imported name must be one the entry knew); manual-cleared rooms recorded; a door on a twin wall 20 cm away is not 'already there'
+
+ scripts/name_overrides.py  | 22 +++++++++++++++++-----
+ tests/test_manual_edits.py | 14 ++++++++++++++
+ 2 files changed, 31 insertions(+), 5 deletions(-)
+c56989c Re-import names: one entry names one face (closest wins), record replaces only the same face's entry, cleared names only clear that face, unnamed faces get their manual name back; drawn rooms remember where their door actually is
+
+ scripts/name_overrides.py | 38 ++++++++++++++++++++++++++++++--------
+ 1 file changed, 30 insertions(+), 8 deletions(-)
+0a5f801 Re-import keeps corrected OCR labels (text / not-a-destination) by position
+
+ scripts/name_overrides.py  | 16 +++++++++++++---
+ tests/test_manual_edits.py | 10 ++++++++++
+ 2 files changed, 23 insertions(+), 3 deletions(-)
+8c04319 Search hygiene: OCR labels are destinations only when they read like a hospital place (lexicon / room-type suffix / facility) or alias the room they sit in; furniture/misreads stay unsearchable; Room N placeholders never searchable
+
+ scripts/floor_nav.py | 37 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+82f4f3c OCR: fix homophone misread 心里→心理 at nav build, keep misread as search alias
+
+ scripts/floor_nav.py        |  9 +++++++--
+ scripts/hospital_lexicon.py | 16 ++++++++++++++++
+ tests/test_misreads.py      |  9 +++++++++
+ 3 files changed, 32 insertions(+), 2 deletions(-)
+1ceb251 name overrides: re-create person-added POI notes missing from a fresh import
+
+ scripts/name_overrides.py | 7 +++++++
+ 1 file changed, 7 insertions(+)

@@ -1,0 +1,389 @@
+--- a/scripts/floor_nav.py
++++ b/scripts/floor_nav.py
+@@ -1738,7 +1738,367 @@
+     return geom
+ 
+ 
++def _side_gap(grid: FloorGrid, x: float, y: float, nx: float, ny: float, limit: float = 600.0):
++    """Free distance from (x, y) along (nx, ny) until a blocked cell; None when open past limit."""
++    step = grid.cell * 0.5
++    d = step
++    while d <= limit:
++        col, row = grid.cell_at(x + nx * d, y + ny * d)
++        if not grid.walkable(col, row):
++            return d
++        d += step
++    return None
++
++
++_CENTER_MIN_SEG_CM = 150.0
++_CENTER_MAX_SHIFT_CM = 150.0
++_CENTER_LEAD_CM = 120.0
++
++
++_SNAP_STEP_CM = 40.0
++_SNAP_MAX_WIDTH_CM = 450.0
++
++
++def _rdp(points, eps):
++    if len(points) < 3:
++        return list(points)
++    (ax, ay), (bx, by) = points[0], points[-1]
++    L = math.hypot(bx - ax, by - ay) or 1e-9
++    best, idx = -1.0, 0
++    for i in range(1, len(points) - 1):
++        px, py = points[i]
++        d = abs((bx - ax) * (ay - py) - (ax - px) * (by - ay)) / L
++        if d > best:
++            best, idx = d, i
++    if best <= eps:
++        return [points[0], points[-1]]
++    return _rdp(points[: idx + 1], eps)[:-1] + _rdp(points[idx:], eps)
++
++
++_LINE_MERGE_CM = 35.0
++
++
++def _axis_lines(p, q, samples):
++    """Turn midline samples into straight, axis-aligned corridor lines: one line per passage
++    (median of its samples), right-angle corners between passages, a clean jog where the
++    passage steps. Endpoints are joined orthogonally. No samples → keep the chord."""
++    if not samples:
++        return [p, q]
++    groups = []  # [axis, [values], first (x, y), last (x, y)]
++    for x, y, axis in samples:
++        value = y if axis == 1 else x
++        if groups and groups[-1][0] == axis and abs(sorted(groups[-1][1])[len(groups[-1][1]) // 2] - value) < _LINE_MERGE_CM:
++            groups[-1][1].append(value)
++            groups[-1][3] = (x, y)
++        else:
++            groups.append([axis, [value], (x, y), (x, y)])
++    # Tiny groups are pocket noise, not passages.
++    groups = [g for g in groups if len(g[1]) >= 2] or groups
++    lines = [(g[0], sorted(g[1])[len(g[1]) // 2], g[2], g[3]) for g in groups]
++    on = lambda axis, c, pt: (pt[0], c) if axis == 1 else (c, pt[1])
++    out = [p, on(lines[0][0], lines[0][1], p)]
++    for (a0, c0, _f0, l0), (a1, c1, f1, _l1) in zip(lines, lines[1:]):
++        if a0 != a1:
++            out.append((c1, c0) if a0 == 1 else (c0, c1))
++        else:
++            mid = ((l0[0] + f1[0]) / 2, (l0[1] + f1[1]) / 2)
++            out.append(on(a0, c0, mid))
++            out.append(on(a1, c1, mid))
++    out.append(on(lines[-1][0], lines[-1][1], q))
++    out.append(q)
++    return _simplify(_dedupe(out))
++
++
++def _dedupe(points):
++    out = []
++    for pt in points:
++        if not out or math.hypot(pt[0] - out[-1][0], pt[1] - out[-1][1]) > 1.0:
++            out.append(pt)
++    return out
++
++
++def _snap_oblique_runs(pts, grid: FloorGrid, walls, openings, is_fixed):
++    """A long oblique chord cuts across corridors. Resample it, pull every sample onto the
++    midline of the passage it sits in (across the narrower axis), then re-simplify. Any
++    rebuilt run that would touch a wall keeps the original chord."""
++    out = [pts[0]]
++    for p, q in zip(pts, pts[1:]):
++        length = math.hypot(q[0] - p[0], q[1] - p[1])
++        ang = math.degrees(math.atan2(abs(q[1] - p[1]), abs(q[0] - p[0])))
++        if length < 2 * _CENTER_MIN_SEG_CM or not (1.5 < ang < 88.5):
++            out.append(q)
++            continue
++        n = max(2, int(length // _SNAP_STEP_CM))
++        run = [p]
++        for i in range(1, n):
++            t = i / n
++            x, y = p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t
++            if min(t * length, (1 - t) * length) < _CENTER_LEAD_CM:
++                continue
++            gx = (_side_gap(grid, x, y, 1, 0), _side_gap(grid, x, y, -1, 0))
++            gy = (_side_gap(grid, x, y, 0, 1), _side_gap(grid, x, y, 0, -1))
++            wx = sum(gx) if None not in gx else math.inf
++            wy = sum(gy) if None not in gy else math.inf
++            if wy < wx and wy <= _SNAP_MAX_WIDTH_CM:
++                run.append([x, y + (gy[0] - gy[1]) / 2, 1])
++            elif wx < wy and wx <= _SNAP_MAX_WIDTH_CM:
++                run.append([x + (gx[0] - gx[1]) / 2, y, 0])
++            else:
++                run.append([x, y, -1])
++        run = _axis_lines(p, q, [smp for smp in run[1:] if smp[2] >= 0])
++        if any(_segment_hits_wall(a, b, walls, openings) for a, b in zip(run, run[1:])):
++            out.append(q)
++        else:
++            out.extend(run[1:])
++    return out
++
++
++_RUN_MAX_ANGLE = 15.0
++_RUN_MAX_JOG_CM = 90.0
++
++
++def _seg_axis(p, q):
++    dx, dy = abs(q[0] - p[0]), abs(q[1] - p[1])
++    ang = math.degrees(math.atan2(dy, dx))
++    if ang <= _RUN_MAX_ANGLE:
++        return 1
++    if ang >= 90 - _RUN_MAX_ANGLE:
++        return 0
++    return -1
++
++
++def _straighten_runs(points, grid: FloorGrid, walls, openings, is_fixed):
++    """One straight axis line per corridor run. A run is a chain of near-horizontal (or
++    near-vertical) segments joined only by short jogs; it is replaced by a single line on the
++    passage midline (median of measured midpoints), entered and left at right angles. Fixed
++    points (leg ends, door centres) stay; a chain that would touch a wall is left as it was."""
++    pts = list(points)
++    if len(pts) < 3:
++        return pts
++    out = [pts[0]]
++    i = 0
++    n = len(pts)
++    while i < n - 1:
++        axis = _seg_axis(pts[i], pts[i + 1])
++        if axis < 0:
++            out.append(pts[i + 1]); i += 1; continue
++        j = i + 1
++        while j < n - 1:
++            nxt = _seg_axis(pts[j], pts[j + 1])
++            seg_len = math.hypot(pts[j + 1][0] - pts[j][0], pts[j + 1][1] - pts[j][1])
++            if nxt == axis or (seg_len <= _RUN_MAX_JOG_CM and j + 1 < n - 1 and _seg_axis(pts[j + 1], pts[j + 2]) == axis):
++                j += 1
++            else:
++                break
++        chain = pts[i:j + 1]
++        k = 1 - axis  # coordinate held constant on the line: y for horizontal (axis 1 -> index 1)
++        k = 1 if axis == 1 else 0
++        span = abs(chain[-1][1 - k] - chain[0][1 - k])
++        if j - i < 2 and span < _CENTER_MIN_SEG_CM:
++            out.extend(chain[1:]); i = j; continue
++        mids = []
++        steps = max(3, int(span // _SNAP_STEP_CM))
++        for t in range(1, steps):
++            u = chain[0][1 - k] + (chain[-1][1 - k] - chain[0][1 - k]) * t / steps
++            # current coordinate on the chain at u
++            v = None
++            for a, b in zip(chain, chain[1:]):
++                lo, hi = sorted((a[1 - k], b[1 - k]))
++                if lo <= u <= hi and hi - lo > 1e-6:
++                    v = a[k] + (b[k] - a[k]) * (u - a[1 - k]) / (b[1 - k] - a[1 - k]); break
++            if v is None:
++                continue
++            x, y = (u, v) if axis == 1 else (v, u)
++            nx, ny = (0, 1) if axis == 1 else (1, 0)
++            g1, g2 = _side_gap(grid, x, y, nx, ny), _side_gap(grid, x, y, -nx, -ny)
++            if g1 is not None and g2 is not None and g1 + g2 <= _SNAP_MAX_WIDTH_CM:
++                mids.append(v + (g1 - g2) / 2)
++        if len(mids) < 2:
++            out.extend(chain[1:]); i = j; continue
++        mids.sort()
++        c = mids[len(mids) // 2]
++        line = lambda pt: (pt[0], c) if axis == 1 else (c, pt[1])
++        a0, b0 = chain[0], chain[-1]
++        rebuilt = [a0, line(a0), line(b0), b0]
++        if not is_fixed(a0) and len(out) >= 2:
++            # previous vertex is free: move it onto the line instead of adding a jog
++            rebuilt = [line(a0), line(b0), b0]
++            out[-1] = line(a0)
++        if not is_fixed(b0) and j < n - 1:
++            rebuilt = rebuilt[:-1]
++            pts[j] = line(b0)
++        test = _dedupe([out[-2] if len(out) >= 2 else out[-1]] + rebuilt + ([pts[j + 1]] if j < n - 1 else []))
++        if any(_segment_hits_wall(a, b, walls, openings) for a, b in zip(test, test[1:])):
++            out.extend(chain[1:])
++            pts[j] = chain[-1]
++        else:
++            out.extend(rebuilt[1:] if rebuilt[0] == out[-1] else rebuilt)
++        i = j
++    return _simplify(_dedupe(out))
++
++
++def _path_clearance(path, grid: FloorGrid) -> float:
++    """Smallest wall clearance (cells) met along a polyline."""
++    best = math.inf
++    for a, b in zip(path, path[1:]):
++        n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) // 20.0))
++        for i in range(n + 1):
++            x, y = a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n
++            best = min(best, grid.clear_at(*grid.cell_at(x, y)))
++    return best
++
++
++def _ortho_options(p, q, grid: FloorGrid, midlines: bool = True):
++    """Monotone L / Z replacements for p→q, including Zs whose long leg runs on a passage
++    midline crossed by the chord. All have the same length |dx| + |dy|."""
++    dx, dy = q[0] - p[0], q[1] - p[1]
++    mx, my = (p[0] + q[0]) / 2, (p[1] + q[1]) / 2
++    xs, ys = set(), set()
++    n = max(2, int(math.hypot(dx, dy) // _SNAP_STEP_CM)) if midlines else 0
++    for i in range(1, n):
++        x, y = p[0] + dx * i / n, p[1] + dy * i / n
++        gy = (_side_gap(grid, x, y, 0, 1), _side_gap(grid, x, y, 0, -1))
++        gx = (_side_gap(grid, x, y, 1, 0), _side_gap(grid, x, y, -1, 0))
++        if None not in gy and sum(gy) <= _SNAP_MAX_WIDTH_CM:
++            ys.add(round(y + (gy[0] - gy[1]) / 2))
++        if None not in gx and sum(gx) <= _SNAP_MAX_WIDTH_CM:
++            xs.add(round(x + (gx[0] - gx[1]) / 2))
++    lo_x, hi_x = sorted((p[0], q[0]))
++    lo_y, hi_y = sorted((p[1], q[1]))
++    options = [
++        (0, [p, (q[0], p[1]), q]),
++        (0, [p, (p[0], q[1]), q]),
++        (0, [p, (mx, p[1]), (mx, q[1]), q]),
++        (0, [p, (p[0], my), (q[0], my), q]),
++    ]
++    options += [(1, [p, (p[0], y), (q[0], y), q]) for y in ys if lo_y <= y <= hi_y]
++    options += [(1, [p, (x, p[1]), (x, q[1]), q]) for x in xs if lo_x <= x <= hi_x]
++    return options
++
++
++def _best_ortho(p, q, grid: FloorGrid, walls, openings, min_clear=0.0, midlines=True):
++    best, best_key = None, None
++    for on_mid, path in _ortho_options(p, q, grid, midlines):
++        if any(_segment_hits_wall(a, b, walls, openings) for a, b in zip(path, path[1:])):
++            continue
++        clear = _path_clearance(path, grid)
++        if clear < min_clear:
++            continue
++        # enough clearance first, then a leg on a passage midline, then fewest bends
++        key = (min(clear, 60.0 / grid.cell), on_mid, -len(_simplify(_dedupe(path))))
++        if best_key is None or key > best_key:
++            best, best_key = path, key
++    return best
++
++
++def _orthogonalize(points, grid: FloorGrid, walls, openings):
++    """Every oblique segment (open halls, door mitres) becomes an axis-aligned L or Z; if all
++    candidates touch a wall the segment stays as it is."""
++    if len(points) < 2:
++        return points
++    out = [points[0]]
++    for p, q in zip(points, points[1:]):
++        if abs(q[0] - p[0]) < 1.0 or abs(q[1] - p[1]) < 1.0:
++            out.append(q)
++            continue
++        best = _best_ortho(p, q, grid, walls, openings)
++        out.extend(best[1:] if best else [q])
++    return _ortho_pull(_simplify(_dedupe(out)), grid, walls, openings)
++
++
++def _plen(points):
++    return sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(points, points[1:]))
++
++
++def _ortho_pull(points, grid: FloorGrid, walls, openings):
++    """Orthogonal string-pull: replace any stretch by a shorter wall-free L/Z between its ends
++    (with real clearance), so A*'s detours through the middle of halls collapse onto the
++    direct corridor. Farthest reachable vertex first, like a normal string-pull."""
++    pts = list(points)
++    if len(pts) < 4:
++        return pts
++    out = [pts[0]]
++    i = 0
++    min_clear = 50.0 / grid.cell
++    while i < len(pts) - 1:
++        nxt, repl = i + 1, None
++        for j in range(min(len(pts) - 1, i + 6), i + 1, -1):
++            cur = _plen(pts[i:j + 1])
++            if abs(pts[j][0] - pts[i][0]) + abs(pts[j][1] - pts[i][1]) > cur - 30.0:
++                continue
++            path = _best_ortho(pts[i], pts[j], grid, walls, openings, min_clear, midlines=False)
++            if path is None and (abs(pts[j][0] - pts[i][0]) < 1.0 or abs(pts[j][1] - pts[i][1]) < 1.0):
++                if not _segment_hits_wall(pts[i], pts[j], walls, openings) and _path_clearance([pts[i], pts[j]], grid) >= min_clear:
++                    path = [pts[i], pts[j]]
++            if path:
++                nxt, repl = j, path
++                break
++        out.extend(repl[1:] if repl else [pts[nxt]])
++        i = nxt
++    return _simplify(_dedupe(out))
++
++
++def _center_in_corridors(points, grid: FloorGrid, walls, openings):
++    """Slide each straight run onto the passage midline (equal free space either side).
++
++    Ends of the leg and door centres stay put; a long run touching one gets a short lead-in
++    vertex so only the run itself moves. Any move that would cross a wall is undone."""
++    if len(points) < 2:
++        return points
++    fixed_pts = [tuple(points[0]), tuple(points[-1])]
++    fixed_pts += [tuple(p) for p in points if _is_door_center(p, openings)]
++    is_fixed = lambda p: any(abs(p[0] - q[0]) < 1e-6 and abs(p[1] - q[1]) < 1e-6 for q in fixed_pts)
++    pts = [tuple(points[0])]
++    for p, q in zip(points, points[1:]):
++        length = math.hypot(q[0] - p[0], q[1] - p[1])
++        if length > _CENTER_MIN_SEG_CM + 2 * _CENTER_LEAD_CM:
++            ux, uy = (q[0] - p[0]) / length, (q[1] - p[1]) / length
++            if is_fixed(p):
++                pts.append((p[0] + ux * _CENTER_LEAD_CM, p[1] + uy * _CENTER_LEAD_CM))
++            if is_fixed(q):
++                pts.append((q[0] - ux * _CENTER_LEAD_CM, q[1] - uy * _CENTER_LEAD_CM))
++        pts.append(tuple(q))
++    pts = _snap_oblique_runs(pts, grid, walls, openings, is_fixed)
++    shift = [[0.0, 0.0] for _ in pts]
++    for i in range(len(pts) - 1):
++        p, q = pts[i], pts[i + 1]
++        length = math.hypot(q[0] - p[0], q[1] - p[1])
++        if length < _CENTER_MIN_SEG_CM or is_fixed(p) or is_fixed(q):
++            continue
++        ux, uy = (q[0] - p[0]) / length, (q[1] - p[1]) / length
++        nx, ny = -uy, ux
++        offs = []
++        for t in (0.2, 0.35, 0.5, 0.65, 0.8):
++            x, y = p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t
++            left, right = _side_gap(grid, x, y, nx, ny), _side_gap(grid, x, y, -nx, -ny)
++            if left is not None and right is not None:
++                offs.append((left - right) / 2)
++        if len(offs) < 3:
++            continue
++        offs.sort()
++        off = offs[len(offs) // 2]
++        if abs(off) < grid.cell or abs(off) > _CENTER_MAX_SHIFT_CM:
++            continue
++        for k in (i, i + 1):
++            shift[k][0] += nx * off
++            shift[k][1] += ny * off
++    moved = [(p[0] + s[0], p[1] + s[1]) for p, s in zip(pts, shift)]
++    for _ in range(len(moved)):
++        bad = [i for i in range(len(moved) - 1)
++               if (moved[i] != pts[i] or moved[i + 1] != pts[i + 1])
++               and _segment_hits_wall(moved[i], moved[i + 1], walls, openings)]
++        if not bad:
++            break
++        for i in bad:
++            moved[i], moved[i + 1] = pts[i], pts[i + 1]
++    return _orthogonalize(_straighten_runs(_simplify(_dedupe(moved)), grid, walls, openings, is_fixed), grid, walls, openings)
++
++
+ def _leg(grid: FloorGrid, start, end, penalty=None, _door_via: bool = True):
++    return _leg_raw(grid, start, end, penalty, _door_via)
++
++
++def _leg_raw(grid: FloorGrid, start, end, penalty=None, _door_via: bool = True):
+     a = _point(start)
+     b = _point(end)
+     if not a or not b:
+@@ -2542,6 +2902,18 @@
+         total = 0.0
+         for leg in self.legs:
+             points = leg["points"] if len(leg["points"]) > 1 else leg["points"] * 2
++            grid = grid_for(self.project, leg["floorId"]) if len(points) > 2 else None
++            if grid:
++                walls, openings = _grid_geometry(grid)
++                raw = _simplify(points)
++                points = _center_in_corridors(raw, grid, walls, openings)
++                # Centring must not cost real distance: past +8% over the raw route walked at
++                # right angles, keep the raw route and only square it.
++                manhattan = sum(abs(b[0] - a[0]) + abs(b[1] - a[1]) for a, b in zip(raw, raw[1:]))
++                if _plen(points) > 1.08 * manhattan:
++                    squared = _orthogonalize(raw, grid, walls, openings)
++                    if _plen(squared) < _plen(points):
++                        points = squared
+             floor = floors.get(leg["floorId"]) or {}
+             length = _polyline_length(points)
+             total += length

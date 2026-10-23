@@ -1,0 +1,6 @@
+src/lib/components/viewer3d/nav/kitDressing.ts
+src/lib/components/viewer3d/nav/openingAudit.ts
+src/lib/components/viewer3d/nav/openingRules.ts
+tests/browser/nav-floor-transfer.spec.ts
+tests/nav/kitFloor.test.ts
+tests/nav/openingGeometry.test.ts

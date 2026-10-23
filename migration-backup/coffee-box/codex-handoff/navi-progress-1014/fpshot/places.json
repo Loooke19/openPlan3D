@@ -1,0 +1,518 @@
+[
+ {
+  "key": "floor-0::room-1",
+  "label": "1楼 · 门急诊检验"
+ },
+ {
+  "key": "floor-0::room-3",
+  "label": "1楼 · 西药房"
+ },
+ {
+  "key": "floor-0::room-4",
+  "label": "1楼 · 挂号"
+ },
+ {
+  "key": "floor-0::room-5",
+  "label": "1楼 · 内科诊室1"
+ },
+ {
+  "key": "floor-0::room-6",
+  "label": "1楼 · 内科诊室2"
+ },
+ {
+  "key": "floor-0::room-7",
+  "label": "1楼 · 急诊"
+ },
+ {
+  "key": "floor-0::room-8",
+  "label": "1楼 · 氧疗区"
+ },
+ {
+  "key": "floor-0::room-9",
+  "label": "1楼 · 治疗室（南B）"
+ },
+ {
+  "key": "floor-0::room-10",
+  "label": "1楼 · 慢病联合门诊"
+ },
+ {
+  "key": "floor-0::room-11",
+  "label": "1楼 · 抢救室"
+ },
+ {
+  "key": "floor-0::room-12",
+  "label": "1楼 · 外科诊室"
+ },
+ {
+  "key": "floor-0::room-13",
+  "label": "1楼 · 处置室（南B）"
+ },
+ {
+  "key": "floor-0::room-14",
+  "label": "1楼 · 门诊办公室"
+ },
+ {
+  "key": "floor-0::room-15",
+  "label": "1楼 · 门诊化验室"
+ },
+ {
+  "key": "floor-0::room-16",
+  "label": "1楼 · 男卫生间"
+ },
+ {
+  "key": "floor-0::room-17",
+  "label": "1楼 · 狂犬病暴露预防处置门诊"
+ },
+ {
+  "key": "floor-0::room-18",
+  "label": "1楼 · 检验室（南A）"
+ },
+ {
+  "key": "floor-0::room-19",
+  "label": "1楼 · 女卫生间"
+ },
+ {
+  "key": "floor-0::room-20",
+  "label": "1楼 · 诊室"
+ },
+ {
+  "key": "floor-0::room-21",
+  "label": "1楼 · 消控室"
+ },
+ {
+  "key": "floor-0::room-22",
+  "label": "1楼 · 无障碍卫生间"
+ },
+ {
+  "key": "floor-0::room-23",
+  "label": "1楼 · 雾化室"
+ },
+ {
+  "key": "floor-0::room-24",
+  "label": "1楼 · 处置区"
+ },
+ {
+  "key": "floor-0::room-26",
+  "label": "1楼 · 药房值班室"
+ },
+ {
+  "key": "floor-0::room-27",
+  "label": "1楼 · 候诊区"
+ },
+ {
+  "key": "floor-0::room-28",
+  "label": "1楼 · 储物间"
+ },
+ {
+  "key": "floor-0::room-29",
+  "label": "1楼 · 值班室"
+ },
+ {
+  "key": "floor-0::room-31",
+  "label": "1楼 · 注射室"
+ },
+ {
+  "key": "floor-0::room-32",
+  "label": "1楼 · 更衣"
+ },
+ {
+  "key": "floor-0::room-33",
+  "label": "1楼 · 门厅（西·主入口）"
+ },
+ {
+  "key": "floor-0::room-35",
+  "label": "1楼 · 值班更衣"
+ },
+ {
+  "key": "floor-0::room-37",
+  "label": "1楼 · 挂号室、药房"
+ },
+ {
+  "key": "floor-0::room-38",
+  "label": "1楼 · 卫生间（南A）"
+ },
+ {
+  "key": "floor-0::room-39",
+  "label": "1楼 · 楼梯（南A）"
+ },
+ {
+  "key": "floor-0::room-40",
+  "label": "1楼 · 医废室"
+ },
+ {
+  "key": "floor-0::room-41",
+  "label": "1楼 · 留观室2"
+ },
+ {
+  "key": "floor-0::room-42",
+  "label": "1楼 · 卫生间（西A）"
+ },
+ {
+  "key": "floor-0::room-46",
+  "label": "1楼 · 一脱间"
+ },
+ {
+  "key": "floor-0::room-48",
+  "label": "1楼 · 二脱间"
+ },
+ {
+  "key": "floor-0::room-49",
+  "label": "1楼 · 治疗室（南A）"
+ },
+ {
+  "key": "floor-0::room-51",
+  "label": "1楼 · 总间"
+ },
+ {
+  "key": "floor-0::room-56",
+  "label": "1楼 · 楼梯（南B）"
+ },
+ {
+  "key": "floor-0::room-62",
+  "label": "1楼 · 处置间"
+ },
+ {
+  "key": "floor-0::room-63",
+  "label": "1楼 · 处置室（南A）"
+ },
+ {
+  "key": "floor-0::room-67",
+  "label": "1楼 · 卫生间（西B）"
+ },
+ {
+  "key": "floor-0::room-68",
+  "label": "1楼 · 清洁区"
+ },
+ {
+  "key": "floor-0::room-70",
+  "label": "1楼 · 采样室"
+ },
+ {
+  "key": "floor-0::room-75",
+  "label": "1楼 · 留观室1"
+ },
+ {
+  "key": "floor-0::room-77",
+  "label": "1楼 · 废弃物"
+ },
+ {
+  "key": "floor-0::room-81",
+  "label": "1楼 · 生间"
+ },
+ {
+  "key": "floor-0::room-82",
+  "label": "1楼 · 卫生间（南B）"
+ },
+ {
+  "key": "floor-0::room-87",
+  "label": "1楼 · 检验室（南B）"
+ },
+ {
+  "key": "floor-0::poi-1",
+  "label": "1楼 · 输液大厅"
+ },
+ {
+  "key": "floor-0::poi-2",
+  "label": "1楼 · 输液室大厅/夜间输液室"
+ },
+ {
+  "key": "floor-0::poi-4",
+  "label": "1楼 · 导医台"
+ },
+ {
+  "key": "floor-0::entrance-1",
+  "label": "1楼 · 大门（出入口 A）"
+ },
+ {
+  "key": "floor-0::entrance-2",
+  "label": "1楼 · 出入口 B"
+ },
+ {
+  "key": "floor-0::entrance-3",
+  "label": "1楼 · 出入口 C"
+ },
+ {
+  "key": "floor-1::room-4",
+  "label": "2楼 · 中药房"
+ },
+ {
+  "key": "floor-1::room-6",
+  "label": "2楼 · 外科专家门诊"
+ },
+ {
+  "key": "floor-1::room-7",
+  "label": "2楼 · 中医特色门诊"
+ },
+ {
+  "key": "floor-1::room-8",
+  "label": "2楼 · 理疗"
+ },
+ {
+  "key": "floor-1::room-9",
+  "label": "2楼 · 皮肤科"
+ },
+ {
+  "key": "floor-1::room-10",
+  "label": "2楼 · 中医专家诊室（北A）"
+ },
+ {
+  "key": "floor-1::room-11",
+  "label": "2楼 · 专家诊室"
+ },
+ {
+  "key": "floor-1::room-12",
+  "label": "2楼 · 针灸一室"
+ },
+ {
+  "key": "floor-1::room-13",
+  "label": "2楼 · 中医专家诊室（北B）"
+ },
+ {
+  "key": "floor-1::room-14",
+  "label": "2楼 · 疼痛门诊"
+ },
+ {
+  "key": "floor-1::room-15",
+  "label": "2楼 · 中医专家诊室（北D）"
+ },
+ {
+  "key": "floor-1::room-16",
+  "label": "2楼 · 办公室（北A）"
+ },
+ {
+  "key": "floor-1::room-17",
+  "label": "2楼 · 中医专家诊室（北C）"
+ },
+ {
+  "key": "floor-1::room-18",
+  "label": "2楼 · 治疗室（北）"
+ },
+ {
+  "key": "floor-1::room-19",
+  "label": "2楼 · 戒烟门诊"
+ },
+ {
+  "key": "floor-1::room-20",
+  "label": "2楼 · 儿科"
+ },
+ {
+  "key": "floor-1::room-21",
+  "label": "2楼 · 推拿"
+ },
+ {
+  "key": "floor-1::room-23",
+  "label": "2楼 · 男卫生间"
+ },
+ {
+  "key": "floor-1::room-24",
+  "label": "2楼 · 收费处"
+ },
+ {
+  "key": "floor-1::room-25",
+  "label": "2楼 · 针灸科"
+ },
+ {
+  "key": "floor-1::room-26",
+  "label": "2楼 · 治疗室（南）"
+ },
+ {
+  "key": "floor-1::room-33",
+  "label": "2楼 · 雾化"
+ },
+ {
+  "key": "floor-1::room-34",
+  "label": "2楼 · 更衣"
+ },
+ {
+  "key": "floor-1::room-35",
+  "label": "2楼 · 值班室"
+ },
+ {
+  "key": "floor-1::room-37",
+  "label": "2楼 · 楼梯（南）"
+ },
+ {
+  "key": "floor-1::room-42",
+  "label": "2楼 · 楼梯（北）"
+ },
+ {
+  "key": "floor-1::room-46",
+  "label": "2楼 · 下1"
+ },
+ {
+  "key": "floor-1::room-68",
+  "label": "2楼 · 办公室（北B）"
+ },
+ {
+  "key": "floor-2::room-1",
+  "label": "3楼 · 健康教育室"
+ },
+ {
+  "key": "floor-2::room-3",
+  "label": "3楼 · 细菌室"
+ },
+ {
+  "key": "floor-2::room-5",
+  "label": "3楼 · 体检内科"
+ },
+ {
+  "key": "floor-2::room-6",
+  "label": "3楼 · 门诊妇科"
+ },
+ {
+  "key": "floor-2::room-7",
+  "label": "3楼 · 妇科门诊一（西）"
+ },
+ {
+  "key": "floor-2::room-8",
+  "label": "3楼 · 体检心电图室"
+ },
+ {
+  "key": "floor-2::room-9",
+  "label": "3楼 · 妇科门诊一（南）"
+ },
+ {
+  "key": "floor-2::room-10",
+  "label": "3楼 · 计生咨询指挥室"
+ },
+ {
+  "key": "floor-2::room-11",
+  "label": "3楼 · 恢复室"
+ },
+ {
+  "key": "floor-2::room-12",
+  "label": "3楼 · 体检外科"
+ },
+ {
+  "key": "floor-2::room-13",
+  "label": "3楼 · 门诊B超室"
+ },
+ {
+  "key": "floor-2::room-14",
+  "label": "3楼 · 免疫室"
+ },
+ {
+  "key": "floor-2::room-15",
+  "label": "3楼 · 仪器室"
+ },
+ {
+  "key": "floor-2::room-16",
+  "label": "3楼 · 手术室"
+ },
+ {
+  "key": "floor-2::room-17",
+  "label": "3楼 · 内窥镜室（北A）"
+ },
+ {
+  "key": "floor-2::room-18",
+  "label": "3楼 · 体检B超室"
+ },
+ {
+  "key": "floor-2::room-19",
+  "label": "3楼 · B超一室"
+ },
+ {
+  "key": "floor-2::room-20",
+  "label": "3楼 · 公共卫生管理科"
+ },
+ {
+  "key": "floor-2::room-21",
+  "label": "3楼 · 药剂存放处（北A）"
+ },
+ {
+  "key": "floor-2::room-22",
+  "label": "3楼 · 体检眼科耳鼻喉科"
+ },
+ {
+  "key": "floor-2::room-23",
+  "label": "3楼 · 骨密度检测"
+ },
+ {
+  "key": "floor-2::room-24",
+  "label": "3楼 · 女卫生间"
+ },
+ {
+  "key": "floor-2::room-25",
+  "label": "3楼 · 男卫生间"
+ },
+ {
+  "key": "floor-2::room-26",
+  "label": "3楼 · 内窥镜室（北C）"
+ },
+ {
+  "key": "floor-2::room-27",
+  "label": "3楼 · 产科检查"
+ },
+ {
+  "key": "floor-2::room-28",
+  "label": "3楼 · 妇科检查"
+ },
+ {
+  "key": "floor-2::room-30",
+  "label": "3楼 · 谈话室"
+ },
+ {
+  "key": "floor-2::room-31",
+  "label": "3楼 · 中医体质辨识室"
+ },
+ {
+  "key": "floor-2::room-33",
+  "label": "3楼 · 标本接收抽血"
+ },
+ {
+  "key": "floor-2::room-34",
+  "label": "3楼 · 内窥镜室（北B）"
+ },
+ {
+  "key": "floor-2::room-35",
+  "label": "3楼 · 登记医生更衣"
+ },
+ {
+  "key": "floor-2::room-44",
+  "label": "3楼 · 体检窗口"
+ },
+ {
+  "key": "floor-2::room-45",
+  "label": "3楼 · 打包"
+ },
+ {
+  "key": "floor-2::room-46",
+  "label": "3楼 · 冲洗"
+ },
+ {
+  "key": "floor-2::room-49",
+  "label": "3楼 · 洗涤间"
+ },
+ {
+  "key": "floor-2::room-50",
+  "label": "3楼 · 洗手"
+ },
+ {
+  "key": "floor-2::room-52",
+  "label": "3楼 · 计划生育手术室"
+ },
+ {
+  "key": "floor-2::room-58",
+  "label": "3楼 · 库房"
+ },
+ {
+  "key": "floor-2::room-59",
+  "label": "3楼 · 药剂存放处（北B）"
+ },
+ {
+  "key": "floor-2::room-61",
+  "label": "3楼 · 无菌包室"
+ },
+ {
+  "key": "floor-2::room-63",
+  "label": "3楼 · 卫生间"
+ },
+ {
+  "key": "floor-2::room-70",
+  "label": "3楼 · 楼梯"
+ },
+ {
+  "key": "floor-2::poi-1",
+  "label": "3楼 · 控制室"
+ }
+]

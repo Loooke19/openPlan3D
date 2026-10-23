@@ -1,0 +1,11 @@
+import { chromium } from '/workspace/kit-wt/node_modules/playwright/index.mjs';
+const b = await chromium.launch({headless:true, executablePath:'/opt/google/chrome/chrome', args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const p = await b.newPage({ viewport: { width: 1280, height: 800 } }); p.setDefaultTimeout(600000);
+p.on('console', m => { if (m.type()==='error'||m.type()==='warning') console.log('C', m.text().slice(0,200)); });
+const id='b1f10000000000000000000000000001', o='http://127.0.0.1:8931';
+await p.goto(`http://127.0.0.1:5173/nav?id=${id}&apiOrigin=${encodeURIComponent(o)}&projectUrl=${encodeURIComponent(o+'/api/projects/'+id+'.json')}&floor=floor-0`);
+await p.waitForFunction(() => window.__navTest?.viewer?.getOrbitSnapshot?.() && window.__navKit?.plan?.stats?.props > 0);
+await p.waitForTimeout(8000);
+await p.screenshot({ path: 'orbit.png' });
+console.log(JSON.stringify(await p.evaluate(() => window.__navTest.viewer.getRenderStatsForTest?.())));
+await b.close();

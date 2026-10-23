@@ -1,0 +1,326 @@
+diff --git a/src/lib/components/viewer3d/ThreeViewer.svelte b/src/lib/components/viewer3d/ThreeViewer.svelte
+index 0134b3f..c87084b 100644
+--- a/src/lib/components/viewer3d/ThreeViewer.svelte
++++ b/src/lib/components/viewer3d/ThreeViewer.svelte
+@@ -77,7 +77,7 @@
+   import { NavPipeline, type NavLook } from './nav/pipeline';
+   import { NavRouteVisual } from './nav/route';
+   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
+-  import { NavSigns, type SignDoor } from './nav/signs';
++  import { NavSigns, isPlaceholderRoomName, type SignDoor } from './nav/signs';
+   import { NAV_FONT, navFontLoaded, navFontReady } from '$lib/utils/navFonts';
+   import { hospitalFloorY } from '$lib/utils/hospitalMaterials';
+   import { centerRoute, enclosedRooms, inside as layoutInside } from './nav/layout';
+@@ -1495,8 +1495,8 @@
+       const links = navLinkSigns.filter(l => l.floorId === fid);
+       // A stair/lift room's door sign carries the same patient name as banner and steps.
+       const linkName = (poly: { x: number; y: number }[]) => links.find(l => insidePoly(l, poly))?.name;
+-      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
+-      navSigns = new NavSigns(doors, named, activeFloorElevation, links);
++      const named = roomFaces(currentFloor).filter(r => !isPlaceholderRoomName(r.room.name) && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
++      navSigns = new NavSigns(doors, named, activeFloorElevation, links, currentFloor.walls);
+       scene.add(navSigns.group);
+     }
+     applyNavLook(navLook, true);
+diff --git a/src/lib/components/viewer3d/nav/route.ts b/src/lib/components/viewer3d/nav/route.ts
+index 0a8dff8..9d51335 100644
+--- a/src/lib/components/viewer3d/nav/route.ts
++++ b/src/lib/components/viewer3d/nav/route.ts
+@@ -11,8 +11,10 @@ export type P2 = { x: number; y: number };
+ export function ribbonGeometry(points: P2[], halfWidth: number): THREE.BufferGeometry {
+   const pts = points.filter((p, i) => i === 0 || Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y) > 0.5);
+   const n = pts.length;
+-  const position = new Float32Array(n * 6), uv = new Float32Array(n * 4), index: number[] = [];
+-  let along = 0;
++  // Mitred edge points per vertex, then one quad per segment with its own vertices. Each quad's
++  // uv.x is the exact projection onto that segment's centreline, so the chevron field is affine
++  // across both triangles and its tip lands on the line centre on straights and turns alike.
++  const edges: [number, number, number, number][] = [];
+   for (let i = 0; i < n; i++) {
+     const p = pts[i], prev = pts[Math.max(0, i - 1)], next = pts[Math.min(n - 1, i + 1)];
+     const d0 = new THREE.Vector2(p.x - prev.x, p.y - prev.y), d1 = new THREE.Vector2(next.x - p.x, next.y - p.y);
+@@ -24,27 +26,39 @@ export function ribbonGeometry(points: P2[], halfWidth: number): THREE.BufferGeo
+     tangent.normalize();
+     const normal = new THREE.Vector2(-tangent.y, tangent.x);
+     const miter = Math.min(2.2, 1 / Math.max(0.3, normal.dot(new THREE.Vector2(-d1.y, d1.x))));
+-    if (i) along += Math.hypot(p.x - prev.x, p.y - prev.y);
+-    for (const [k, side] of [[0, 1], [1, -1]] as const) {
+-      position.set([p.x + normal.x * halfWidth * miter * side, 0, p.y + normal.y * halfWidth * miter * side], (i * 2 + k) * 3);
+-      uv.set([along, side], (i * 2 + k) * 2);
+-    }
+-    if (i) { const a = (i - 1) * 2, b = i * 2; index.push(a, b, a + 1, a + 1, b, b + 1); }
++    const ox = normal.x * halfWidth * miter, oy = normal.y * halfWidth * miter;
++    edges.push([p.x + ox, p.y + oy, p.x - ox, p.y - oy]);
++  }
++  const segs = Math.max(0, n - 1);
++  const position = new Float32Array(segs * 12), uv = new Float32Array(segs * 8), seg = new Float32Array(segs * 8), index: number[] = [];
++  let along = 0;
++  for (let i = 0; i < segs; i++) {
++    const a = pts[i], b = pts[i + 1], len = Math.hypot(b.x - a.x, b.y - a.y), tx = (b.x - a.x) / len, ty = (b.y - a.y) / len;
++    const verts: [number, number, number][] = [[edges[i][0], edges[i][1], 1], [edges[i][2], edges[i][3], -1], [edges[i + 1][0], edges[i + 1][1], 1], [edges[i + 1][2], edges[i + 1][3], -1]];
++    verts.forEach(([x, z, side], k) => {
++      position.set([x, 0, z], (i * 4 + k) * 3);
++      uv.set([along + (x - a.x) * tx + (z - a.y) * ty, side], (i * 4 + k) * 2);
++      seg.set([along, along + len], (i * 4 + k) * 2);
++    });
++    const o = i * 4; index.push(o, o + 2, o + 1, o + 1, o + 2, o + 3);
++    along += len;
+   }
+   const geometry = new THREE.BufferGeometry();
+   geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
+   geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
++  geometry.setAttribute('seg', new THREE.BufferAttribute(seg, 2));
+   geometry.setIndex(index);
+   geometry.userData.length = along;
+   return geometry;
+ }
+ 
+ const VERT = /* glsl */`
+-  varying vec2 vUv;
++  attribute vec2 seg;
++  varying vec2 vUv, vSeg;
+   #include <common>
+   #include <logdepthbuf_pars_vertex>
+   void main() {
+-    vUv = uv;
++    vUv = uv; vSeg = seg;
+     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+     #include <logdepthbuf_vertex>
+   }`;
+@@ -66,7 +80,7 @@ export class NavRouteVisual {
+     const y = opts.y ?? 4.5;
+     this.group.userData.navRoute = true;
+     if (points.length < 2) return;
+-    for (const [view, core, rim, glow] of [['walk', 15, 21, 60], ['overview', 30, 41, 130]] as const) {
++    for (const [view, core, rim, glow] of [['walk', 12.5, 17.5, 60], ['overview', 25, 34, 130]] as const) {
+       this.buildSet(points, y, view, core, rim, glow);
+     }
+     this.length = (this.group.children[0] as THREE.Mesh)?.geometry.userData.length ?? 0;
+@@ -76,7 +90,7 @@ export class NavRouteVisual {
+ 
+ 
+   private buildSet(points: P2[], y: number, view: 'walk' | 'overview', halfCore: number, halfRim: number, halfGlow: number) {
+-    const u = { ...this.uniforms, uHalf: { value: halfCore } };
++    const u = { ...this.uniforms, uHalf: { value: halfCore * 1.2 } }; // chevron scale kept from pre-thinning width
+     const core = ribbonGeometry(points, halfCore);
+     const rim = ribbonGeometry(points, halfRim);
+     const glow = ribbonGeometry(points, halfGlow);
+@@ -84,15 +98,20 @@ export class NavRouteVisual {
+       uniforms: u, vertexShader: VERT,
+       fragmentShader: /* glsl */`
+         uniform float uTime, uTraveled, uHalf, uWalk; uniform vec3 uAccent;
+-        varying vec2 vUv;
++        varying vec2 vUv, vSeg;
+         #include <common>
+         #include <logdepthbuf_pars_fragment>
+         void main() {
+           #include <logdepthbuf_fragment>
+           float along = vUv.x, across = abs(vUv.y);
++          // Whole chevrons only, inside one straight run: none straddles a corner joint.
+           // Chevrons tip forward (+along). Do not put backticks in this comment — they truncate the GLSL template.
+           float v = fract((along + across * uHalf * 1.1) / (uHalf * 7.) - uTime * 80. / (uHalf * 7.));
+           float chev = smoothstep(.0, .06, v) * (1. - smoothstep(.18, .24, v)) * (1. - smoothstep(.72, .86, across));
++          float chevRaw = (along + across * uHalf * 1.1) / (uHalf * 7.) - uTime * 80. / (uHalf * 7.);
++          float tipAt = (floor(chevRaw + .5) + uTime * 80. / (uHalf * 7.)) * uHalf * 7.; // one value per chevron
++          // Soft 2-unit gate so a chevron flowing out of a run fades as a whole (no per-pixel flicker).
++          chev *= smoothstep(0., 2., tipAt - vSeg.x - uHalf * 1.1) * smoothstep(0., 2., vSeg.y - tipAt - uHalf * 7. * .24);
+           vec3 base = uAccent * (1.25 - .25 * uWalk);
+           vec3 col = mix(base, mix(vec3(2.2, 2.4, 2.6), vec3(1.25, 1.35, 1.45), uWalk), chev * .9);
+           if (along < uTraveled) col = mix(vec3(.42, .46, .45), vec3(.6), chev * .3);
+diff --git a/src/lib/components/viewer3d/nav/signs.ts b/src/lib/components/viewer3d/nav/signs.ts
+index 9f10f40..80d8fae 100644
+--- a/src/lib/components/viewer3d/nav/signs.ts
++++ b/src/lib/components/viewer3d/nav/signs.ts
+@@ -11,6 +11,11 @@ type P = { x: number; y: number };
+ export type SignDoor = { center: P; along: P; normal: P; width: number; wallThickness: number; height: number };
+ export type SignRoom = { name: string; displayName?: string; polygon: P[] };
+ 
++/** Auto-generated placeholder labels (「Room 12」) are not names: corridors on upper floors carry them. */
++export function isPlaceholderRoomName(name?: string | null) {
++  return !name || /^\s*(room|房间)\s*\d+\s*$/i.test(name);
++}
++
+ function inside(p: P, poly: P[]) {
+   let c = false;
+   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+@@ -138,11 +143,117 @@ function signTexture(name: string) {
+   return t;
+ }
+ 
++
++export type SignWall = { start: P; end: P; thickness?: number };
++/** Plan-view footprint of a sign: thin segment a→b at a height band. */
++export type SignPlacement = {
++  kind: 'blade' | 'hang'; name: string; key: string;
++  center: P; normal: P; jamb: P; a: P; b: P; y0: number; y1: number;
++};
++
++const BLADE_LEN = 64, BLADE_H = 20, HANG_LEN = 90, HANG_H = 28, SIGN_GAP = 4;
++
++function segDist(p1: P, p2: P, q1: P, q2: P) {
++  const d = (p: P, a: P, b: P) => {
++    const vx = b.x - a.x, vy = b.y - a.y, L = vx * vx + vy * vy || 1e-9;
++    const t = Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / L));
++    return Math.hypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
++  };
++  const cross = (o: P, a: P, b: P) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
++  const hit = cross(p1, p2, q1) * cross(p1, p2, q2) < 0 && cross(q1, q2, p1) * cross(q1, q2, p2) < 0;
++  return hit ? 0 : Math.min(d(p1, q1, q2), d(p2, q1, q2), d(q1, p1, p2), d(q2, p1, p2));
++}
++
++/** Sign footprint enters a wall body (thin-sign half thickness included). */
++export function signHitsWall(s: SignPlacement, walls: SignWall[]) {
++  return walls.some((w) => segDist(s.a, s.b, w.start, w.end) < (w.thickness || 15) / 2 + 1.5);
++}
++
++/** Two signs share space: footprints closer than the gap and height bands overlap. */
++export function signsOverlap(s: SignPlacement, t: SignPlacement) {
++  return s.y0 < t.y1 && t.y0 < s.y1 && segDist(s.a, s.b, t.a, t.b) < SIGN_GAP;
++}
++
++function freeRun(p: P, dir: P, walls: SignWall[], limit = 2000) {
++  let best = limit;
++  for (const w of walls) {
++    const ex = w.end.x - w.start.x, ey = w.end.y - w.start.y;
++    const den = dir.x * ey - dir.y * ex;
++    if (Math.abs(den) < 1e-9) continue;
++    const t = ((w.start.x - p.x) * ey - (w.start.y - p.y) * ex) / den;
++    const u = ((w.start.x - p.x) * dir.y - (w.start.y - p.y) * dir.x) / den;
++    if (t > 0 && u >= 0 && u <= 1) best = Math.min(best, t);
++  }
++  return best;
++}
++
++/**
++ * Where every sign goes, before any mesh is built. One blade per room (its widest corridor
++ * door), hung on the jamb, normal into the corridor. A blade that would cut a wall or touch an
++ * already placed sign tries the other jamb, then slides along the wall; if nothing fits it is
++ * dropped (the room keeps its other door's sign, or none rather than a clash). Stair/lift
++ * banners are one board facing along the passage, never a crossed pair.
++ */
++export function planSigns(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string }[] = [], walls: SignWall[] = []): SignPlacement[] {
++  const placed: SignPlacement[] = [];
++  const fits = (s: SignPlacement) => !signHitsWall(s, walls) && !placed.some((t) => signsOverlap(s, t));
++  const byRoom = new Map<SignRoom, { d: SignDoor; outward: P }[]>();
++  for (const d of dedupeSignDoors(doors)) {
++    const hit = corridorOutward(d, rooms);
++    if (!hit) continue;
++    if (!byRoom.has(hit.room)) byRoom.set(hit.room, []);
++    byRoom.get(hit.room)!.push({ d, outward: hit.outward });
++  }
++  let roomNo = 0;
++  for (const [room, list] of byRoom) {
++    const label = room.displayName || room.name;
++    const key = `room${roomNo++}:${label}`;
++    list.sort((a, b) => b.d.width - a.d.width);
++    let done = false;
++    for (const { d, outward } of list) {
++      const jl = Math.hypot(d.along.x, d.along.y) || 1;
++      const jamb = { x: d.along.x / jl, y: d.along.y / jl };
++      const y = floorY + Math.max(d.height + 10, 218);
++      for (const slide of [0, 24, 48]) {
++        for (const side of [1, -1]) {
++          const off = side * (d.width / 2 + 14 + slide);
++          const root = { x: d.center.x + jamb.x * off + outward.x * (d.wallThickness / 2 + 6), y: d.center.y + jamb.y * off + outward.y * (d.wallThickness / 2 + 6) };
++          const tip = { x: root.x + outward.x * BLADE_LEN, y: root.y + outward.y * BLADE_LEN };
++          const s: SignPlacement = {
++            kind: 'blade', name: label, key,
++            center: { x: (root.x + tip.x) / 2, y: (root.y + tip.y) / 2 }, normal: outward, jamb: { x: jamb.x * side, y: jamb.y * side },
++            a: root, b: tip, y0: y - BLADE_H / 2, y1: y + BLADE_H / 2 + 12,
++          };
++          if (fits(s)) { placed.push(s); done = true; break; }
++        }
++        if (done) break;
++      }
++      if (done) break;
++    }
++  }
++  for (const l of links) {
++    // Board spans across the passage (the shorter free axis) so both faces read along it.
++    const across = [{ x: 1, y: 0 }, { x: 0, y: 1 }]
++      .map((dir) => ({ dir, w: freeRun(l, dir, walls) + freeRun(l, { x: -dir.x, y: -dir.y }, walls) }))
++      .sort((a, b) => a.w - b.w);
++    for (const { dir } of across) {
++      const s: SignPlacement = {
++        kind: 'hang', name: l.name, key: `link:${l.name}`,
++        center: { x: l.x, y: l.y }, normal: { x: -dir.y, y: dir.x }, jamb: dir,
++        a: { x: l.x - dir.x * HANG_LEN / 2, y: l.y - dir.y * HANG_LEN / 2 }, b: { x: l.x + dir.x * HANG_LEN / 2, y: l.y + dir.y * HANG_LEN / 2 },
++        y0: floorY + 232 - HANG_H / 2, y1: floorY + 232 + HANG_H / 2 + 30,
++      };
++      if (fits(s)) { placed.push(s); break; }
++    }
++  }
++  return placed;
++}
++
+ export class NavSigns {
+   readonly group = new THREE.Group();
+   private disposables: { dispose(): void }[] = [];
+ 
+-  constructor(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string }[] = []) {
++  constructor(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string }[] = [], walls: SignWall[] = []) {
+     this.group.userData.navDressing = true;
+     const edge = new THREE.MeshStandardMaterial({ color: '#cfd4d2', metalness: 0.6, roughness: 0.35 });
+     const bracketMat = new THREE.MeshStandardMaterial({ color: '#9aa2a0', metalness: 0.7, roughness: 0.3 });
+@@ -162,41 +273,26 @@ export class NavSigns {
+       const [front, back] = textures.get(name)!;
+       return [edge, edge, edge, edge, front, back];
+     };
+-    for (const d of dedupeSignDoors(doors)) {
+-      const hit = corridorOutward(d, rooms);
+-      if (!hit) continue;
+-      const { room, outward } = hit;
+-      const { x: n, y: up, z: faceDir } = bladeBasis(outward, d.along);
+-      // Door-side offset keeps the authored wall tangent (which jamb the blade hangs on).
+-      const jamb = new THREE.Vector3(d.along.x, 0, d.along.y);
+-      if (jamb.lengthSq() > 1e-8) jamb.normalize();
+-      else jamb.copy(faceDir);
+-      const base = new THREE.Vector3(d.center.x, floorY, d.center.y);
+-      const label = room.displayName || room.name;
+-      // Blade: projects into the corridor; ±Z faces read when looking along the hall.
+-      const blade = new THREE.Mesh(this.box(64, 20, 2.5), faceMats(label));
+-      blade.position.copy(base).addScaledVector(jamb, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 38);
+-      blade.position.y = floorY + Math.max(d.height + 10, 218);
+-      blade.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(n, up, faceDir));
+-      blade.userData.navSign = { kind: 'blade', name: label };
+-      const arm = new THREE.Mesh(this.box(42, 2, 2), bracketMat);
+-      arm.position.copy(base).addScaledVector(jamb, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 20);
+-      arm.position.y = blade.position.y + 11;
+-      arm.quaternion.copy(blade.quaternion);
+-      for (const m of [blade, arm]) { m.userData.navDressing = true; this.group.add(m); }
+-    }
+-    this.hangLinks(links, floorY, faceMats, bracketMat);
+-  }
+-
+-  /** Ceiling-hung two-sided sign over each stair/lift landing with its patient name (「楼梯 A」). */
+-  private hangLinks(links: { x: number; y: number; name: string }[], floorY: number, faceMats: (n: string) => THREE.Material[], mat: THREE.Material) {
+-    for (const l of links) {
+-      for (const rot of [0, Math.PI / 2]) {
+-        const sign = new THREE.Mesh(this.box(90, 28, 3), faceMats(l.name));
+-        sign.position.set(l.x, floorY + 232, l.y);
+-        sign.rotation.y = rot;
+-        const rod = new THREE.Mesh(this.box(1.5, 30, 1.5), mat);
+-        rod.position.set(l.x, floorY + 261, l.y);
++    for (const p of planSigns(doors, rooms, floorY, links, walls)) {
++      const up = new THREE.Vector3(0, 1, 0);
++      if (p.kind === 'blade') {
++        const { x: n, y: yb, z: faceDir } = bladeBasis(p.normal);
++        const blade = new THREE.Mesh(this.box(BLADE_LEN, BLADE_H, 2.5), faceMats(p.name));
++        blade.position.set(p.center.x, p.y0 + BLADE_H / 2, p.center.y);
++        blade.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(n, yb, faceDir));
++        blade.userData.navSign = { kind: 'blade', name: p.name };
++        const arm = new THREE.Mesh(this.box(42, 2, 2), bracketMat);
++        arm.position.set(p.a.x + p.normal.x * 21, blade.position.y + 11, p.a.y + p.normal.y * 21);
++        arm.quaternion.copy(blade.quaternion);
++        for (const m of [blade, arm]) { m.userData.navDressing = true; this.group.add(m); }
++      } else {
++        const along = new THREE.Vector3(p.jamb.x, 0, p.jamb.y), face = new THREE.Vector3(p.normal.x, 0, p.normal.y);
++        const sign = new THREE.Mesh(this.box(HANG_LEN, HANG_H, 3), faceMats(p.name));
++        sign.position.set(p.center.x, p.y0 + HANG_H / 2, p.center.y);
++        sign.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(along, up, face));
++        sign.userData.navSign = { kind: 'hang', name: p.name };
++        const rod = new THREE.Mesh(this.box(1.5, 30, 1.5), bracketMat);
++        rod.position.set(p.center.x, p.y0 + HANG_H + 15, p.center.y);
+         for (const m of [sign, rod]) { m.userData.navDressing = true; this.group.add(m); }
+       }
+     }

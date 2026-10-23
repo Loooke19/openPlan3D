@@ -1,0 +1,365 @@
+ A be/.cursor/skills/recover-cad-pdf-layers/SKILL.md
+ A be/.cursor/skills/recover-cad-pdf-layers/scripts/inspect_cad_pdf.py
+ A be/.gitignore
+ A be/.impeccable.md
+ A be/.playwright-mcp/console-2026-09-10T04-09-23-866Z.log
+ A be/.playwright-mcp/console-2026-09-10T04-11-19-212Z.log
+ A be/.playwright-mcp/console-2026-09-10T06-04-33-709Z.log
+ A be/.playwright-mcp/maker-two-page.pdf
+ A be/.playwright-mcp/not-a-map.pdf
+ A be/.playwright-mcp/page-2026-09-10T04-09-25-518Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-09-30-922Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-09-38-154Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-09-58-115Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-10-13-006Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-10-24-844Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-10-29-299Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-10-32-376Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-10-40-409Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-10-43-536Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-11-06-681Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-11-19-409Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-11-36-292Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-11-44-966Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-11-47-947Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-12-07-946Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-12-19-217Z.yml
+ A be/.playwright-mcp/page-2026-09-10T04-12-29-469Z.yml
+ A be/.playwright-mcp/page-2026-09-10T06-04-33-910Z.yml
+ A be/.playwright-mcp/page-2026-09-10T06-04-37-066Z.yml
+ A be/.playwright-mcp/page-2026-09-10T06-45-02-034Z.yml
+ A be/.playwright-mcp/page-2026-09-10T06-45-14-988Z.yml
+ A be/.playwright-mcp/page-2026-09-10T06-45-24-242Z.yml
+ A be/.playwright-mcp/page-2026-09-10T06-45-37-099Z.yml
+ A be/.playwright-mcp/page-2026-09-10T07-55-47-644Z.yml
+ A be/.playwright-mcp/page-2026-09-10T07-55-53-970Z.yml
+ A be/README.md
+ A be/VERIFICATION.md
+ A be/assets/fonts/OFL.txt
+ A be/assets/fonts/noto-sans-sc-demo.woff2
+ A be/assets/vendor/README.md
+ A be/assets/vendor/ambientcss/LICENSE
+ A be/assets/vendor/ambientcss/ambient.css
+ A be/assets/vendor/ambientcss/package.json
+ A be/assets/vendor/pdfjs/README.md
+ A be/assets/vendor/pdfjs/pdf.min.mjs
+ A be/assets/vendor/pdfjs/pdf.worker.min.mjs
+ A be/assets/vendor/tabler-icons/LICENSE
+ A be/assets/vendor/tabler-icons/README.md
+ A be/assets/vendor/tabler-icons/icons/badge-wc.svg
+ A be/assets/vendor/tabler-icons/icons/desk.svg
+ A be/assets/vendor/tabler-icons/icons/door-enter.svg
+ A be/assets/vendor/tabler-icons/icons/elevator.svg
+ A be/assets/vendor/tabler-icons/icons/escalator.svg
+ A be/assets/vendor/tabler-icons/icons/first-aid-kit.svg
+ A be/assets/vendor/tabler-icons/icons/info-circle.svg
+ A be/assets/vendor/tabler-icons/icons/shopping-bag.svg
+ A be/assets/vendor/tabler-icons/icons/stairs.svg
+ A be/assets/vendor/tabler-icons/icons/wheelchair.svg
+ A be/assets/vendor/three/LICENSE
+ A be/assets/vendor/three/addons/controls/OrbitControls.js
+ A be/assets/vendor/three/three.core.js
+ A be/assets/vendor/three/three.module.js
+ A be/data/cross-floor-fixture.json
+ A be/data/gifu-1f-poi-annotations.json
+ A be/data/gifu-1f-profile.json
+ A be/data/map-types.ts
+ A be/data/map.json
+ A be/data/overrides/P1-1F.json
+ A be/data/overrides/P1-2F.json
+ A be/data/overrides/P1-3F.json
+ A be/data/overrides/P2-3F.json
+ A be/data/overrides/P3-1F.json
+ A be/data/overrides/P3-2F.json
+ A be/data/overrides/P3-3F.json
+ A be/data/overrides/P3-4F.json
+ A be/data/overrides/pdf_truth.json
+ A be/data/safe-mask.png
+ A be/data/sample-map-draft.json
+ A be/data/sample-routes.json
+ A be/data/text-extraction.json
+ A be/data/validation-report.json
+ A be/data/walkable-mask.png
+ A be/data/walkable-overlay.png
+ A be/docs/openplan-nav-handoff.md
+ A be/maker-panel-restored.png
+ A be/preview/appearance.js
+ A be/preview/edit.html
+ A be/preview/editor.js
+ A be/preview/facility-icons.js
+ A be/preview/files.css
+ A be/preview/files.html
+ A be/preview/files.js
+ A be/preview/index.html
+ A be/preview/institutions.js
+ A be/preview/interface.css
+ A be/preview/kujiale-display.html
+ A be/preview/kujiale-import.css
+ A be/preview/kujiale-import.html
+ A be/preview/kujiale-import.js
+ A be/preview/maker.js
+ A be/preview/map-art.js
+ A be/preview/map-coords.js
+ A be/preview/nav-marker.js
+ A be/preview/nav.css
+ A be/preview/nav.html
+ A be/preview/nav.js
+ A be/preview/routing.js
+ A be/preview/scene3d.js
+ A be/preview/status.js
+ A be/preview/styles.css
+ A be/preview/viewer.js
+ A be/preview/walk-look.js
+ A be/preview/wall-signs.js
+ A be/requirements.txt
+ A be/scripts/build_map.py
+ A be/scripts/cad_visocr.swift
+ A be/scripts/draw_rooms.py
+ A be/scripts/floor_nav.py
+ A be/scripts/floor_overrides.py
+ A be/scripts/hospital_lexicon.py
+ A be/scripts/kujiale_import_server.py
+ A be/scripts/maker_app.py
+ A be/scripts/maker_build.py
+ A be/scripts/maker_cad.py
+ A be/scripts/maker_ocr.py
+ A be/scripts/maker_pdf.py
+ A be/scripts/maker_server.py
+ A be/scripts/maker_store.py
+ A be/scripts/name_overrides.py
+ A be/scripts/north_arrow.py
+ A be/scripts/openplan_editor_mcp.py
+ A be/scripts/openplan_editor_session.py
+ A be/scripts/openplan_project.py
+ A be/scripts/openplan_project_tools.py
+ A be/scripts/pdf_building.py
+ A be/scripts/seed_cross_floor_elevator.py
+ A be/scripts/subset_font.py
+ A be/scripts/verify_import.py
+ A be/source/gifu-1f.png
+ A be/source/gifu-hospital-map.pdf
+ A be/tests/e2e_pdf_import_multifloor.mjs
+ A be/tests/fixtures/make_synthetic_hospital_pdf.py
+ A be/tests/fixtures/synthetic-hospital-2f.pdf
+ A be/tests/test_all_entrances_cross_floor.py
+ A be/tests/test_cross_floor_nav.py
+ A be/tests/test_drawn_rooms.py
+ A be/tests/test_ensuite_real.py
+ A be/tests/test_files_nav_entry.py
+ A be/tests/test_floor_nav.py
+ A be/tests/test_kujiale_import_files.py
+ A be/tests/test_maker.py
+ A be/tests/test_maker_build.py
+ A be/tests/test_maker_cad_rulers.py
+ A be/tests/test_maker_ocr.py
+ A be/tests/test_manual_edits.py
+ A be/tests/test_misreads.py
+ A be/tests/test_name_overrides.py
+ A be/tests/test_navigation.py
+ A be/tests/test_ocr_lexicon_north.py
+ A be/tests/test_ocr_name_noise.py
+ A be/tests/test_openplan_editor_mcp.py
+ A be/tests/test_openplan_project.py
+ A be/tests/test_pdf_building.py
+ A be/tests/test_pdf_import_e2e.py
+ A be/tests/test_preview.mjs
+ A be/tests/test_project_writeback.py
+ A be/tests/test_restricted_zones.py
+ A "be/\346\235\220\350\264\250\344\270\216\345\205\211\347\205\247\345\256\236\347\216\260\350\257\264\346\230\216.md"
+ A "be/\351\241\271\347\233\256\346\246\202\350\247\210\344\270\216PDF\345\257\274\345\205\245\346\212\200\346\234\257\350\256\241\345\210\222.md"
+ A guard.log
+ A report.md
+ A round5.md
+ A round6.md
+ A shots/B-switch-after-fp-down-production.png
+ A shots/B-switch-after-fp-up-production.png
+ A shots/B-switch-after-sim-up-production.png
+ A shots/B-switch-before-fp-down-production.png
+ A shots/B-switch-before-fp-up-production.png
+ A shots/B-switch-before-sim-up-production.png
+ A shots/P1-1F-fp-corridor.png
+ A shots/P1-1F-fp-exterior.png
+ A shots/P1-route-3d-overview.png
+ A shots/P1-route-stair-transfer.png
+ A shots/fade-after.png
+ A shots/fade-before.png
+ A shots/fade-middle.png
+ A shots/stair-1F.png
+ A shots/stair-2F.png
+ A shots/stair-3F.png
+ A shots/third-A1-west-stair.png
+ A shots/third-A2-corridor-after.png
+ A shots/third-A2-corridor-kit-reference.png
+ A shots/third-A2-exterior-after.png
+ A shots/third-A2-exterior-kit-reference.png
+ A shots/third-B-switch-after-fp-down-production.png
+ A shots/third-B-switch-after-fp-up-production.png
+ A shots/third-B-switch-after-sim-up-production.png
+ A shots/third-B-switch-before-fp-down-production.png
+ A shots/third-B-switch-before-fp-up-production.png
+ A shots/third-B-switch-before-sim-up-production.png
+ A shots/third-fp-candidate-0.png
+ A shots/third-fp-candidate-1.png
+ A shots/third-fp-candidate-2.png
+ A shots/third-fp-candidate-3.png
+ A shots/third-fp-candidate-4.png
+ A shots/third-wall-corridor-after.png
+ A shots/third-wall-corridor-before.png
+ A shots/third-wall-exterior-after.png
+ A shots/third-wall-exterior-before.png
+ M src/lib/components/viewer3d/ThreeViewer.svelte
+ M src/lib/components/viewer3d/nav/dressing.ts
+A  src/lib/components/viewer3d/nav/kitDressing.ts
+ M src/lib/components/viewer3d/nav/layout.ts
+ A src/lib/components/viewer3d/nav/openingAudit.ts
+ A src/lib/components/viewer3d/nav/openingRules.ts
+ M src/lib/components/viewer3d/nav/pipeline.ts
+ M src/lib/components/viewer3d/nav/route.ts
+ M src/lib/components/viewer3d/nav/signs.ts
+ M src/lib/models/types.ts
+ M src/lib/utils/floors.ts
+ M src/lib/utils/hospitalMaterials.ts
+ M src/lib/utils/wallJoints.ts
+ M src/routes/nav/+page.svelte
+A  static/nav-kit/MH04_Adjustable_Treatment_Bed.glb
+A  static/nav-kit/MH05_Folding_Privacy_Screen.glb
+A  static/nav-kit/MH06_IV_Stand_and_Fluid_Bag.glb
+A  static/nav-kit/MH07_Vital_Signs_Monitor_Cart.glb
+A  static/nav-kit/MH08_Defibrillator_Crash_Cart.glb
+A  static/nav-kit/MH09_Medicine_Trolley.glb
+A  static/nav-kit/MH10_Examination_Table.glb
+A  static/nav-kit/MH11_Oxygen_Cylinder_Rack.glb
+A  static/nav-kit/MH13_Wheelchair.glb
+A  static/nav-kit/MH14_Emergency_Stretcher_Gurney.glb
+A  static/nav-kit/MH15_Portable_Ultrasound_Cart.glb
+A  static/nav-kit/MH16_Wall_First_Aid_Cabinet.glb
+A  static/nav-kit/MH17_Clinical_Handwash_Sink_Unit.glb
+A  static/nav-kit/MH19_Medical_Supply_Shelf.glb
+A  static/nav-kit/MH20_Triage_Reception_Station.glb
+ A tests/browser/nav-floor-transfer.spec.ts
+ M tests/floors.test.ts
+ M tests/nav-layout.test.ts
+ M tests/nav-route-depth.test.ts
+ A verification/A-generation.json
+ A verification/A-meshes.json
+ A verification/backend-A.log
+ A verification/backend-B.log
+ A verification/backend-baseline-unit.log
+ A verification/backend-final-P1.log
+ A verification/backend-regression-B.log
+ A verification/backend-test-comparison.json
+ A verification/backend-unit-B.log
+ A verification/baseline/P1.json
+ A verification/baseline/P2.json
+ A verification/baseline/P3.json
+ A verification/browser-B.log
+ A verification/browser-cancel-final.log
+ A verification/browser-third-B1-retry.log
+ A verification/browser-third-B1.log
+ A verification/build-A.log
+ A verification/build-B.log
+ A verification/build-final.log
+ A verification/build-third-A2.log
+ A verification/build-third-E1.log
+ A verification/build-third-final.log
+ A verification/check-third.log
+ A verification/check.log
+ A verification/current/P1.json
+ A verification/current/P2.json
+ A verification/current/P3.json
+ A verification/fade-shots.json
+ A verification/footprints-final.json
+ A verification/fp-down-production.json
+ A verification/fp-up-production.json
+ A verification/generation-final.json
+ A verification/guard-A.log
+ A verification/guard-B.log
+ A verification/guard-baseline.log
+ A verification/guard-final.log
+ A verification/guard-pre-B.log
+ A verification/guard-report.log
+ A verification/guard-third-A1.log
+ A verification/guard-third-A2.log
+ A verification/guard-third-B1.log
+ A verification/guard-third-B2.log
+ A verification/guard-third-E1.log
+ A verification/guard-third-FPS.log
+ A verification/guard-third-baseline.log
+ A verification/guard-third-final.log
+ A verification/guard-third-report.log
+ A verification/guard-third-wall-final.log
+ A verification/guard-third-wall.log
+ A verification/kit-ThreeViewer.svelte
+ A verification/kit-preservation.json
+ A verification/material-pixels.json
+ A verification/meshes-final.json
+ A verification/screenshot-project.json
+ A verification/shots-final.json
+ A verification/sim-up-production.json
+ A verification/stair-shots.json
+ A verification/tests-A.log
+ A verification/tests-B.log
+ A verification/tests-final.log
+ A verification/tests-third-B2.log
+ A verification/tests-third-final.log
+ A verification/tests-third.log
+ A verification/third-A1.json
+ A verification/third-A2-pixels.json
+ A verification/third-A2.json
+ A verification/third-B1-treads.json
+ A verification/third-B2.json
+ A verification/third-B3-geometry-profile.json
+ A verification/third-B3-low.json
+ A verification/third-B3-transfer-times.json
+ A verification/third-E1.json
+ A verification/third-fp-down-production.json
+ A verification/third-fp-poses.json
+ A verification/third-fp-up-production.json
+ A verification/third-kit-preservation.json
+ A verification/third-sim-up-production.json
+ A verification/third-wall-after.json
+ A verification/third-wall-before.json
+ A verification/third-wall-pixels.json
+ A verification/third-wall-source.json
+ A verification/west-contour-source.json
+ A verification/west-source.png
+?? round4.md
+?? round6-b3.md
+?? shots/fifth-fp-corridor-after.png
+?? shots/fifth-fp-corridor-before.png
+?? shots/fourth-P1-overview-after.png
+?? shots/fourth-P1-overview-before.png
+?? shots/fourth-P1-stair-after.png
+?? shots/fourth-P1-stair-before.png
+?? shots/fourth-P2-stair-after.png
+?? shots/fourth-P2-stair-before.png
+?? shots/fourth-P3-stair-after.png
+?? shots/fourth-P3-stair-before.png
+?? verification/build-fifth.log
+?? verification/build-fourth.log
+?? verification/check-fifth.log
+?? verification/check-fourth.log
+?? verification/fifth-after.json
+?? verification/fifth-before.json
+?? verification/fifth-check-comparison.json
+?? verification/fifth-kit-preservation.json
+?? verification/fifth-layout.json
+?? verification/fifth-original-ceiling.json
+?? verification/fifth-shots-validation.json
+?? verification/fifth-view-modes.json
+?? verification/fourth-before.json
+?? verification/fourth-kit-preservation.json
+?? verification/fourth-screenshot-nav.json
+?? verification/fourth-screenshot-projects.json
+?? verification/fourth-shots-after.json
+?? verification/fourth-shots-before.json
+?? verification/fourth-shots-other-before.json
+?? verification/fourth-shots-validation.json
+?? verification/fourth-sign-validation.json
+?? verification/fourth-source.patch
+?? verification/guard-fifth.log
+?? verification/guard-fourth.log
+?? verification/guard-third-B3.log
+?? verification/tests-fifth.log
+?? verification/tests-fourth.log
+?? verification/third-source-diff-check.log

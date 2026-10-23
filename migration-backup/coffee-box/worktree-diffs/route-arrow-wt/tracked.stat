@@ -1,0 +1,4 @@
+ src/lib/components/viewer3d/ThreeViewer.svelte |   8 +++----
+ src/lib/components/viewer3d/nav/route.ts       |  45 ++++++++++++++++++++++++----------
+ src/lib/components/viewer3d/nav/signs.ts       | 192 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++----------------------------
+ 3 files changed, 191 insertions(+), 54 deletions(-)

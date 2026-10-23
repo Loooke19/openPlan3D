@@ -1,0 +1,25 @@
+diff --git a/preview/files.css b/preview/files.css
+index 8a6271d..e4c4e41 100644
+--- a/preview/files.css
++++ b/preview/files.css
+@@ -16,6 +16,8 @@
+   border-radius: 6px; background: #1a7af8; color: #fff; font-weight: 600; text-decoration: none; white-space: nowrap;
+ }
+ .nav-entry:hover, .nav-entry:focus-visible { background: #0f63d1; }
++.edit-entry { min-height: 44px; padding: 0 16px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #1a7af8; border-radius: 6px; color: #1a7af8; font-weight: 600; text-decoration: none; white-space: nowrap; }
++.edit-entry:hover, .edit-entry:focus-visible { background: #eef5ff; }
+ .meta { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+ .name { color: #333; font-weight: 600; text-decoration: none; }
+ .name:hover { color: #1a7af8; }
+diff --git a/preview/files.js b/preview/files.js
+index 359ac04..6544c5f 100644
+--- a/preview/files.js
++++ b/preview/files.js
+@@ -80,6 +80,7 @@ function card(file, duplicate = false) {
+       <p class="floors"></p>
+       <div class="row">
+         <a class="nav-entry" href="${navUrl}">导航浏览</a>
++        <a class="edit-entry" href="${file.editorUrl}">编辑项目</a>
+         <button type="button" data-act="import">导入楼层</button>
+         <button type="button" data-act="floor">新建楼层</button>
+       </div>

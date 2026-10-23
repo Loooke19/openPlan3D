@@ -1,0 +1,134 @@
+diff --git a/src/lib/components/viewer3d/nav/dressing.ts b/src/lib/components/viewer3d/nav/dressing.ts
+index 7e885a1..ab9846b 100644
+--- a/src/lib/components/viewer3d/nav/dressing.ts
++++ b/src/lib/components/viewer3d/nav/dressing.ts
+@@ -4,6 +4,7 @@
+  * first-person ceiling light panels with soft light pools, and the per-view light rig.
+  */
+ import * as THREE from 'three';
++import { NAV_WALL_PAINT } from '$lib/utils/hospitalMaterials';
+ import { lightSpots, corridorLightSpots, enclosedRooms } from './layout';
+ import type { NavLook } from './pipeline';
+ 
+@@ -86,7 +87,7 @@ export class NavDressing {
+    * face (+x, -x, +y, -y, +z, -z); the +y slot is the top, so swap only that slot.
+    */
+   private buildCaps(walls: THREE.Mesh[]) {
+-    const cap = this.track(new THREE.MeshStandardMaterial({ color: '#34403c', roughness: 0.8 }));
++    const cap = this.track(new THREE.MeshStandardMaterial({ color: NAV_WALL_PAINT, roughness: 0.86 }));
+     for (const w of walls) {
+       if (w.geometry.type !== 'BoxGeometry') continue;
+       const mats = Array.isArray(w.material) ? w.material.slice() : [0, 1, 2, 3, 4, 5].map(() => w.material as THREE.Material);
+@@ -119,7 +120,7 @@ export class NavDressing {
+     const g = this.track(new THREE.BufferGeometry());
+     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+     g.computeVertexNormals();
+-    const m = this.track(new THREE.MeshStandardMaterial({ color: '#34403c', roughness: 0.8, side: THREE.DoubleSide }));
++    const m = this.track(new THREE.MeshStandardMaterial({ color: NAV_WALL_PAINT, roughness: 0.86, side: THREE.DoubleSide }));
+     const mesh = new THREE.Mesh(g, m);
+     mesh.userData.navDressing = true;
+     mesh.userData.navCutCap = true;
+diff --git a/src/lib/utils/hospitalMaterials.ts b/src/lib/utils/hospitalMaterials.ts
+index 3a5e3dd..73b7d60 100644
+--- a/src/lib/utils/hospitalMaterials.ts
++++ b/src/lib/utils/hospitalMaterials.ts
+@@ -8,6 +8,8 @@ import * as THREE from 'three';
+ export const HOSPITAL_WALL_ID = 'hospital-wall';
+ export const HOSPITAL_FLOOR_ID = 'hospital-floor';
+ export const HOSPITAL_WALL_COLOR = '#e2e6e3';
++/** Nav look wall paint: worn warm grey-white matte (old hospital corridor), not snow white. */
++export const NAV_WALL_PAINT = '#e9e6df';
+ export const HOSPITAL_FLOOR_COLOR = '#fbfcfa';
+ 
+ /** Nav door leaf: cool blue-grey HPL / bakelite (matte), no wood grain. */
+@@ -97,8 +99,8 @@ export function createHospitalSurfaceMaterial(
+ ): THREE.MeshStandardMaterial {
+   const usePbr = !!pbr;
+   const usePbrLook = usePbr;
+-  // Nav look (PBR on): imported walls carry the old cool-grey default; read it as 鸽白 warm white.
+-  if (usePbr && (!color || color.toLowerCase() === HOSPITAL_WALL_COLOR) && kind === 'wall') color = '#f1eee7';
++  // Nav look (PBR on): imported walls carry the old cool-grey default; read it as worn warm grey-white paint.
++  if (usePbr && (!color || color.toLowerCase() === HOSPITAL_WALL_COLOR) && kind === 'wall') color = NAV_WALL_PAINT;
+   if (usePbr && (!color || color.toLowerCase() === HOSPITAL_FLOOR_COLOR) && kind === 'floor') color = '#e3dfd6';
+   const material = new THREE.MeshStandardMaterial({
+     color: new THREE.Color(color || (kind === 'wall' ? HOSPITAL_WALL_COLOR : HOSPITAL_FLOOR_COLOR)),
+@@ -113,9 +115,14 @@ export function createHospitalSurfaceMaterial(
+     hospitalSkirt: { value: SKIRT_CM },
+     hospitalBaseboard: { value: BASEBOARD_CM },
+   };
+-  material.customProgramCacheKey = () => `openplan-hospital-${kind}-v2${usePbr ? '-pbr' : ''}`;
++  material.customProgramCacheKey = () => `openplan-hospital-${kind}-v4${usePbr ? '-pbr' : ''}`;
+   if (usePbr && kind === 'floor') { material.roughness = 0.6; material.envMapIntensity = 0.7; } // low-gloss PVC
+-  if (usePbr && kind === 'wall') material.roughness = 0.92;
++  if (usePbr && kind === 'wall') {
++    material.roughness = 0.86;
++    // Matte latex reads bright on the shaded side too: a little self-light so back faces never go grey.
++    material.emissive = material.color.clone().multiplyScalar(0.16);
++    material.envMapIntensity = 1.25;
++  }
+   material.onBeforeCompile = (shader) => {
+     shader.vertexShader = 'varying vec3 hospitalPosition;\n' + shader.vertexShader;
+     shader.vertexShader = shader.vertexShader.replace(
+@@ -132,6 +139,10 @@ export function createHospitalSurfaceMaterial(
+     Object.assign(shader.uniforms ||= {}, uniforms);
+     shader.fragmentShader =
+       'varying vec3 hospitalPosition;\nuniform float hospitalFloorY;\nuniform float hospitalModern;\nuniform float hospitalGrain;\nuniform float hospitalTileSize;\nuniform float hospitalSkirt;\nuniform float hospitalBaseboard;\n' +
++      'float hospitalHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }\n' +
++      'float hospitalNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);\n' +
++      '  return mix(mix(mix(hospitalHash(i), hospitalHash(i + vec3(1,0,0)), f.x), mix(hospitalHash(i + vec3(0,1,0)), hospitalHash(i + vec3(1,1,0)), f.x), f.y),\n' +
++      '             mix(mix(hospitalHash(i + vec3(0,0,1)), hospitalHash(i + vec3(1,0,1)), f.x), mix(hospitalHash(i + vec3(0,1,1)), hospitalHash(i + vec3(1,1,1)), f.x), f.y), f.z); }\n' +
+       shader.fragmentShader;
+     const surface =
+       kind === 'wall'
+@@ -140,11 +151,12 @@ export function createHospitalSurfaceMaterial(
+         float grain = sin(hospitalPosition.x * 0.42 + hospitalPosition.z * 0.37) * sin(hospitalPosition.y * 0.51);
+         diffuseColor.rgb *= 0.97 + grain * 0.025 * hospitalGrain;
+         if (hospitalModern > 0.5) {
+-          // Coved warm-grey skirting, light poplar wood-grain antibacterial panel to 1.2 m,
+-          // a slim bumper-rail band at the joint, 鸽白 matte above.
+-          if (hy < hospitalBaseboard) diffuseColor.rgb *= vec3(0.66, 0.64, 0.61);
+-          else if (hy < hospitalSkirt) diffuseColor.rgb *= vec3(0.93, 0.80, 0.64);
+-          if (hy > hospitalSkirt - 3.0 && hy < hospitalSkirt + 6.0) diffuseColor.rgb *= vec3(0.78, 0.72, 0.64);
++          // Clean, well-kept matte latex paint floor-to-ceiling over a darker grey skirting band;
++          // only a very faint roller-tone variation so it never reads as flat plastic.
++          float mott = hospitalNoise(hospitalPosition * 0.02);
++          diffuseColor.rgb *= 0.992 + mott * 0.016;
++          if (hy < hospitalBaseboard) diffuseColor.rgb = vec3(0.36, 0.36, 0.35);
++          else if (hy < hospitalBaseboard + 0.8) diffuseColor.rgb *= 0.8; // skirting top shadow line
+         } else {
+           if (hy < hospitalBaseboard) diffuseColor.rgb *= vec3(0.39, 0.47, 0.45);
+           else if (hy < hospitalSkirt) diffuseColor.rgb *= vec3(0.80, 0.88, 0.85);
+@@ -174,10 +186,10 @@ export function createHospitalSurfaceMaterial(
+         ? `
+         vec3 pbrN = normalize(cross(dFdx(hospitalPosition), dFdy(hospitalPosition)));
+         vec2 pbrUv = (abs(pbrN.x) > abs(pbrN.z) ? hospitalPosition.zy : hospitalPosition.xy);
+-        bool pbrLow = hospitalPosition.y - hospitalFloorY < hospitalSkirt;
++        bool pbrLow = false; // single paint finish floor-to-ceiling
+         float pbrD = pbrLow ? texture2D(pbrDetailB, pbrUv / 90.0).r : texture2D(pbrDetailA, pbrUv / 140.0).r;
+         float pbrR = pbrLow ? texture2D(pbrRoughB, pbrUv / 90.0).r : texture2D(pbrRoughA, pbrUv / 140.0).r;
+-        diffuseColor.rgb *= 0.8 + pbrD * 0.4;
++        diffuseColor.rgb *= 0.98 + pbrD * 0.04;
+       `
+         : `
+         float pbrD = texture2D(pbrDetailA, hospitalPosition.xz / 160.0).r;
+@@ -190,6 +202,20 @@ export function createHospitalSurfaceMaterial(
+       '#include <color_fragment>',
+       '#include <color_fragment>\n' + surface + pbrCode,
+     );
++    if (usePbr && kind === 'wall') {
++      shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>',
++        '#include <emissivemap_fragment>\n if (hospitalPosition.y - hospitalFloorY < hospitalBaseboard) totalEmissiveRadiance = vec3(0.0);');
++      // Plaster/paint orbit-sander relief: procedural bump from screen-space noise derivatives (no texture fetch).
++      shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
++        {
++          float hb = hospitalNoise(hospitalPosition * 0.9) * 0.6 + hospitalNoise(hospitalPosition * 2.7) * 0.4;
++          vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition);
++          float bx = dFdx(hb), by = dFdy(hb);
++          vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx);
++          float det = dot(dpx, r1);
++          if (abs(det) > 1e-8) normal = normalize(abs(det) * normal - 0.012 * sign(det) * (bx * r1 + by * r2));
++        }`);
++    }
+     if (roughCode) shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n' + roughCode);
+   };
+   return own ? own(material) : material;

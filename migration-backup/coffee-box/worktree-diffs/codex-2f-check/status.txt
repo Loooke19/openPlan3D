@@ -1,0 +1,24 @@
+ M package.json
+ M playwright.config.ts
+ M src/lib/components/viewer3d/ThreeViewer.svelte
+ M src/lib/components/viewer3d/nav/dressing.ts
+ M src/lib/components/viewer3d/nav/layout.ts
+ M src/lib/components/viewer3d/nav/pipeline.ts
+ M src/lib/components/viewer3d/nav/route.ts
+ M src/lib/components/viewer3d/nav/signs.ts
+ M src/lib/models/types.ts
+ M src/lib/utils/floors.ts
+ M src/lib/utils/hospitalMaterials.ts
+ M src/lib/utils/wallJoints.ts
+ M src/routes/nav/+page.svelte
+ M tests/floors.test.ts
+ M tests/nav-layout.test.ts
+ M tests/nav-route-depth.test.ts
+?? shots/
+?? src/lib/components/viewer3d/nav/kitDressing.ts
+?? src/lib/components/viewer3d/nav/openingAudit.ts
+?? src/lib/components/viewer3d/nav/openingRules.ts
+?? static/nav-kit/
+?? tests/browser/nav-floor-transfer.spec.ts
+?? tests/nav/kitFloor.test.ts
+?? tests/nav/openingGeometry.test.ts

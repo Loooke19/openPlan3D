@@ -1,0 +1,1 @@
+{"sourceHash":"29b0e3837bde4963c67227fad9951e72bfcd08c5b2e3267571a65ba0e3519ca4","poiCount":64,"roomAndObstacleCount":52,"textTokenCount":116,"walkableComponents":[30929,251,23,12,355,346,129,1137],"graphNodes":710,"graphEdges":1156,"reachableFromMainEntrance":64,"warnings":[],"unverified":["真实比例未标定，距离只输出图纸单位","门/服务到达点由模型按Demo要求设置","不推断营业时间、科室权限或无障碍条件","模板适配器不等于任意图纸全自动识别"]}

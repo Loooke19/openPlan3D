@@ -1,0 +1,31 @@
+ src/lib/components/viewer3d/ThreeViewer.svelte      | 228 ++++++++++++++++++++++++++++++++++++++++----------
+ src/lib/components/viewer3d/nav/dressing.ts         |  18 ++--
+ src/lib/components/viewer3d/nav/kitDressing.ts      | 634 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/lib/components/viewer3d/nav/layout.ts           |  35 +++++++-
+ src/lib/components/viewer3d/nav/openingAudit.ts     |  88 ++++++++++++++++++++
+ src/lib/components/viewer3d/nav/openingRules.ts     | 113 +++++++++++++++++++++++++
+ src/lib/components/viewer3d/nav/pipeline.ts         |  65 +++++++++------
+ src/lib/components/viewer3d/nav/route.ts            |  45 +++++++---
+ src/lib/components/viewer3d/nav/signs.ts            | 289 +++++++++++++++++++++++++++++++++++++++++++++++++++++++---------
+ src/lib/models/types.ts                             |   1 +
+ src/lib/utils/floors.ts                             |   9 ++
+ src/lib/utils/hospitalMaterials.ts                  |  51 +++++++-----
+ src/lib/utils/wallJoints.ts                         |  15 +++-
+ src/routes/nav/+page.svelte                         |   3 +
+ static/nav-kit/MH04_Adjustable_Treatment_Bed.glb    | Bin 0 -> 159236 bytes
+ static/nav-kit/MH05_Folding_Privacy_Screen.glb      | Bin 0 -> 89524 bytes
+ static/nav-kit/MH06_IV_Stand_and_Fluid_Bag.glb      | Bin 0 -> 158004 bytes
+ static/nav-kit/MH07_Vital_Signs_Monitor_Cart.glb    | Bin 0 -> 195304 bytes
+ static/nav-kit/MH08_Defibrillator_Crash_Cart.glb    | Bin 0 -> 217632 bytes
+ static/nav-kit/MH09_Medicine_Trolley.glb            | Bin 0 -> 213200 bytes
+ static/nav-kit/MH10_Examination_Table.glb           | Bin 0 -> 84200 bytes
+ static/nav-kit/MH11_Oxygen_Cylinder_Rack.glb        | Bin 0 -> 118524 bytes
+ static/nav-kit/MH13_Wheelchair.glb                  | Bin 0 -> 199124 bytes
+ static/nav-kit/MH14_Emergency_Stretcher_Gurney.glb  | Bin 0 -> 174172 bytes
+ static/nav-kit/MH15_Portable_Ultrasound_Cart.glb    | Bin 0 -> 214096 bytes
+ static/nav-kit/MH16_Wall_First_Aid_Cabinet.glb      | Bin 0 -> 151036 bytes
+ static/nav-kit/MH17_Clinical_Handwash_Sink_Unit.glb | Bin 0 -> 80848 bytes
+ static/nav-kit/MH19_Medical_Supply_Shelf.glb        | Bin 0 -> 251328 bytes
+ static/nav-kit/MH20_Triage_Reception_Station.glb    | Bin 0 -> 166268 bytes
+ tests/floors.test.ts                                |  16 +++-
+ 30 files changed, 1456 insertions(+), 154 deletions(-)

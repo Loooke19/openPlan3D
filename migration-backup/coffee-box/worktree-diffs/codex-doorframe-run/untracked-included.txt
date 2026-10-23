@@ -1,0 +1,7 @@
+round4.md
+round6-b3.md
+round6-orig.md
+run2-launch.sh
+run2.log
+task.md
+tests/nav/openingGeometry.test.ts

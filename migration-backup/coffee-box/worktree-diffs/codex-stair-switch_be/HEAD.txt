@@ -1,0 +1,5 @@
+path: /workspace/codex-stair-switch/be
+remote: https://origin.cursor.com/loooke19/gifu-hospital-3d-tour.git
+branch: HEAD
+HEAD: 1ceb2516b9eae991d2944a177437bb0a8019ee58
+HEAD subject: name overrides: re-create person-added POI notes missing from a fresh import

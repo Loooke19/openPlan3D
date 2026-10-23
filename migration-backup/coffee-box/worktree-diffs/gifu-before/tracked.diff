@@ -1,0 +1,22 @@
+diff --git a/preview/scene3d.js b/preview/scene3d.js
+index d723ada..8b03c8e 100644
+--- a/preview/scene3d.js
++++ b/preview/scene3d.js
+@@ -128,6 +128,7 @@ export class HospitalScene {
+     this.fit();
+     this.previousTime = 0;
+     this.renderFrame = this.renderFrame.bind(this);
++    if (typeof window !== 'undefined') window.__hospitalScene = this;
+     this.frameId = requestAnimationFrame(this.renderFrame);
+   }
+ 
+@@ -988,7 +989,9 @@ export class HospitalScene {
+       const s = 1 + 0.12 * Math.sin((time || 0) * 0.006);
+       this.navMarkerPulse.scale.set(s, s, s);
+     }
++    this.renderer.info.autoReset = false; this.renderer.info.reset();
+     this.renderer.render(this.scene, this.activeCamera);
++    this.lastStats = { calls: this.renderer.info.render.calls, tris: this.renderer.info.render.triangles };
+     this.layoutLabels();
+   }
+ 

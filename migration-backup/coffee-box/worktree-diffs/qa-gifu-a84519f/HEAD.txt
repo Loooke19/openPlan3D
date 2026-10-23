@@ -1,0 +1,5 @@
+path: /workspace/qa-gifu-a84519f
+remote: https://origin.cursor.com/loooke19/gifu-hospital-3d-tour.git
+branch: HEAD
+HEAD: a84519f11c9d82786ebb380ac20fe4771f49e6b0
+HEAD subject: Server: cache nav.json per project.json version, gzip responses, warm recent projects in background (first open was 10–25 s)

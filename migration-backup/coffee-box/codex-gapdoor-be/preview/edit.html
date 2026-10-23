@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>编辑地图 · 院内导览</title>
+  <link rel="preload" href="../assets/fonts/noto-sans-sc-demo.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="../assets/vendor/ambientcss/ambient.css">
+  <link rel="stylesheet" href="./interface.css">
+  <script type="importmap">{"imports":{"three":"../assets/vendor/three/three.module.js","three/addons/":"../assets/vendor/three/addons/"}}</script>
+</head>
+<body class="amb-light-tl editor-page">
+<div id="loading" role="status">
+  <div class="loading-card">
+    <span class="spinner" aria-hidden="true"></span>
+    <p id="loading-message">正在打开编辑页…</p>
+    <div id="loading-actions" class="loading-actions" hidden>
+      <a id="loading-back" href="./">返回导览</a>
+      <a id="loading-generate" class="primary-action" href="./?maker=1">去生成楼层</a>
+    </div>
+  </div>
+</div>
+<header class="masthead">
+  <div class="hospital-brand"><svg class="hospital-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M8 30V15a7 7 0 0 1 14 0v10a7 7 0 0 0 14 0V10" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><circle cx="8" cy="30" r="4" fill="currentColor"/><path d="M30 10h12m-6-6v12" stroke="currentColor" stroke-width="3"/></svg><div><h1>编辑<span>MAP DESK</span></h1><p id="hospital-subtitle">核对科室名称与设施位置</p></div></div>
+  <div class="header-context"><span class="live-dot"></span>点名称改字 · 拖动图标调整位置</div>
+  <div class="header-actions">
+    <div id="institution-switcher" class="institution-host" aria-label="机构切换"></div>
+    <a id="back-preview" class="text-button" href="./">返回导览 <span aria-hidden="true">↗</span></a>
+    <button id="delete-floor" type="button" class="text-button danger-text">删除楼层</button>
+    <span class="demo-tag">EDIT</span>
+  </div>
+</header>
+<main class="editor-main">
+  <aside class="place-panel editor-list" aria-label="科室与设施">
+    <div class="panel-heading"><span class="eyebrow">FLOOR DESK</span><h2 id="editor-floor-title">本层</h2><p>改名称 · 放置设施图标</p></div>
+    <label for="search" class="search-label">查找</label>
+    <div class="search-box ambient amb-groove"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="search" aria-label="搜索科室或设施" placeholder="科室、房间或设施" autocomplete="off"><button id="clear-search" aria-label="清除搜索">×</button></div>
+    <section class="editor-rename" aria-labelledby="rename-heading">
+      <h3 id="rename-heading">当前选中</h3>
+      <p id="selected-meta" class="muted">点击房间或名称开始改名。</p>
+      <label for="place-name">名称</label>
+      <input id="place-name" type="text" maxlength="40" placeholder="房间或设施名称" autocomplete="off" disabled>
+      <div id="room-color-desk" class="room-color-desk" hidden>
+        <label>房间颜色</label>
+        <div id="room-color-presets" class="room-color-presets" role="listbox" aria-label="预设颜色"></div>
+        <div class="room-color-custom">
+          <input id="room-color-picker" type="color" value="#e9e7e4" aria-label="自定义颜色" disabled>
+          <input id="room-color-hex" type="text" maxlength="7" placeholder="#e9e7e4" spellcheck="false" autocomplete="off" disabled>
+          <button id="room-color-reset" type="button" disabled>默认</button>
+        </div>
+      </div>
+      <div class="editor-nav-actions">
+        <button id="set-start" type="button" disabled>设为起点</button>
+        <button id="set-end" type="button" disabled>设为终点</button>
+      </div>
+      <button id="remove-icon" type="button" hidden>移除图标</button>
+    </section>
+    <section class="editor-icons" aria-labelledby="icon-heading">
+      <h3 id="icon-heading">放置设施图标</h3>
+      <p class="muted">选一种，再点地图放置。</p>
+      <div id="icon-palette" class="icon-palette"></div>
+      <button id="cancel-place" type="button" hidden>取消放置</button>
+    </section>
+    <div class="list-heading"><h3>科室</h3></div>
+    <div id="dept-list" class="poi-list" aria-label="科室列表"></div>
+    <div class="list-heading"><h3>设施</h3></div>
+    <div id="facility-list" class="poi-list" aria-label="设施列表"></div>
+  </aside>
+  <section class="map-area" aria-label="编辑用地图">
+    <div class="canvas-wrap"><svg id="map" role="img" aria-label="可编辑平面图"></svg><div id="scene3d" class="hidden"></div></div>
+    <div class="map-heading"><div class="floor-cluster"><div class="floor-label"><span>FLOOR</span><strong id="floor-number">01</strong><span class="floor-description" id="floor-description">编辑本层</span></div></div><div class="mode-switch ambient amb-groove"><button id="toggle-2d" class="is-active ambient amb-surface amb-chamfer amb-elevation-1" aria-pressed="true">平面 2D</button><button id="toggle-3d" aria-pressed="false">立体 3D</button></div></div>
+    <p id="view-hint" class="view-hint editor-hint">滚轮缩放 · 拖动平移 · 拖拽图标</p>
+    <section class="journey-dock ambient amb-surface amb-chamfer" aria-label="试走起终点">
+      <div class="route-fields"><div class="route-stops"><div class="route-stop"><label for="start"><span class="dot start-dot"></span>从</label><select id="start" aria-label="选择起点"></select></div><div class="route-stop"><label for="end"><span class="dot end-dot"></span>到</label><select id="end" aria-label="选择终点"></select></div></div><button id="swap" title="交换起终点" aria-label="交换起终点">⇅</button></div>
+      <div class="journey-summary"><section id="result" class="route-result" aria-live="polite"><strong id="distance"></strong><p id="route-message"></p></section></div>
+    </section>
+  </section>
+</main>
+<p id="status" class="status" role="status"></p>
+<script type="module">
+  const loading=document.getElementById('loading');
+  try{
+    await import('./editor.js');
+  }catch(error){
+    console.error(error);
+    if(loading){
+      loading.hidden=false;
+      const message=document.getElementById('loading-message');
+      if(message)message.textContent=`编辑页无法启动：${error.message}`;
+      else loading.textContent=`编辑页无法启动：${error.message}`;
+      const actions=document.getElementById('loading-actions');
+      if(actions)actions.hidden=false;
+    }
+  }
+</script>
+</body>
+</html>

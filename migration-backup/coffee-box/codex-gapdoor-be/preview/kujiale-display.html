@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>成果展示</title>
+  <style>
+    @import url("https://fontsapi.zeoseven.com/389/main/result.css");
+    html, body { margin: 0; height: 100%; background: #f6f8fa; color: #333; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "IBM Plex Sans SC", sans-serif; }
+    #scene { position: absolute; inset: 0; }
+    #scene img { width: 100%; height: 100%; object-fit: contain; background: #eef0f2; }
+    .bar { position: absolute; z-index: 2; left: 16px; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 12px; }
+    .edit { color: #333; text-decoration: none; background: #fff; border: 1px solid #d9d9d9; height: 32px; padding: 0 12px; display: inline-flex; align-items: center; }
+    #legend-toggle { height: 32px; padding: 0 12px; border: 1px solid #d9d9d9; background: #fff; cursor: pointer; }
+    #legend { display: flex; flex-wrap: wrap; gap: 12px 16px; background: #fff; border: 1px solid #e6e6e6; padding: 8px 12px; }
+    #legend[hidden] { display: none; }
+    #legend span { display: inline-flex; align-items: center; gap: 6px; }
+    #legend i { width: 18px; height: 18px; border-radius: 2px; color: #fff; font-style: normal; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+  </style>
+  <script type="importmap">{"imports":{"three":"../assets/vendor/three/three.module.js","three/addons/":"../assets/vendor/three/addons/"}}</script>
+</head>
+<body>
+  <div id="scene"></div>
+  <div class="bar">
+    <a id="edit" class="edit" href="/">编辑</a>
+    <button type="button" id="legend-toggle" aria-pressed="true">图例</button>
+    <div id="legend" aria-label="设施图例">
+      <span><i style="background:#ec9d42">→</i>出入口</span>
+      <span><i style="background:#5299c8">WC</i>卫生间</span>
+      <span><i style="background:#67adbb">↕</i>电梯</span>
+      <span><i style="background:#d86d4f">i</i>便民服务</span>
+      <span><i style="background:#d58479">↗</i>楼梯</span>
+      <span><i style="background:#a996bf">↗</i>扶梯</span>
+    </div>
+  </div>
+  <script type="module">
+    const params = new URLSearchParams(location.search);
+    const id = params.get("id");
+    const scene = document.querySelector("#scene");
+    const legend = document.querySelector("#legend");
+    const toggle = document.querySelector("#legend-toggle");
+    toggle.addEventListener("click", () => {
+      const on = legend.hidden;
+      legend.hidden = !on;
+      toggle.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    if (!id) throw new Error("id");
+    const doc = await fetch(`/api/display/${id}.json`).then((response) => {
+      if (!response.ok) throw new Error("display");
+      return response.json();
+    });
+    if (doc.editorUrl) document.querySelector("#edit").href = doc.editorUrl;
+    if (doc.underlay) {
+      const image = document.createElement("img");
+      image.alt = "";
+      image.src = `/api/display/${id}/underlay.png`;
+      scene.append(image);
+    } else {
+      const { HospitalScene } = await import("./scene3d.js");
+      new HospitalScene(scene, doc);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+path: /workspace/codex-doorframe-run
+remote: https://github.com/Loooke19/openPlan3D
+branch: HEAD
+HEAD: 5f77cdcacae290e47ce439041371acadc0375325
+HEAD subject: revert(nav): stop retinting default wall colours
+binary hunks omitted (full binary diff >2MB)
+large: tracked.diff restricted to exclude be/ verification/ work/ shots/ (embedded copies/artifacts); see tracked.stat for the full file list

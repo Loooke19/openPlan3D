@@ -1,0 +1,32 @@
+{
+  "id": "gifu-1f",
+  "expectedSourceSha256": "29b0e3837bde4963c67227fad9951e72bfcd08c5b2e3267571a65ba0e3519ca4",
+  "name": "岐阜大学医院 · 一楼",
+  "sourceUrl": "https://www.hosp.gifu-u.ac.jp/chn/map.html",
+  "pdfUrl": "https://www.hosp.gifu-u.ac.jp/img/chn/chn_hospital_map.pdf",
+  "page": 1,
+  "pdfSize": [800, 1210],
+  "imageSize": [2000, 3025],
+  "drawingBounds": [78, 42, 774, 814],
+  "boundaryCurveIndex": 37,
+  "architectureCurveLimit": 62,
+  "architectureRectLimit": 45,
+  "roomColors": [[0.863,0.863,0.863],[0.82,0.898,0.796],[0.988,0.874,0.718],[0.988,0.886,0.729],[0.945,0.898,0.831],[0.0,0.549,0.463]],
+  "exclusions": [
+    {"id":"courtyard-west","kind":"courtyard","name":"西侧庭院","rect":[274,232,332,384]},
+    {"id":"courtyard-east","kind":"courtyard","name":"东侧庭院","rect":[554,486,634,532]},
+    {"id":"elevator-center","kind":"elevator","name":"一二楼电梯井","rect":[426,490,446,528]},
+    {"id":"elevator-ward","kind":"elevator","name":"病房电梯和楼梯","rect":[554,566,598,602]},
+    {"id":"escalator-center","kind":"escalator","name":"扶梯","rect":[306,486,370,526]},
+    {"id":"stairs-east","kind":"stairs","name":"东侧楼梯","rect":[518,400,528,446]},
+    {"id":"stairs-southwest","kind":"stairs","name":"西南楼梯","rect":[124,580,158,600]},
+    {"id":"stairs-northwest","kind":"stairs","name":"西北楼梯","rect":[148,142,178,156]},
+    {"id":"stairs-northeast","kind":"stairs","name":"东北楼梯","rect":[742,92,762,106]},
+    {"id":"stairs-east-ward","kind":"stairs","name":"病房侧楼梯","rect":[646,480,666,510]}
+  ],
+  "walkableOverrides": [],
+  "cellSizePdf": 2,
+  "clearancePdf": 2,
+  "calibration": null,
+  "notes": ["建筑内部白色区域可走；主入口深蓝色区域按用户要求可走。", "图例、文字和图标仅作标注，不按其像素颜色生成障碍。", "庭院、电梯井、扶梯和楼梯不是本层直穿走廊。", "图中底边灰色通道暂不通行，南入口终点放在灰色带上方白色走廊。", "演示门只生成朝走廊的到达点，不开放房间内部通行。"]
+}

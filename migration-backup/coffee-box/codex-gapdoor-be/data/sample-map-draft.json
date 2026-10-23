@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "draft-1.0.0",
+  "id": "gifu-1f-draft",
+  "revision": 1,
+  "sourceFile": {
+    "sha256": "29b0e3837bde4963c67227fad9951e72bfcd08c5b2e3267571a65ba0e3519ca4",
+    "fileName": "chn_hospital_map.pdf",
+    "byteLength": 0
+  },
+  "page": {
+    "index": 1,
+    "originalSize": [
+      800,
+      1210
+    ],
+    "rotation": 0,
+    "crop": {
+      "x": 78,
+      "y": 42,
+      "width": 696,
+      "height": 772
+    },
+    "pixelSize": [
+      696,
+      772
+    ]
+  },
+  "candidates": {
+    "rooms": [],
+    "corridors": [],
+    "labels": [],
+    "doors": []
+  },
+  "edits": {
+    "renamedPois": {},
+    "polygonOverrides": {},
+    "maskStrokes": [],
+    "confirmedIds": []
+  },
+  "pending": [
+    {
+      "id": "legend-excluded",
+      "kind": "crop",
+      "message": "裁剪排除原页图例，归一化仍以完整 800×1210 页为准。"
+    }
+  ],
+  "mapDocument": null
+}

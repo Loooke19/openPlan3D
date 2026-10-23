@@ -1,0 +1,15 @@
+ requirements.txt                  |    1 +
+ scripts/floor_nav.py              | 1199 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++----------------------
+ scripts/kujiale_import_server.py  |   34 ++++-
+ scripts/maker_cad.py              |   91 +++++++++++-
+ scripts/name_overrides.py         |    4 +-
+ scripts/openplan_project.py       |  232 ++++++++++++++++++++++++++++---
+ scripts/pdf_building.py           |   71 +++++++---
+ tests/test_ensuite_real.py        |    1 +
+ tests/test_floor_nav.py           |   38 ++++-
+ tests/test_name_overrides.py      |   13 ++
+ tests/test_openplan_editor_mcp.py |    5 +-
+ tests/test_openplan_project.py    |   26 ++++
+ tests/test_pdf_building.py        |   97 ++++++++++++-
+ tests/test_restricted_zones.py    |    1 +
+ 14 files changed, 1599 insertions(+), 214 deletions(-)

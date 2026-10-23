@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "1.0.0",
+  "id": "cross-floor-fixture",
+  "name": "跨楼层路由自测夹具",
+  "floors": [
+    {
+      "floorId": "1F",
+      "pois": [
+        { "id": "1f-entrance", "name": "1F入口", "category": "entrance", "nodeId": "n1", "position": [0.1, 0.5] },
+        { "id": "1f-elevator", "name": "中央电梯", "category": "elevator", "nodeId": "n2", "position": [0.5, 0.5] },
+        { "id": "1f-stairs", "name": "东侧楼梯", "category": "stairs", "nodeId": "n3", "position": [0.8, 0.5] },
+        { "id": "1f-cafe", "name": "咖啡厅", "category": "service", "nodeId": "n4", "position": [0.3, 0.5] }
+      ],
+      "graph": {
+        "nodes": [
+          { "id": "n1", "position": [0.1, 0.5], "kind": "poi" },
+          { "id": "n2", "position": [0.5, 0.5], "kind": "poi" },
+          { "id": "n3", "position": [0.8, 0.5], "kind": "poi" },
+          { "id": "n4", "position": [0.3, 0.5], "kind": "poi" }
+        ],
+        "edges": [
+          { "id": "e12", "source": "n1", "target": "n2", "lengthMapUnits": 0.4, "polyline": [[0.1, 0.5], [0.5, 0.5]], "enabled": true },
+          { "id": "e24", "source": "n2", "target": "n4", "lengthMapUnits": 0.2, "polyline": [[0.5, 0.5], [0.3, 0.5]], "enabled": true },
+          { "id": "e23", "source": "n2", "target": "n3", "lengthMapUnits": 0.3, "polyline": [[0.5, 0.5], [0.8, 0.5]], "enabled": true }
+        ]
+      }
+    },
+    {
+      "floorId": "2F",
+      "pois": [
+        { "id": "2f-pharmacy", "name": "2F药房", "category": "department", "nodeId": "n1", "position": [0.15, 0.5] },
+        { "id": "2f-elevator", "name": "中央电梯", "category": "elevator", "nodeId": "n2", "position": [0.5, 0.5] },
+        { "id": "2f-stairs", "name": "东侧楼梯", "category": "stairs", "nodeId": "n3", "position": [0.8, 0.5] },
+        { "id": "2f-ward", "name": "病房区", "category": "department", "nodeId": "n4", "position": [0.7, 0.5] }
+      ],
+      "graph": {
+        "nodes": [
+          { "id": "n1", "position": [0.15, 0.5], "kind": "poi" },
+          { "id": "n2", "position": [0.5, 0.5], "kind": "poi" },
+          { "id": "n3", "position": [0.8, 0.5], "kind": "poi" },
+          { "id": "n4", "position": [0.7, 0.5], "kind": "poi" }
+        ],
+        "edges": [
+          { "id": "e12", "source": "n1", "target": "n2", "lengthMapUnits": 0.35, "polyline": [[0.15, 0.5], [0.5, 0.5]], "enabled": true },
+          { "id": "e24", "source": "n2", "target": "n4", "lengthMapUnits": 0.2, "polyline": [[0.5, 0.5], [0.7, 0.5]], "enabled": true },
+          { "id": "e34", "source": "n3", "target": "n4", "lengthMapUnits": 0.1, "polyline": [[0.8, 0.5], [0.7, 0.5]], "enabled": true }
+        ]
+      }
+    }
+  ]
+}

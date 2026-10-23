@@ -1,0 +1,5 @@
+path: /workspace/fe-shot
+remote: https://github.com/Loooke19/openPlan3D
+branch: feature/visual-upgrade-v2
+HEAD: 42cd99dc9314f3c7b12c7a439639e93912d07a66
+HEAD subject: Test that the nav route lies on the floor and is depth-tested

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>岐阜大学医院 · 室内导览</title>
+  <link rel="preload" href="../assets/fonts/noto-sans-sc-demo.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="../assets/vendor/ambientcss/ambient.css">
+  <link rel="stylesheet" href="./interface.css">
+  <script type="importmap">{"imports":{"three":"../assets/vendor/three/three.module.js","three/addons/":"../assets/vendor/three/addons/"}}</script>
+</head>
+<body class="amb-light-tl">
+<div id="loading" role="status"><span class="spinner" aria-hidden="true"></span><span>正在载入地图…</span></div>
+<header class="masthead">
+  <div class="hospital-brand"><svg class="hospital-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M8 30V15a7 7 0 0 1 14 0v10a7 7 0 0 0 14 0V10" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/><circle cx="8" cy="30" r="4" fill="currentColor"/><path d="M30 10h12m-6-6v12" stroke="currentColor" stroke-width="3"/></svg><div><h1>院内<span>WAYFINDING</span></h1><p id="hospital-subtitle">岐阜大学医院 · 一楼导览</p></div></div>
+  <div class="header-context"><span class="live-dot"></span>找到方向，安心前往。</div>
+  <div class="header-actions"><button id="route-tab" class="text-button">路线规划 <span aria-hidden="true">↗</span></button><a id="edit-map" class="text-button" hidden href="./edit.html">编辑地图</a><div id="institution-switcher" class="institution-host" aria-label="机构切换"></div><button id="maker-toggle" class="ambient amb-surface amb-chamfer amb-elevation-1" aria-controls="maker-panel" aria-expanded="false">导入图纸</button><button id="tools-toggle" class="ambient amb-surface amb-chamfer amb-elevation-1" aria-controls="tools-panel" aria-expanded="false">地图工具</button><span class="demo-tag">DEMO</span></div>
+</header>
+<main>
+  <section class="map-area" aria-label="医院室内地图">
+    <div class="canvas-wrap"><svg id="map" class="hidden" role="img" aria-label="一楼电子平面图与导航路线"></svg><div id="scene3d"></div></div>
+    <div class="map-heading"><div class="floor-cluster"><div class="floor-label"><span>FLOOR</span><strong id="floor-number">01</strong><span class="floor-description" id="floor-description">一楼<br>门诊与公共服务</span></div><nav id="floor-switcher" class="floor-switcher" aria-label="选择楼层"></nav></div><div class="mode-switch ambient amb-groove"><button id="toggle-2d" aria-pressed="false">平面 2D</button><button id="toggle-3d" class="is-active ambient amb-surface amb-chamfer amb-elevation-1" aria-pressed="true">立体 3D</button></div></div>
+    <div class="view-controls">
+      <button id="fit" class="ambient amb-surface amb-fillet amb-elevation-1" title="查看完整地图" aria-label="查看完整地图"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 8h8v8H8Z"/></svg></button>
+      <div class="zoom-controls ambient amb-surface amb-fillet amb-elevation-1"><button id="zoom-in" aria-label="放大">＋</button><button id="zoom-out" aria-label="缩小">－</button></div>
+    </div>
+    <div class="compass" aria-label="默认视角上方为北">N<span>↑</span></div>
+    <p id="view-hint" class="view-hint">拖动旋转 · 右键平移 · 滚轮缩放</p>
+    <div class="map-legend"><span><i class="legend-clinic"></i>诊疗区域</span><span><i class="legend-service"></i>公共服务</span><span><i class="legend-route"></i>导航路线</span></div>
+    <section class="journey-dock ambient amb-surface amb-chamfer">
+      <div class="route-fields"><div class="route-stops"><div class="route-stop"><label for="start"><span class="dot start-dot"></span>从</label><select id="start" aria-label="选择起点"></select></div><div id="waypoints" class="waypoints" aria-label="途径点列表"></div><button type="button" id="add-waypoint" class="add-waypoint">＋ 途径点</button><div class="route-stop"><label for="end"><span class="dot end-dot"></span>到</label><select id="end" aria-label="选择终点"></select></div></div><button id="swap" title="交换起终点" aria-label="交换起终点">⇅</button></div>
+      <div class="journey-summary"><section id="result" class="route-result" aria-live="polite"><strong id="distance"></strong><p id="route-message"></p></section><p id="details" class="details"></p><div id="walk-playback" hidden><label for="walk-speed">速度</label><select id="walk-speed" aria-label="行走速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="3">3×</option></select><label for="walk-seek">进度</label><input id="walk-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="行走进度"></div></div>
+      <div class="walk-controls"><button id="simulate" class="primary ambient amb-surface amb-chamfer amb-elevation-1" disabled>模拟导航 <span aria-hidden="true">↗</span></button><button id="walk-fp" class="ambient amb-surface amb-chamfer" hidden disabled>第一人称</button><button id="pause-walk" class="ambient amb-surface amb-chamfer" hidden>暂停</button><button id="stop-walk" hidden>结束</button><span id="walk-progress" aria-live="off"></span></div>
+    </section>
+  </section>
+  <aside class="place-panel" aria-label="地点与路线">
+    <div class="panel-heading"><span class="eyebrow">YOUR NEXT STOP</span><h2>这次，<br>要去哪里？</h2><p>找科室、取药，或先喝杯咖啡。</p></div>
+    <p id="summary" class="summary"></p>
+    <label for="search" class="search-label">查找目的地</label><div class="search-box ambient amb-groove"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="search" aria-label="搜索科室或设施" placeholder="科室、房间或设施" autocomplete="off"><button id="clear-search" aria-label="清除搜索">×</button></div>
+    <nav class="facility-bar" aria-label="设施分类">
+      <button data-category="entrance"><span aria-hidden="true">→</span>出入口</button><button data-category="restroom"><span class="icon-wc" aria-hidden="true">WC</span>卫生间</button><button data-category="elevator"><span aria-hidden="true">↕</span>电梯</button><button data-category="service"><span aria-hidden="true">i</span>便民服务</button><button data-category="stairs"><span aria-hidden="true">↗</span>楼梯</button><button data-category="escalator"><span aria-hidden="true">↗</span>扶梯</button>
+    </nav>
+    <section class="preview-selection" aria-labelledby="preview-selection-heading">
+      <h3 id="preview-selection-heading">当前选中</h3>
+      <p id="selected-place-meta" class="muted">点地图或列表选择地点。</p>
+      <div class="editor-nav-actions">
+        <button id="set-start" type="button" disabled>设为起点</button>
+        <button id="set-end" type="button" disabled>设为终点</button>
+      </div>
+    </section>
+    <div class="list-heading"><h3 id="active-category">科室与设施</h3><button data-category="all" aria-pressed="true" class="is-active">全部地点</button></div>
+    <div id="poi-list" class="poi-list" aria-label="地点列表"></div>
+    <p class="demo-note"><span class="small-cross" aria-hidden="true">＋</span>每一段路，都更清楚一点。</p>
+  </aside>
+  <aside id="tools-panel" class="tools-panel" aria-label="地图工具" hidden>
+    <div class="tools-heading"><h2>地图工具</h2><button id="tools-close" class="panel-close" aria-label="关闭地图工具">×</button></div><p class="muted">演示检查用 · 图层编辑会切到 2D</p>
+    <section><h3>3D 外观</h3><p class="muted">实时预览 · 自动保存在本机</p><div id="appearance-controls"></div><button id="appearance-reset">恢复默认外观</button></section>
+    <section><h3>查看图层</h3>
+      <label class="check-row"><input id="show-mask" type="checkbox">可行走区域</label>
+      <label class="check-row"><input id="show-pois" type="checkbox" checked>科室与设施标注</label>
+      <label class="check-row"><input id="show-graph" type="checkbox">走廊路径网络</label>
+      <label class="check-row"><input id="edit-closures" type="checkbox">点击路径关闭 / 恢复通道</label><button id="reset-closures">恢复所有通道</button>
+    </section>
+    <section><h3>距离标定</h3><p class="muted">在 2D 图上点两个已知距离的点，填写米数。</p><button id="pick-scale">在图上选两点</button><label for="meters">实际距离（米）</label><input id="meters" type="number" min="0.01" step="0.1" placeholder="例如 10"><div class="tool-row"><button id="apply-scale">保存标定</button><button id="clear-scale">清除标定</button></div><p id="scale-status" class="muted"></p></section>
+    <section><h3>地图数据</h3><div class="tool-row"><button id="export">导出 JSON</button><button id="import">导入 JSON</button></div><input id="file" type="file" accept=".json,application/json" hidden><p class="muted">支持演示跨楼层（1F↔2F）与圆标沿路线模拟；实时定位仍待接入。</p><a href="../data/validation-report.json" target="_blank" rel="noreferrer">数据检查报告</a> · <a href="https://www.hosp.gifu-u.ac.jp/chn/map.html" target="_blank" rel="noreferrer">原始图纸</a></section>
+  </aside>
+  <aside id="maker-panel" class="tools-panel maker-panel" aria-label="导入图纸" hidden>
+    <div class="tools-heading"><h2 id="maker-heading">导入图纸</h2><button id="maker-close" class="panel-close" aria-label="关闭导入图纸">×</button></div>
+    <section class="maker-institution" aria-label="当前机构">
+      <h3>机构</h3>
+      <p class="muted">切换机构后，地图与工程互相隔离。</p>
+      <p id="maker-institution-name" class="maker-institution-name">未选择机构</p>
+    </section>
+    <p id="maker-intro" class="muted">先选择图纸类型，再上传 PDF。平面地图与 CAD 都可框选有效范围；CAD 不框则整页，标尺用于标定、不画进地图。</p>
+    <fieldset class="maker-source-kind" id="maker-source-kind">
+      <legend>图纸类型</legend>
+      <div class="maker-source-kind-row">
+        <label><input type="radio" name="maker-source-kind" value="floorplan">平面地图</label>
+        <label><input type="radio" name="maker-source-kind" value="cad">CAD 图纸</label>
+      </div>
+    </fieldset>
+    <p id="maker-source-hint" class="muted">请先选择图纸类型，再上传 PDF。不要让系统猜测。</p>
+    <p id="maker-existing-hint" class="muted" hidden>选页、填写楼层、框选地图，再生成 3D。</p>
+    <p id="maker-add-floor-hint" class="muted" hidden>选择新楼层的 PDF。</p>
+    <p id="maker-offline" class="maker-offline" hidden>需要制作服务：<code>python3 scripts/maker_server.py</code></p>
+    <label class="maker-upload-label" id="maker-upload-label">选择 PDF<input id="maker-upload" type="file" accept="application/pdf,.pdf"></label>
+    <div id="maker-workspace" hidden>
+      <p id="maker-file-name" class="maker-file-name"></p>
+      <div id="maker-thumbs" class="maker-thumbs" role="list"></div>
+      <p id="maker-page-label" class="muted"></p>
+      <div class="maker-stage-toolbar">
+        <button id="maker-crop-fullscreen-open" type="button">全屏框选</button>
+        <span class="muted">点击裁剪框或此按钮，可放大精细框选</span>
+      </div>
+      <div id="maker-stage" class="maker-stage">
+        <div class="maker-page-wrap">
+          <canvas id="maker-page" aria-label="在页面上拖拽框选地图范围"></canvas>
+          <div id="maker-crop" class="maker-crop" title="点击进入全屏框选" role="button" tabindex="0"></div>
+        </div>
+      </div>
+      <section class="maker-floor-fields" aria-labelledby="maker-floor-heading">
+        <h3 id="maker-floor-heading">这一页是哪一层？</h3>
+        <p class="muted">每页单独填写；编号显示在地图左上角。</p>
+        <label for="maker-floor-id">楼层编号</label>
+        <input id="maker-floor-id" type="text" maxlength="12" placeholder="例如 1F、B1" autocomplete="off">
+        <label for="maker-floor-name">楼层名称</label>
+        <input id="maker-floor-name" type="text" maxlength="40" placeholder="例如 一楼" autocomplete="off">
+        <label for="maker-floor-desc">功能说明</label>
+        <input id="maker-floor-desc" type="text" maxlength="80" placeholder="例如 门诊与公共服务" autocomplete="off">
+      </section>
+      <label for="maker-rotation">顺时针旋转</label>
+      <select id="maker-rotation">
+        <option value="0">0°</option>
+        <option value="90">90°</option>
+        <option value="180">180°</option>
+        <option value="270">270°</option>
+      </select>
+      <div class="tool-row"><button id="maker-full-page" type="button">整页</button><button id="maker-save" type="button">保存</button></div>
+      <button id="maker-build" type="button" class="maker-build">生成 3D</button>
+      <a id="maker-open-edit" class="maker-open-edit" hidden href="./edit.html">打开编辑页 <span aria-hidden="true">↗</span></a>
+      <p class="muted">生成结果需核对；删除楼层请到编辑页。</p>
+      <button id="maker-forget" type="button">清除本机记录</button>
+    </div>
+    <p id="maker-status" class="muted maker-status" role="status"></p>
+  </aside>
+  <div id="maker-crop-overlay" class="maker-crop-overlay" hidden>
+    <div class="maker-crop-overlay-bar">
+      <div class="maker-crop-overlay-title">
+        <strong>全屏框选</strong>
+        <span class="muted">拖拽框选 · 滚轮或按钮缩放</span>
+      </div>
+      <div class="maker-crop-zoom" role="group" aria-label="预览缩放">
+        <button id="maker-crop-zoom-out" type="button" aria-label="缩小">−</button>
+        <span id="maker-crop-zoom-label">100%</span>
+        <button id="maker-crop-zoom-in" type="button" aria-label="放大">+</button>
+        <button id="maker-crop-zoom-reset" type="button">适应</button>
+      </div>
+      <button id="maker-crop-fullscreen-close" type="button" class="maker-crop-overlay-close">关闭</button>
+    </div>
+    <div id="maker-crop-viewport" class="maker-crop-viewport">
+      <div class="maker-page-wrap maker-page-wrap--fs">
+        <canvas id="maker-page-fs" aria-label="全屏框选：拖拽选择地图范围，滚轮缩放"></canvas>
+        <div id="maker-crop-fs" class="maker-crop maker-crop--fs"></div>
+      </div>
+    </div>
+  </div>
+  <p id="status" class="status" role="status"></p>
+</main>
+<footer class="page-footer"><span>GIFU UNIVERSITY HOSPITAL <i></i> 室内导览演示</span><span>演示门位 · 非实时定位 · 以现场标识为准</span></footer>
+<script type="module" src="./viewer.js"></script>
+<script type="module" src="./maker.js"></script>
+</body></html>

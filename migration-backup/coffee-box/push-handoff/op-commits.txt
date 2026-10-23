@@ -1,0 +1,335 @@
+f0a347b Keep editor tied to its own import API and stop false save conflicts
+
+ src/lib/utils/importOrigin.ts     | 37 +++++++++++++++++++++++++++++++------
+ src/lib/utils/verticalLinksApi.ts |  2 ++
+ src/routes/editor/+page.svelte    | 24 +++++++++++++++++++-----
+ src/routes/nav/+page.svelte       |  5 ++++-
+ 4 files changed, 56 insertions(+), 12 deletions(-)
+3d15267 Write editor saves back to the import server project file
+
+ src/lib/components/toolbar/TopBar.svelte |  37 ++++++-
+ src/lib/services/serverSync.ts           | 159 +++++++++++++++++++++++++++++++
+ src/lib/stores/saveStatus.ts             |   3 +
+ src/routes/editor/+page.svelte           |  53 ++++++++---
+ tests/serverSync.test.ts                 |  24 +++++
+ 5 files changed, 261 insertions(+), 15 deletions(-)
+66b4b71 Add nav test hooks for same-camera screenshots and frame timing
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 29 ++++++++++++++++++++++++++
+ src/routes/nav/+page.svelte                    |  7 +++++++
+ 2 files changed, 36 insertions(+)
+34e166a Nav preview render path: HDR pipeline, route ribbon, dressing, floor stack
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 353 ++++++++++++++++++++++++-
+ src/lib/components/viewer3d/nav/dressing.ts    | 280 ++++++++++++++++++++
+ src/lib/components/viewer3d/nav/pipeline.ts    | 160 +++++++++++
+ src/lib/components/viewer3d/nav/route.ts       | 211 +++++++++++++++
+ src/routes/nav/+page.svelte                    |  16 ++
+ 5 files changed, 1013 insertions(+), 7 deletions(-)
+cd1426f Exploded stack slides floors back; opaque upper slabs, see-through walls
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 42 ++++++++++++++++----------
+ 1 file changed, 26 insertions(+), 16 deletions(-)
+38c486c Nav first person: wall-mounted hospital signs, CC0 PBR walls/terrazzo, veneer doors
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 187 ++++++++++++-------------
+ src/lib/components/viewer3d/nav/signs.ts       | 126 +++++++++++++++++
+ src/lib/utils/hospitalMaterials.ts             |  54 ++++++-
+ src/routes/nav/+page.svelte                    |   7 -
+ static/nav-textures/LICENSE.md                 |   8 ++
+ static/nav-textures/floor-detail.jpg           | Bin 0 -> 71934 bytes
+ static/nav-textures/floor-normal.jpg           | Bin 0 -> 4963 bytes
+ static/nav-textures/floor-rough.jpg            | Bin 0 -> 31703 bytes
+ static/nav-textures/wainscot-detail.jpg        | Bin 0 -> 3583 bytes
+ static/nav-textures/wainscot-normal.jpg        | Bin 0 -> 4764 bytes
+ static/nav-textures/wainscot-rough.jpg         | Bin 0 -> 30190 bytes
+ static/nav-textures/wall-detail.jpg            | Bin 0 -> 22437 bytes
+ static/nav-textures/wall-normal.jpg            | Bin 0 -> 86876 bytes
+ static/nav-textures/wall-rough.jpg             | Bin 0 -> 15337 bytes
+ 14 files changed, 273 insertions(+), 109 deletions(-)
+42cd99d Test that the nav route lies on the floor and is depth-tested
+
+ tests/nav-route-depth.test.ts | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+ccc61cd Nav QA: time-based walk, stack framing/opaque other-floor route, fitted labels, phone layout + tap-to-walk, checkbox hit area, lower blade signs, MCP probe backoff, editor tool button clear of status bar
+
+ src/lib/components/editor/McpStatusBubble.svelte |  15 ++-
+ src/lib/components/toolbar/TopBar.svelte         |   7 +-
+ src/lib/components/viewer3d/ThreeViewer.svelte   | 131 +++++++++++++++++++---
+ src/lib/components/viewer3d/nav/dressing.ts      |  25 +----
+ src/lib/components/viewer3d/nav/layout.ts        | 136 +++++++++++++++++++++++
+ src/lib/components/viewer3d/nav/signs.ts         |   3 +-
+ src/lib/utils/navCopy.ts                         |  83 ++++++++++++++
+ src/lib/utils/projectLibraryUrl.ts               |  14 ++-
+ src/routes/editor/+page.svelte                   |   2 +-
+ src/routes/nav/+page.svelte                      |  81 +++++++++++---
+ tests/nav-copy.test.ts                           |  53 +++++++++
+ tests/nav-layout.test.ts                         |  89 +++++++++++++++
+ tests/projectLibraryUrl.test.ts                  |  12 +-
+ 13 files changed, 588 insertions(+), 63 deletions(-)
+43c3a2b Nav: corridor lights on the leftover corridor centreline, door-to-door diagonals re-routed along it, route-near overview labels, 楼梯（东） map label disambiguation, dev-only test hook
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 46 ++++++++++++---
+ src/lib/components/viewer3d/nav/dressing.ts    | 11 ++--
+ src/lib/components/viewer3d/nav/layout.ts      | 82 ++++++++++++++++++++++++++
+ src/lib/utils/navCopy.ts                       | 45 ++++++++++++++
+ src/routes/nav/+page.svelte                    |  4 +-
+ tests/nav-copy.test.ts                         | 18 ++++++
+ tests/nav-layout.test.ts                       | 33 +++++++++++
+ 7 files changed, 224 insertions(+), 15 deletions(-)
+1193c7d Nav: overview cut-away walls (1.15 m, capped, eased), first person faces the route tangent after seeks
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 83 ++++++++++++++++++++++++--
+ src/lib/components/viewer3d/nav/dressing.ts    | 36 +++++++++++
+ 2 files changed, 114 insertions(+), 5 deletions(-)
+efa53a7 Nav QA 10-11: one 楼梯（东A） naming for dropdown/map/pins/steps, tap-to-walk (navmesh, wall hint, tap to stop), wall-clock walk speed, kit replaceState (arrival reset), parallel first load with progress, FP tools bottom-right + level gaze, small-room labels; editor: wrapping status bar, MCP probe opt-in
+
+ src/lib/components/editor/FloorPlanCanvas.svelte |  4 +-
+ src/lib/components/editor/McpStatusBubble.svelte | 11 ++-
+ src/lib/components/viewer3d/ThreeViewer.svelte   | 72 +++++++++++++++++--
+ src/lib/utils/navCopy.ts                         | 29 +++++---
+ src/routes/nav/+page.svelte                      | 88 ++++++++++++++++++++----
+ tests/nav-copy.test.ts                           | 10 +--
+ 6 files changed, 177 insertions(+), 37 deletions(-)
+81584bf Nav: bundled Noto Sans SC subset for sign/label textures (wait for font, lang=zh-CN); CN-outpatient wall/floor look (1.2 m wood-grain wainscot, warm-white upper, rail band, coved skirting, homogeneous PVC; floor-relative heights); rule-based dept accents on door frames; no-lift message + stair fallback; unnamed rooms as 未命名房间; 44px selects on narrow
+
+ src/app.html                                   |   2 +-
+ src/lib/components/viewer3d/ThreeViewer.svelte | 103 ++++++++++++++++++++-----
+ src/lib/components/viewer3d/nav/signs.ts       |   5 +-
+ src/lib/utils/deptAccent.ts                    |  53 +++++++++++++
+ src/lib/utils/hospitalMaterials.ts             |  40 +++++++---
+ src/lib/utils/navFonts.ts                      |  26 +++++++
+ src/lib/utils/roomMapLabel.ts                  |   2 +-
+ src/routes/nav/+page.svelte                    |  28 +++++--
+ static/fonts/NotoSansSC-Bold-subset.woff2      | Bin 0 -> 1069632 bytes
+ static/fonts/NotoSansSC-Regular-subset.woff2   | Bin 0 -> 1042368 bytes
+ tests/dept-accent.test.ts                      |  14 ++++
+ 11 files changed, 236 insertions(+), 37 deletions(-)
+3b687b7 Nav: searchable place picker (floor groups, common first, pinyin/initials/original/aliases, full-screen sheet on mobile, long names wrap); rooms get displayName + aliases (editor fields), used by signs/labels/picker
+
+ package-lock.json                                 |  6 ++
+ package.json                                      |  1 +
+ src/lib/components/nav/PlacePicker.svelte         | 69 +++++++++++++++++++++++
+ src/lib/components/sidebar/PropertiesPanel.svelte | 12 ++++
+ src/lib/components/viewer3d/ThreeViewer.svelte    |  6 +-
+ src/lib/components/viewer3d/nav/signs.ts          |  6 +-
+ src/lib/models/types.ts                           |  4 ++
+ src/lib/utils/placeSearch.ts                      | 30 ++++++++++
+ src/routes/nav/+page.svelte                       | 35 +++++-------
+ tests/place-search.test.ts                        | 19 +++++++
+ 10 files changed, 160 insertions(+), 28 deletions(-)
+efcb5ca updateRoom accepts displayName/aliases
+
+ src/lib/stores/project.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+65665fe updateRoom: type fix for array-valued updates
+
+ src/lib/stores/project.ts | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+3285d24 Nav copy: cardinal words from the project's north-arrow bearing (northBearing); unknown north → no 东西南北, duplicates lettered 楼梯 A/B
+
+ src/lib/utils/navCopy.ts    | 44 +++++++++++++++++++++++++++++++++-----------
+ src/routes/nav/+page.svelte |  6 +++++-
+ tests/nav-copy.test.ts      | 25 +++++++++++++++++++++++--
+ 3 files changed, 61 insertions(+), 14 deletions(-)
+5cbeb81 Signs: long names wrap to two lines; picker sheet portaled to body (above 3D toolbar)
+
+ src/lib/components/nav/PlacePicker.svelte | 10 ++++++----
+ src/lib/components/viewer3d/nav/signs.ts  | 16 +++++++++++++---
+ 2 files changed, 19 insertions(+), 7 deletions(-)
+fbd4cac Nav: letter lone stair/lift (电梯 A) when no north arrow; editor MCP auto-probe with 2s→60s backoff
+
+ src/lib/components/editor/McpStatusBubble.svelte | 6 ++++--
+ src/lib/utils/navCopy.ts                         | 9 +++++++--
+ tests/nav-copy.test.ts                           | 3 +++
+ 3 files changed, 14 insertions(+), 4 deletions(-)
+14bd052 Nav P2 QA: picker normalises spaces/letters (病房A, bfa), hides unnamed, building-specific hint, 常用 order entrance→导医→药房/收费→卫生间→电梯; arrival banner + face destination door, FP kept; same-start/end and 已是电梯路线 messages; （共 N 层） in steps; floor buttons; play buttons work from other floors; neutral frames for lifts/stairs; larger plates, lower blades
+
+ src/lib/components/nav/PlacePicker.svelte      |  7 ++-
+ src/lib/components/viewer3d/ThreeViewer.svelte | 32 ++++++++++-
+ src/lib/components/viewer3d/nav/signs.ts       |  9 +--
+ src/lib/utils/navCopy.ts                       |  3 +-
+ src/lib/utils/placeSearch.ts                   | 22 ++++++--
+ src/routes/nav/+page.svelte                    | 78 ++++++++++++++++++--------
+ tests/place-search.test.ts                     | 14 +++++
+ 7 files changed, 128 insertions(+), 37 deletions(-)
+6886521 Nav narrow QA: no update toast on /nav or frozen builds (VITE_DISABLE_UPDATE_CHECK); touch FP: no pointer lock/keyboard panel, 「拖动看四周 · 点地面前进」 hint + big 退出; never resize/render at 0 size + 3D keeps 40vh when panel opens; peek shows step/error; 回到路线/重新规划; 重试 on backend failure; picker first tap not swallowed; floor buttons spaced
+
+ src/lib/components/DeploymentNotice.svelte     |  4 ++-
+ src/lib/components/nav/PlacePicker.svelte      |  9 ++++---
+ src/lib/components/viewer3d/ThreeViewer.svelte | 19 +++++++++-----
+ src/routes/nav/+page.svelte                    | 35 +++++++++++++++++++++++---
+ 4 files changed, 54 insertions(+), 13 deletions(-)
+52accac Nav: grey out 只乘电梯 with inline note when building has no elevator; toilet UX
+
+ .../editor/VerticalLinkBindBanner.svelte           |   4 +-
+ src/lib/components/nav/PlacePicker.svelte          |  30 +++++-
+ src/lib/components/viewer3d/ThreeViewer.svelte     |  20 ++++
+ src/lib/utils/navCopy.ts                           |   3 +-
+ src/lib/utils/placeSearch.ts                       |  40 +++++++-
+ src/routes/nav/+page.svelte                        | 107 +++++++++++++--------
+ tests/nav-copy.test.ts                             |   8 ++
+ tests/place-search.test.ts                         |  20 ++++
+ 8 files changed, 185 insertions(+), 47 deletions(-)
+e0035e5 Nav: type fixes
+
+ src/routes/nav/+page.svelte | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+12d2e77 Nav: 卫生间 display names (printed form as alias), 大门 copy, elevator-only copy, deterministic arrival (pure stepper + test), no-lift note in collapsed peek
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 34 +++++++++++++++++---------
+ src/lib/utils/placeSearch.ts                   | 20 +++++++++++++++
+ src/routes/nav/+page.svelte                    | 18 ++++++++++++--
+ tests/place-search.test.ts                     | 15 ++++++++++++
+ 4 files changed, 73 insertions(+), 14 deletions(-)
+164725d Add route progress stepper + tests
+
+ src/lib/utils/routeProgress.ts | 13 +++++++++++++
+ tests/route-progress.test.ts   | 32 ++++++++++++++++++++++++++++++++
+ 2 files changed, 45 insertions(+)
+c96c6c2 Nav: arrival banner 「已到达」 also after overview simulation (was only 模拟导航已完成 when not in FP)
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 2 ++
+ src/routes/nav/+page.svelte                    | 9 +++++----
+ 2 files changed, 7 insertions(+), 4 deletions(-)
+00807e3 Nav: arrival frames nearest door to route end and opens it; overview darker ground/backdrop + exposure 0.9; sidebar hides unnamed/en-suite
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 16 +++++++++++++---
+ src/lib/components/viewer3d/nav/dressing.ts    |  2 +-
+ src/routes/nav/+page.svelte                    |  2 +-
+ 3 files changed, 15 insertions(+), 5 deletions(-)
+bd312ca Nav: FP looks 2.5 m ahead along route + smoothed turns; 2D draws corridor-centred route, stays blue after arrival; toilet rows get building-relative side + distance from entrance; narrow floor tabs scroll, 平面 2D no wrap
+
+ src/lib/components/nav/PlacePicker.svelte      | 11 ++++++++--
+ src/lib/components/viewer3d/ThreeViewer.svelte | 13 +++++++++++-
+ src/lib/utils/placeSearch.ts                   | 17 ++++++++++++++++
+ src/routes/nav/+page.svelte                    | 28 +++++++++++++++++++++++---
+ 4 files changed, 63 insertions(+), 6 deletions(-)
+2209b96 Nav: stacked view frames all floors (depth shift × floor count + height)
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+911c82c Nav 2D: real zoom (wheel, ＋/－ buttons) and drag pan; labels re-declutter per zoom
+
+ src/routes/nav/+page.svelte | 55 +++++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 48 insertions(+), 7 deletions(-)
+ec89482 Test: P1 north-left bearing → 楼梯（北）/（南）, no compass without arrow
+
+ tests/nav-north.test.ts | 32 ++++++++++++++++++++++++++++++++
+ 1 file changed, 32 insertions(+)
+e07e2d8 Nav: tighter stacked view (rise ×0.46, shift ×0.6, framing 1.12); FP/simulate always start at 0 (no seek-back); first frame faces first route segment; arrival faces nearest destination door square-on 1.6 m back and opens it; 限制通行区域 tag + never a default start
+
+ src/lib/components/nav/PlacePicker.svelte      |  3 +-
+ src/lib/components/viewer3d/ThreeViewer.svelte | 80 +++++++++++++++-----------
+ src/lib/utils/placeSearch.ts                   |  4 +-
+ src/routes/nav/+page.svelte                    | 13 +++--
+ 4 files changed, 59 insertions(+), 41 deletions(-)
+b371da0 Nav copy: stair/lift uses importer's patient name (楼梯 A/B, 楼梯（北）) for marker+steps; 「只有这部楼梯能到 N 楼」; landmarks only patient-visible places; arrival marker names the lift
+
+ src/lib/utils/navCopy.ts    | 5 ++++-
+ src/routes/nav/+page.svelte | 9 +++++++--
+ 2 files changed, 11 insertions(+), 3 deletions(-)
+729798f Nav: FP/simulate start retries until the viewer really starts (P3 FP entry stayed 2D when the floor scene rebuilt)
+
+ src/routes/nav/+page.svelte | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+5ef96a8 Nav r7: monotonic trip progress across floors; face stair/lift at transfer; floor bar scrolls to current floor; auto-walk hint moved off banners; drag-look pauses auto-walk; 3D signs over stair/lift landings with patient names; transfer copy name-first
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 36 ++++++++++++++++++++++--
+ src/lib/components/viewer3d/nav/signs.ts       | 17 +++++++++++-
+ src/lib/utils/navCopy.ts                       |  7 +++--
+ src/routes/nav/+page.svelte                    | 38 ++++++++++++++++++++++++--
+ tests/nav-copy.test.ts                         |  6 ++++
+ 5 files changed, 96 insertions(+), 8 deletions(-)
+43efbef Nav narrow: FP 退出 top-right above light toggle; collapsed panel shows current step; immediate render after resize (no blank 3D on panel toggle)
+
+ src/lib/components/viewer3d/ThreeViewer.svelte |  2 ++
+ src/routes/nav/+page.svelte                    | 13 +++++++++++--
+ 2 files changed, 13 insertions(+), 2 deletions(-)
+d2701f9 Nav: auto-walk hint above the drag/tap touch hint (no overlap)
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+6928524 Nav: arrival camera stands on the approach side (route may end inside the room) so the opened destination door is in view; collapsed line keeps 已到达 after 退出 and shows steps only while playing; dev hooks showLeg/debugNavDoors
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 15 +++++++++++++--
+ src/routes/nav/+page.svelte                    |  5 +++--
+ 2 files changed, 16 insertions(+), 4 deletions(-)
+a6ca9ae Transfer camera: face named stair only if within 5m, else look along final approach
+
+ src/routes/nav/+page.svelte | 21 +++++++++++++++++++--
+ 1 file changed, 19 insertions(+), 2 deletions(-)
+6807b45 Esc always exits first person (even when auto-walk paused); floor buttons: newest load wins, instant highlight, per-floor cache
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 23 +++++++++++++++-
+ src/routes/nav/+page.svelte                    | 37 +++++++++++++++++++++-----
+ 2 files changed, 52 insertions(+), 8 deletions(-)
+856cf9f Nav first load: spinner + filling bar + elapsed seconds instead of bare 正在打开…
+
+ src/routes/nav/+page.svelte | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+aa8b5f1 Nav door frames: slim 3 cm jambs, 1 cm proud (were 5 cm slabs 2.5 cm proud)
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+729a119 Copy: one paren for floors + only-this-stair (「（共 3 层，只有这部能到 4楼）」); hide auto-walk hint once leg finished
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 2 +-
+ src/lib/utils/navCopy.ts                       | 4 ++--
+ tests/nav-copy.test.ts                         | 1 +
+ 3 files changed, 4 insertions(+), 3 deletions(-)
+9e21628 FP: hide end-of-leg glow column when the camera is within 1.8 m (it filled the view at stairs)
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 2 +-
+ src/lib/components/viewer3d/nav/route.ts       | 6 +++++-
+ 2 files changed, 6 insertions(+), 2 deletions(-)
+5a74934 FP start: face the route ~3 m ahead, not the first 60 cm stub (started facing a wall)
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+c228cd3 Toilet names: 「卫生间/卫生间」 OCR doubles collapse, 「卫生间（女）」 keeps its printed gender
+
+ src/lib/utils/placeSearch.ts | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+9cc8eba Stacked floors: no 'Room N' placeholder signs on auto-detected unnamed faces (P1 2F showed Room 11/12/32)
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+8a12180 Nav toilet rows: use the person-set landmark in the name (卫生间（靠楼梯B）) instead of a computed left/right side
+
+ src/lib/components/nav/PlacePicker.svelte | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+955a3c8 Nav toilet rows: no computed side for a plain 卫生间 when its same-floor peers already carry a landmark
+
+ src/lib/components/nav/PlacePicker.svelte | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+6ebcfc5 FP start: aim at the farthest point within 3 m whose sight line follows the route (3 m chord cut the first corner; at 390px the corner wall filled the view)
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 25 ++++++++++++++++++++++++-
+ 1 file changed, 24 insertions(+), 1 deletion(-)
+39aec09 Transfer camera: stand ~3 m back on the approach (3.2 m on narrow screens) and look slightly up at the lift/stair, not 1.2-2.2 m from the shaft room centre (390px showed only a wall)
+
+ src/lib/components/viewer3d/ThreeViewer.svelte | 24 +++++++++++++++++-------
+ 1 file changed, 17 insertions(+), 7 deletions(-)
+a4c3f79 Nav signs: 男/女/无障碍 toilet pictograms on door signs by toilet type (shared anteroom doors read apart); toiletKind reads 卫生间（男/女）
+
+ src/lib/components/viewer3d/nav/signs.ts | 29 +++++++++++++++++++++++++++++
+ src/lib/utils/placeSearch.ts             |  4 ++--
+ tests/place-search.test.ts               | 12 ++++++++++++
+ 3 files changed, 43 insertions(+), 2 deletions(-)
+35c524c Nav wide header: the first-load progress bar reused .nav-bar, squashing the header to 280×6 px so 平面 2D/立体 3D were clipped off-screen; bar is now .load-bar
+
+ src/routes/nav/+page.svelte | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+4b6eef9 Transfer name/landmark searched at the lower end first, then the other end: 5F→1F reads 乘电梯 A 下到 1楼 like 1F→5F
+
+ src/routes/nav/+page.svelte | 38 +++++++++++++++++++++++++-------------
+ 1 file changed, 25 insertions(+), 13 deletions(-)
+f392228 Search: 'Room N' placeholders are unnamed like 房间 N
+
+ src/lib/utils/placeSearch.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+c072758 FP across a stair/lift hop: keep first person decided at the transfer (viewer may drop walk mode before the next leg), and announce arrival when the last leg runs out even if the walk loop still reports playing
+
+ src/routes/nav/+page.svelte | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)

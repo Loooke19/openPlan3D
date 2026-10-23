@@ -1,0 +1,36 @@
+ data/overrides/P1-1F.json                        |  229 ++++++++++++++++++++++++++++++
+ data/overrides/P1-2F.json                        |  788 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ data/overrides/P1-3F.json                        | 1103 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ data/overrides/P2-3F.json                        |   32 +++++
+ data/overrides/P3-1F.json                        |    2 +
+ data/overrides/P3-2F.json                        |    3 +
+ data/overrides/P3-3F.json                        |    2 +
+ data/overrides/P3-4F.json                        |    1 +
+ data/overrides/pdf_truth.json                    |    7 +
+ data/verification-p1-2f/P1.json                  |    1 +
+ data/verification-p1-2f/P2.json                  |    1 +
+ data/verification-p1-2f/P3.json                  |    1 +
+ data/verification-p1-2f/audit.log                |   37 +++++
+ data/verification-p1-2f/corrected-2F.json        |    1 +
+ data/verification-p1-2f/import.log               |   15 ++
+ data/verification-p1-2f/office-walls.png         |  Bin 0 -> 41047 bytes
+ data/verification-p1-2f/pdf-fee-door.png         |  Bin 0 -> 23310 bytes
+ data/verification-p1-2f/pdf-office-small.png     |  Bin 0 -> 31572 bytes
+ data/verification-p1-2f/pdf-offices.png          |  Bin 0 -> 35010 bytes
+ data/verification-p1-2f/raw-2F.json              |    1 +
+ data/verification-p1-2f/tests-known-baseline.log |   70 +++++++++
+ data/verification-p1-2f/verify.log               |   18 +++
+ requirements.txt                                 |    1 +
+ scripts/floor_nav.py                             | 1073 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-------------------
+ scripts/floor_overrides.py                       |  383 +++++++++++++++++++++++++++++++++++++++++++++++++
+ scripts/kujiale_import_server.py                 |   28 +++-
+ scripts/maker_cad.py                             |   89 ++++++++++++
+ scripts/name_overrides.py                        |    4 +-
+ scripts/openplan_project.py                      |  134 ++++++++++++++++--
+ scripts/pdf_building.py                          |   40 ++++--
+ scripts/verify_import.py                         |  155 ++++++++++++++++++++
+ tests/test_floor_nav.py                          |   18 ++-
+ tests/test_floor_overrides.py                    |  154 ++++++++++++++++++++
+ tests/test_name_overrides.py                     |   13 ++
+ tests/test_pdf_building.py                       |   80 ++++++++++-
+ 35 files changed, 4312 insertions(+), 172 deletions(-)

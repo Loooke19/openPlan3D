@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>导航</title>
+  <link rel="preload" href="/assets/fonts/noto-sans-sc-demo.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/preview/kujiale-import.css">
+  <link rel="stylesheet" href="/preview/nav.css">
+  <script type="importmap">{"imports":{"three":"/assets/vendor/three/three.module.js","three/addons/":"/assets/vendor/three/addons/"}}</script>
+</head>
+<body>
+  <div class="nav">
+    <header class="nav-bar">
+      <a class="back" href="/files">文件</a>
+      <h1>导航</h1>
+      <label class="floor">
+        <select id="floor" hidden></select>
+        <span id="floor-name"></span>
+      </label>
+      <div class="mode-switch" role="group" aria-label="视图">
+        <button type="button" id="toggle-2d" aria-pressed="false">平面 2D</button>
+        <button type="button" id="toggle-3d" class="is-active" aria-pressed="true">立体 3D</button>
+      </div>
+    </header>
+    <div class="stage">
+      <div class="canvas-wrap">
+        <canvas id="plan" class="hidden"></canvas>
+        <div id="scene3d"></div>
+        <div id="sim-marker" hidden></div>
+      </div>
+      <aside class="side">
+        <div class="route-stops">
+          <label class="route-stop"><span class="dot start-dot"></span>从
+            <select id="start" aria-label="起点"></select>
+          </label>
+          <div id="waypoints" class="waypoints" aria-label="途经点"></div>
+          <button type="button" id="add-waypoint" class="add-waypoint">＋ 途经点</button>
+          <label class="route-stop"><span class="dot end-dot"></span>到
+            <select id="end" aria-label="终点"></select>
+          </label>
+        </div>
+        <div class="walk-row">
+          <button type="button" id="simulate" class="primary" disabled>模拟导航</button>
+          <button type="button" id="walk-fp" disabled>第一人称</button>
+          <button type="button" id="pause-walk" hidden>暂停</button>
+          <button type="button" id="stop-walk" hidden>结束</button>
+        </div>
+        <div id="walk-playback" class="playback" hidden>
+          <label>速度
+            <select id="walk-speed" aria-label="速度">
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="1.5">1.5×</option>
+              <option value="2">2×</option>
+              <option value="3">3×</option>
+            </select>
+          </label>
+          <label class="seek">进度
+            <input id="walk-seek" type="range" min="0" max="100" step="0.1" value="0" aria-label="进度">
+          </label>
+        </div>
+        <p id="route-message" class="route-message">选择起点和终点</p>
+        <nav class="facility-bar" aria-label="设施">
+          <button type="button" data-category="all" class="is-active" aria-pressed="true">全部</button>
+          <button type="button" data-category="entrance">出入口</button>
+          <button type="button" data-category="restroom">卫生间</button>
+          <button type="button" data-category="elevator">电梯</button>
+          <button type="button" data-category="stairs">楼梯</button>
+          <button type="button" data-category="service">服务</button>
+        </nav>
+        <div id="places" class="places"></div>
+      </aside>
+    </div>
+    <p id="status" class="status">正在打开</p>
+  </div>
+  <script type="module" src="/preview/nav.js"></script>
+</body>
+</html>

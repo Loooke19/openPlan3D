@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>导入图纸</title>
+  <link rel="stylesheet" href="/preview/kujiale-import.css">
+</head>
+<body>
+  <div class="dialog" role="dialog" aria-labelledby="title">
+    <header class="dialog-bar">
+      <h1 id="title">导入图纸</h1>
+      <a class="files-link" href="/files">文件</a>
+    </header>
+    <div class="dialog-body">
+      <div class="preview" id="preview">
+        <button type="button" id="pick" class="pick">选择图纸</button>
+        <input id="file" type="file" accept="application/pdf,.pdf" hidden>
+        <div class="sheet" id="sheet" hidden>
+          <img id="page" alt="">
+          <canvas id="ruler"></canvas>
+        </div>
+      </div>
+      <form class="side" id="form">
+        <label class="field" for="length"><span id="length-label">比例尺</span>
+          <span class="measure"><input id="length" inputmode="decimal" autocomplete="off"><span>mm</span></span>
+        </label>
+        <fieldset>
+          <legend>导入方式</legend>
+          <label id="building-option" hidden><input type="radio" name="mode" value="building">整套导入，每页一层</label>
+          <label><input type="radio" name="mode" value="generate" checked>识别并生成户型</label>
+          <label><input type="radio" name="mode" value="underlay">仅导入图纸</label>
+        </fieldset>
+        <section class="pages" id="pages" hidden aria-live="polite">
+          <p class="pages-head" id="pages-head"></p>
+          <ol class="page-list" id="page-list"></ol>
+        </section>
+        <label class="field" for="floor" id="floor-field">所属楼层
+          <input id="floor" autocomplete="off">
+        </label>
+        <p id="status" class="status" hidden></p>
+        <div class="done" id="done" hidden>
+          <a class="button primary" id="open-nav" href="#">导航浏览</a>
+          <a class="button" id="open-editor" href="#">打开编辑器</a>
+        </div>
+        <details class="field room-names">
+          <summary>房间名清单（可选，用于纠正识别）</summary>
+          <textarea id="room-names" rows="5" placeholder="[1F]&#10;门厅、挂号收费、西药房&#10;[2F]&#10;中医专家诊室…"></textarea>
+          <input type="file" id="room-names-file" accept=".txt,.csv,.json">
+        </details>
+        <div class="actions"><button type="submit" id="ok" disabled>确定</button></div>
+      </form>
+    </div>
+  </div>
+  <script src="/preview/kujiale-import.js"></script>
+</body>
+</html>

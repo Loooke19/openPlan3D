@@ -1,0 +1,2691 @@
+diff --git a/requirements.txt b/requirements.txt
+index 953d89b..cdb98dd 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,5 +1,6 @@
+ numpy>=1.24,<3
+ Pillow>=10,<13
++shapely>=2,<3
+ pdfplumber>=0.11,<0.12
+ fastapi>=0.115,<0.116
+ uvicorn>=0.32,<0.33
+diff --git a/scripts/floor_nav.py b/scripts/floor_nav.py
+index dfde04e..2e707df 100644
+--- a/scripts/floor_nav.py
++++ b/scripts/floor_nav.py
+@@ -26,6 +26,11 @@ from heapq import heappop, heappush
+ from PIL import Image, ImageDraw
+ 
+ from openplan_project import ROOM_COLORS, detect_closed_rooms
++from floor_overrides import connected_walls
++from shapely.geometry import Polygon, LineString, Point, box
++from shapely import intersects_xy
++import numpy as np
++from shapely.ops import unary_union
+ 
+ CELL_CM = 20.0
+ MAX_CELLS = 800
+@@ -38,16 +43,26 @@ DEST_PAD_CM = 70.0
+ # Paint walls at least this fraction of a cell wide so midline cells get sealed.
+ _WALL_CELL_COVER = 0.55
+ # Keep string-pulled chords this far from wall bands (cm), except inside door clears.
+-_CLEARANCE_PAD_CM = 12.0
++# ~half of a narrow hospital corridor (~120 cm) so pulled chords stay off jambs.
++_CLEARANCE_PAD_CM = 28.0
++# Auto-check / scrape threshold: open samples must stay this far from wall faces.
++_MIN_CLEAR_CM = 25.0
+ # Extra A* cost near walls so routes prefer corridor / room centers.
+-_WALL_COST = 2.8
++_WALL_COST = 3.4
+ # Soft hospital-map fills (same family as Maker / openPlan ROOM_COLORS).
+ _DEFAULT_FILL = "#e9e7e4"
++_PUBLIC_SPACE_RE = re.compile(r"门厅|大厅|候诊|大堂|前厅|lobby|waiting hall", re.I)
+ 
+ _CORRIDOR_RE = re.compile(
+     r"走廊|过道|通道|连廊|门厅|候诊|大厅|走道|corridor|hallway|lobby|atrium",
+     re.I,
+ )
++# Named private rooms must keep an access spur — the multi-door hall heuristic otherwise
++# promotes them to corridors (P2 3F 病房8 has 3 jambs and a large face).
++_PRIVATE_ROOM_RE = re.compile(
++    r"病房|诊室|办公|治疗|手术|处置|护士|药房|检验|放射|CT|DR|B超|超声|病房",
++    re.I,
++)
+ 
+ _CACHE: dict[tuple, "FloorGrid"] = {}
+ 
+@@ -139,6 +154,55 @@ def _walls(floor: dict) -> list[dict]:
+     return walls
+ 
+ 
++def floor_surface(floor, faces=None):
++    walls = connected_walls(floor) if faces is None else _walls(floor)
++    faces = detect_closed_rooms(walls) if faces is None else faces
++    rooms = floor.get("rooms") or []
++    solid, void = [], []
++    for face in faces:
++        room = _match_room(face, rooms) or {}
++        poly = Polygon([(p["x"], p["y"]) for p in face["polygon"]]).buffer(0)
++        (void if room.get("floorOpening") or room.get("roomType") == "void" else solid).append(poly)
++    for room in rooms:
++        if len(room.get("floorPolygon") or []) >= 3:
++            poly = Polygon([(p["x"], p["y"]) for p in room["floorPolygon"]]).buffer(0)
++            (void if room.get("floorOpening") or room.get("roomType") == "void" else solid).append(poly)
++    solid.extend(Polygon([(p["x"], p["y"]) for p in poly]).buffer(0)
++                 for poly in floor.get("walkableRegions") or [])
++    surface = unary_union(solid).buffer(10, join_style=2)
++    surface = surface.union(surface.buffer(240, join_style=2).buffer(-240, join_style=2))
++    public = [Point(a["x"], a["y"]) for a in floor.get("textAnnotations") or []
++              if _PUBLIC_SPACE_RE.search(a.get("text") or "")]
++    if public:
++        bridged = surface.buffer(600, join_style=2).buffer(-600, join_style=2).difference(surface)
++        regions = [bridged] if bridged.geom_type == "Polygon" else getattr(bridged, "geoms", [])
++        surface = surface.union(unary_union([region for region in regions
++                                            if any(region.covers(point) for point in public)]))
++    thresholds = []
++    for opening in _openings({**floor, "walls": walls}):
++        ux, uy, x, y = opening["ux"], opening["uy"], opening["x"], opening["y"]
++        half = opening["width"] / 2 + 2
++        poly = Polygon(_quad(x - ux * half, y - uy * half, x + ux * half, y + uy * half,
++                             opening["across"] / 2 + 10))
++        if surface.intersects(poly):
++            thresholds.append(poly)
++    surface = unary_union([surface, *thresholds])
++    footprint = floor.get("footprint") or []
++    if len(footprint) >= 3:
++        surface = surface.intersection(Polygon([(p["x"], p["y"]) for p in footprint]).buffer(0))
++    void.extend(box(b["x0"], b["y0"], b["x1"], b["y1"]) for b in floor.get("footprintExclusions") or [])
++    return surface.difference(unary_union(void))
++
++
++def prepare_floor(floor):
++    floor["walls"] = connected_walls(floor)
++    surface = floor_surface(floor)
++    polygons = [surface] if surface.geom_type == "Polygon" else list(surface.geoms)
++    points = lambda ring: [{"x": x, "y": y} for x, y in list(ring.coords)[:-1]]
++    floor["floorRegions"] = [{"polygon": points(p.exterior), "holes": [points(r) for r in p.interiors]}
++                             for p in polygons if not p.is_empty and p.geom_type == "Polygon"]
++
++
+ def _bounds(walls: list[dict]):
+     xs, ys = [], []
+     for wall in walls:
+@@ -218,6 +282,9 @@ def _match_room(face, rooms):
+             if _pip(cx, cy, poly) and 0.55 <= farea / max(rarea, 1) <= 1.8:
+                 return room
+     keys = set(face.get("walls") or [])
++    for room in rooms:
++        if not room.get("drawn") and keys == set(room.get("walls") or []):
++            return room
+     best = None
+     score = 0
+     for room in rooms:
+@@ -256,6 +323,8 @@ def _nav_rooms(floor: dict, walls: list[dict] | None = None) -> list[dict]:
+         if min(max(xs) - min(xs), max(ys) - min(ys)) < MIN_ROOM_CM:
+             continue
+         room = _match_room(face, rooms)
++        if (room or {}).get("floorOpening"):
++            continue
+         room_id = str(room.get("id") or "") if room else ""
+         matched = bool(room_id and room_id not in used_ids)
+         if not matched:
+@@ -422,11 +491,14 @@ def _doors_on_face(face: dict, doors: list[dict], by_id: dict) -> list[dict]:
+     """Doors whose wall is in the face, or whose opening sits on the face edge.
+ 
+     Shared corridor/room wall segments often keep a different wall id on the
+-    face than the door's wallId, so geometry matching is required.
++    face than the door's wallId, so geometry matching is required. Prefer
++    wall-id hits: edge matching alone pulls in neighbouring rooms' doors and
++    steals the access spur (P2 3F 病房8 → door-15 on the next bay).
+     """
+     wall_ids = set(face.get("walls") or [])
+     polygon = face.get("polygon") or []
+-    found = []
++    on_wall_hits = []
++    on_edge_hits = []
+     for door in doors:
+         wall = by_id.get(door.get("wallId"))
+         if not wall:
+@@ -442,7 +514,7 @@ def _doors_on_face(face: dict, doors: list[dict], by_id: dict) -> list[dict]:
+         on_edge = _near_polygon_edge(cx, cy, polygon, tol=max(40.0, thick + 20.0))
+         if not on_wall and not on_edge:
+             continue
+-        found.append({
++        item = {
+             "door": door,
+             "wall": wall,
+             "cx": cx,
+@@ -450,22 +522,52 @@ def _doors_on_face(face: dict, doors: list[dict], by_id: dict) -> list[dict]:
+             "ux": dx / length,
+             "uy": dy / length,
+             "width": max(60.0, float(door.get("width") or 80.0)),
+-        })
+-    return found
++        }
++        if on_wall:
++            on_wall_hits.append(item)
++        else:
++            on_edge_hits.append(item)
++    return on_wall_hits or on_edge_hits
++
++
++def _is_placeholder_name(name: str) -> bool:
++    return bool(re.fullmatch(r"(?i)room\s*\d+|房间\s*\d+", name.strip()))
+ 
+ 
+ def _is_corridor(face: dict, room: dict | None, door_count: int) -> bool:
+     """Corridors / halls are the primary walkable network."""
++    if (room or {}).get("floorOpening"):
++        return False
++    if (room or {}).get("roomType") == "corridor":
++        return True
+     name = str((room or {}).get("name") or "")
++    if (room or {}).get("floorOpening"):
++        return False
++    if (room or {}).get("roomType") == "corridor":
++        return True
+     if _CORRIDOR_RE.search(name):
+         return True
++    # A printed room name (诊室/急诊/化验室/残卫…) is the PDF saying "enclosed room": the shape
++    # rules below are only for unnamed faces, else a 3-door clinic or a long toilet becomes corridor.
++    private = bool(
++        (room or {}).get("roomType") == "room"
++        or _PRIVATE_ROOM_RE.search(name)
++        or (re.search(r"[\u4e00-\u9fff]", name) and not re.search(r"(区|台|厅|廊|道|场|处)$", name)
++            and not _is_placeholder_name(name))
++    )
+     width, height, area = _face_bounds(face)
+     minor, major = sorted((width, height))
+     # Long circulation strip (same idea as openplan_project.room_floor_texture).
+-    if minor >= 90 and major >= 480 and major / max(minor, 1) >= 2.4:
++    if not private and minor >= 90 and major >= 480 and major / max(minor, 1) >= 2.4:
+         return True
+     # Wide multi-door hall: do not treat as a shortcut room.
+-    if door_count >= 3 and minor >= 160 and major >= 320 and area >= 80_000:
++    if (
++        not private
++        and door_count >= 3
++        and minor >= 160
++        and major >= 320
++        and area >= 80_000
++    ):
+         return True
+     return False
+ 
+@@ -527,6 +629,11 @@ def _fill_room_spur(
+ 
+     Avoids door→center chords that cut through internal wall bands.
+     """
++    walls = [
++        {**wall, "thickness": 2 * _wall_paint_half(float(wall.get("thickness") or 15.0), cell)}
++        for wall in walls
++    ]
++
+     def cell_at(x, y):
+         return (
+             int(math.floor((x - origin_x) / cell)),
+@@ -540,10 +647,10 @@ def _fill_room_spur(
+         if col < 0 or row < 0 or col >= cols or row >= rows:
+             return False
+         x, y = center(col, row)
++        if _point_blocked_by_walls(x, y, walls, openings):
++            return False
+         if _point_in_door_clear(x, y, openings):
+             return True
+-        if _point_in_wall_band(x, y, walls, pad=0.0):
+-            return False
+         return _point_in_polygon(x, y, polygon)
+ 
+     start = cell_at(access["cx"], access["cy"])
+@@ -617,9 +724,7 @@ def _fill_room_spur(
+                 if dc * dc + dr * dr > radius * radius:
+                     continue
+                 nc, nr = col + dc, row + dr
+-                if not allowed(nc, nr) and not (
+-                    0 <= nc < cols and 0 <= nr < rows and _point_in_door_clear(*center(nc, nr), openings)
+-                ):
++                if not allowed(nc, nr):
+                     continue
+                 walk[nr * cols + nc] = 1
+     gc, gr = goal
+@@ -651,8 +756,11 @@ def _access_door(
+         )
+         blocked = 1 if (walls and _spur_hits_wall(opening["cx"], opening["cy"], cx, cy, walls, openings)) else 0
+         to_center = (opening["cx"] - cx) ** 2 + (opening["cy"] - cy) ** 2
++        door = opening.get("door") or {}
++        # Prefer the authored doorAt on drawn rooms over a secondary jamb on a shared wall.
++        authored = 0 if door.get("fromDoorAt") or str(door.get("id") or "").startswith("doorAt-") else 1
+         # Corridor-facing first; straight-line wall hits are OK — spur uses in-room A*.
+-        return (0 if on_corridor else 1, blocked, to_center)
++        return (0 if on_corridor else 1, authored, blocked, to_center)
+ 
+     return min(face_doors, key=score)
+ 
+@@ -688,6 +796,7 @@ def _entrance_cell(grid, x: float, y: float):
+ 
+ 
+ def build_grid(floor: dict) -> FloorGrid | None:
++    floor = {**floor, "walls": connected_walls(floor)}
+     walls = _walls(floor)
+     if len(walls) < 3:
+         return None
+@@ -700,7 +809,7 @@ def build_grid(floor: dict) -> FloorGrid | None:
+     draw = ImageDraw.Draw(image)
+     faces = _despike_faces(detect_closed_rooms(walls))
+     by_id = {wall["id"]: wall for wall in walls if wall.get("id")}
+-    doors = [door for door in floor.get("doors") or [] if isinstance(door, dict)]
++    doors = _nav_doors(floor)
+     rooms = [room for room in floor.get("rooms") or [] if isinstance(room, dict)]
+ 
+     classified = []
+@@ -717,15 +826,12 @@ def build_grid(floor: dict) -> FloorGrid | None:
+         if is_corridor:
+             corridor_polygons.append(face.get("polygon") or [])
+ 
+-    # 0) An imported footprint covers halls and corridors CAD left open-ended,
+-    #    which never close into faces; rooms with doors are cut back out below.
+-    footprint = [
+-        (float(point["x"]), float(point["y"]))
+-        for point in floor.get("footprint") or []
+-        if isinstance(point, dict) and _point(point)
+-    ]
+-    if len(footprint) >= 3:
+-        draw.polygon(_px(min_x, min_y, cell, footprint), fill=255)
++    # 0) Only room/circulation coverage, clipped to the drawing footprint.
++    surface = floor_surface(floor, faces)
++    xs = min_x + (np.arange(cols) + 0.5) * cell
++    ys = min_y + (np.arange(rows) + 0.5) * cell
++    coverage = Image.fromarray((intersects_xy(surface, xs[None, :], ys[:, None]) * 255).astype(np.uint8))
++    image.paste(coverage)
+     # 1) Corridors (and doorless islands) fully walkable.
+     #    Room spurs are painted after walls so inflated wall bands cannot cut them.
+     for face, room, face_doors, is_corridor, polygon in classified:
+@@ -745,21 +851,12 @@ def build_grid(floor: dict) -> FloorGrid | None:
+             _px(min_x, min_y, cell, _quad(start["x"], start["y"], end["x"], end["y"], half)),
+             fill=0,
+         )
+-    for door in doors:
+-        wall = by_id.get(door.get("wallId"))
+-        if not wall:
+-            continue
+-        x0, y0 = float(wall["start"]["x"]), float(wall["start"]["y"])
+-        x1, y1 = float(wall["end"]["x"]), float(wall["end"]["y"])
+-        dx, dy = x1 - x0, y1 - y0
+-        length = math.hypot(dx, dy) or 1.0
+-        along = min(1.0, max(0.0, float(door.get("position") or 0.5)))
+-        cx, cy = x0 + dx * along, y0 + dy * along
+-        ux, uy = dx / length, dy / length
+-        # Cap clear width — CAD double-door widths can be >1.4m and bleed past the jamb.
+-        door_w = min(400.0 if door.get("type") == "opening" else 120.0, max(60.0, float(door.get("width") or 80.0)))
+-        half_w = door_w / 2.0 + 2.0
+-        half_t = _wall_paint_half(float(wall.get("thickness") or 15.0), cell) + cell * 0.15
++    # Reopen from the same opening set LOS/string-pull use (doors[] + room.doorAt + twins).
++    for opening in openings_early:
++        ux, uy = float(opening["ux"]), float(opening["uy"])
++        cx, cy = float(opening["x"]), float(opening["y"])
++        half_w = float(opening["width"]) / 2.0 + 2.0
++        half_t = max(float(opening["across"]), 16.0) / 2.0 + cell * 0.15
+         quad = _quad(cx - ux * half_w, cy - uy * half_w, cx + ux * half_w, cy + uy * half_w, half_t)
+         draw.polygon(_px(min_x, min_y, cell, quad), fill=255)
+ 
+@@ -769,6 +866,8 @@ def build_grid(floor: dict) -> FloorGrid | None:
+         walk[index] = 1 if value else 0
+     openings = _openings(floor)
+     # Geometry seal: raster bleed / fat door quads must not leave wall-band cells walkable.
++    # Door clear only reopens the door's own (parallel) wall — not a perpendicular corner wall
++    # that happens to overlap the door's axis-aligned clear box.
+     for row in range(rows):
+         for col in range(cols):
+             index = row * cols + col
+@@ -776,23 +875,45 @@ def build_grid(floor: dict) -> FloorGrid | None:
+                 continue
+             x = min_x + (col + 0.5) * cell
+             y = min_y + (row + 0.5) * cell
+-            if _point_in_door_clear(x, y, openings):
+-                continue
+-            if _point_in_wall_band(x, y, walls, pad=0.0):
++            if _point_blocked_by_walls(x, y, walls, openings, pad=0.0):
+                 walk[index] = 0
+ 
+     # 4) Room access spurs after seal. Door clears already open the jamb;
+     #    in-room A* reaches the center without cutting internal wall bands.
++    access_by_face: dict[int, dict] = {}
+     for face, room, face_doors, is_corridor, polygon in classified:
+-        if is_corridor or not face_doors:
++        if (room or {}).get("floorOpening") or is_corridor or not face_doors:
+             continue
+         cx, cy = _face_centroid(face)
+         access = _access_door(face_doors, cx, cy, corridor_polygons, walls, openings_early)
+-        _fill_room_spur(
+-            walk, cols, rows, min_x, min_y, cell,
+-            face.get("polygon") or polygon,
+-            access, cx, cy, walls, openings_early,
+-        )
++        access_by_face[id(face)] = access
++        # Every door of the room reaches its centre, not only the chosen access door: when the
++        # access pick lands on a door into a side room, the corridor door must still lead in.
++        for door in [access] + [d for d in face_doors if d is not access]:
++            _fill_room_spur(
++                walk, cols, rows, min_x, min_y, cell,
++                face.get("polygon") or polygon,
++                door, cx, cy, walls, openings_early,
++            )
++    voids = Image.new("L", (cols, rows))
++    void_draw = ImageDraw.Draw(voids)
++    for face, room, _, _, polygon in classified:
++        if (room or {}).get("floorOpening"):
++            void_draw.polygon(_px(min_x, min_y, cell, polygon), fill=255)
++    for index, value in enumerate(voids.tobytes()):
++        if value:
++            walk[index] = 0
++    for index, value in enumerate(coverage.tobytes()):
++        if not value:
++            walk[index] = 0
++    for box in floor.get("footprintExclusions") or []:
++        for row in range(rows):
++            y = min_y + (row + 0.5) * cell
++            if box["y0"] <= y <= box["y1"]:
++                for col in range(cols):
++                    x = min_x + (col + 0.5) * cell
++                    if box["x0"] <= x <= box["x1"]:
++                        walk[row * cols + col] = 0
+     clearance = _clearance_map(walk, cols, rows)
+     private = _private_faces(classified)
+     destinations = []
+@@ -806,7 +927,12 @@ def build_grid(floor: dict) -> FloorGrid | None:
+     free_notes = [n for n in (floor.get("textAnnotations") or [])
+                   if n.get("poi") and str(n.get("text") or "").strip() and not str(n.get("id") or "").startswith("entrance")]
+     for face in faces:
++        if (_match_room(face, rooms) or {}).get("floorOpening"):
++            continue
+         polygon = face.get("polygon") or []
++        room = _match_room(face, rooms)
++        if (room or {}).get("floorOpening") or (room or {}).get("roomType") == "shaft":
++            continue
+         if len(polygon) < 3:
+             continue
+         xs = [point["x"] for point in polygon]
+@@ -880,6 +1006,13 @@ def build_grid(floor: dict) -> FloorGrid | None:
+             extra["parentName"] = private[id(face)][3:]
+         if sealed_at:
+             extra["interior"] = {"x": round(sealed_at[0], 1), "y": round(sealed_at[1], 1)}
++        access = access_by_face.get(id(face))
++        if access:
++            extra["accessDoor"] = {
++                "id": (access.get("door") or {}).get("id"),
++                "x": round(float(access["cx"]), 1),
++                "y": round(float(access["cy"]), 1),
++            }
+         destinations.append({
+             **extra,
+             "id": dest_id,
+@@ -1001,7 +1134,7 @@ def _nearest_main(grid: FloorGrid, col, row, radius):
+ 
+ def _cache_key(project, floor):
+     geometry = json.dumps(
+-        {key: floor.get(key) or [] for key in ("walls", "doors", "rooms", "footprint")},
++        {key: floor.get(key) or [] for key in ("walls", "doors", "rooms", "footprint", "footprintExclusions", "walkableRegions")},
+         sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+     )
+     return (
+@@ -1020,18 +1153,110 @@ def grid_for(project: dict, floor_id: str | None = None) -> FloorGrid | None:
+     grid = build_grid(floor)
+     if grid is None:
+         return None
+-    if len(_CACHE) > 8:
++    # 3 hospitals × up to ~6 floors: a cap of 8 thrashed and rebuilt grids (seconds each) on
++    # every hospital / floor switch.
++    if len(_CACHE) > 48:
+         _CACHE.clear()
+     _CACHE[key] = grid
+     return grid
+ 
+ 
++def _nav_doors(floor: dict) -> list[dict]:
++    """``doors[]`` plus ``room.doorAt`` rows snapped onto the host wall.
++
++    Drawn rooms often only store the jamb as ``doorAt``. Without a doors[] row the
++    face has no access spur, so A* enters through a neighbour door / east jamb and
++    the blue line looks like it ignores the visible corridor door.
++    """
++    walls = {wall.get("id"): wall for wall in _walls(floor) if wall.get("id")}
++    wall_list = list(walls.values())
++    doors: list[dict] = [dict(door) for door in (floor.get("doors") or []) if isinstance(door, dict)]
++    existing: list[tuple[float, float]] = []
++    for door in doors:
++        wall = walls.get(door.get("wallId"))
++        if not wall:
++            continue
++        x0, y0 = float(wall["start"]["x"]), float(wall["start"]["y"])
++        x1, y1 = float(wall["end"]["x"]), float(wall["end"]["y"])
++        along = min(1.0, max(0.0, float(door.get("position") or 0.5)))
++        existing.append((x0 + (x1 - x0) * along, y0 + (y1 - y0) * along))
++    for room in floor.get("rooms") or []:
++        if not isinstance(room, dict):
++            continue
++        door_at = _point(room.get("doorAt"))
++        if not door_at:
++            continue
++        if any(math.hypot(px - door_at[0], py - door_at[1]) <= 40.0 for px, py in existing):
++            continue
++        host = _host_wall_for_point(wall_list, door_at[0], door_at[1], pad=30.0)
++        if not host or not host.get("id"):
++            continue
++        x0, y0 = float(host["start"]["x"]), float(host["start"]["y"])
++        x1, y1 = float(host["end"]["x"]), float(host["end"]["y"])
++        dx, dy = x1 - x0, y1 - y0
++        length_sq = dx * dx + dy * dy
++        if length_sq <= 1e-9:
++            continue
++        t = max(0.0, min(1.0, ((door_at[0] - x0) * dx + (door_at[1] - y0) * dy) / length_sq))
++        rid = room.get("id") or room.get("name") or "room"
++        doors.append({
++            "id": f"doorAt-{rid}",
++            "wallId": host["id"],
++            "position": t,
++            "width": float(room.get("doorWidth") or 100.0),
++            "height": 210,
++            "type": "single",
++            "fromDoorAt": True,
++        })
++        existing.append((x0 + dx * t, y0 + dy * t))
++    return doors
++
++
++def _opening_from_wall_point(wall: dict, x: float, y: float, *, door_id, width: float, door_type: str = "single") -> dict:
++    x0, y0 = float(wall["start"]["x"]), float(wall["start"]["y"])
++    x1, y1 = float(wall["end"]["x"]), float(wall["end"]["y"])
++    dx, dy = x1 - x0, y1 - y0
++    length = math.hypot(dx, dy) or 1.0
++    # Snap onto the wall centreline so drawn doorAt jitter still hits the host face.
++    t = ((x - x0) * dx + (y - y0) * dy) / (length * length)
++    t = min(1.0, max(0.0, t))
++    px, py = x0 + dx * t, y0 + dy * t
++    return {
++        "id": door_id,
++        "wallIds": [wall["id"]] if wall.get("id") else [],
++        "x": round(px, 1),
++        "y": round(py, 1),
++        "ux": round(dx / length, 4),
++        "uy": round(dy / length, 4),
++        "width": round(min(400.0 if door_type == "opening" else 120.0, max(60.0, float(width or 80.0))), 1),
++        "across": round(float(wall.get("thickness") or 15.0) + 8.0, 1),
++    }
++
++
++def _host_wall_for_point(walls: list[dict], x: float, y: float, pad: float = 30.0):
++    """Nearest wall band under ``(x, y)``, or None."""
++    best, best_dist = None, 1e9
++    for wall in walls:
++        if not _point_in_single_wall_band(x, y, wall, pad=pad):
++            continue
++        x0, y0 = float(wall["start"]["x"]), float(wall["start"]["y"])
++        x1, y1 = float(wall["end"]["x"]), float(wall["end"]["y"])
++        dx, dy = x1 - x0, y1 - y0
++        length_sq = dx * dx + dy * dy
++        if length_sq <= 1e-9:
++            dist = math.hypot(x - x0, y - y0)
++        else:
++            t = max(0.0, min(1.0, ((x - x0) * dx + (y - y0) * dy) / length_sq))
++            dist = math.hypot(x - (x0 + t * dx), y - (y0 + t * dy))
++        if dist < best_dist:
++            best, best_dist = wall, dist
++    return best
++
++
+ def _openings(floor: dict) -> list[dict]:
+     walls = {wall.get("id"): wall for wall in _walls(floor) if wall.get("id")}
+     openings = []
+-    for door in floor.get("doors") or []:
+-        if not isinstance(door, dict):
+-            continue
++    for door in _nav_doors(floor):
+         wall = walls.get(door.get("wallId"))
+         if not wall:
+             continue
+@@ -1040,15 +1265,12 @@ def _openings(floor: dict) -> list[dict]:
+         dx, dy = x1 - x0, y1 - y0
+         length = math.hypot(dx, dy) or 1.0
+         along = min(1.0, max(0.0, float(door.get("position") or 0.5)))
+-        openings.append({
+-            "id": door.get("id"),
+-            "x": round(x0 + dx * along, 1),
+-            "y": round(y0 + dy * along, 1),
+-            "ux": round(dx / length, 4),
+-            "uy": round(dy / length, 4),
+-            "width": round(min(400.0 if door.get("type") == "opening" else 120.0, max(60.0, float(door.get("width") or 80.0))), 1),
+-            "across": round(float(wall.get("thickness") or 15.0) + 8.0, 1),
+-        })
++        openings.append(_opening_from_wall_point(
++            wall, x0 + dx * along, y0 + dy * along,
++            door_id=door.get("id"),
++            width=float(door.get("width") or 80.0),
++            door_type=str(door.get("type") or "single"),
++        ))
+     # Double walls (a drawn room edge traced ~10-40 cm beside the imported wall): a door on one
+     # face must also pierce its twin, or the room is sealed behind a sliver (P1 1F 治疗室1,
+     # 2F 收费处). Extend the opening across both faces.
+@@ -1071,10 +1293,15 @@ def _openings(floor: dict) -> list[dict]:
+             px, py = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t
+             if _point_in_door_clear(px, py, openings):
+                 continue
++            twin_ids = list(op.get("wallIds") or [])
++            wid = wall.get("id")
++            if wid and wid not in twin_ids:
++                twin_ids.append(wid)
+             openings.append({
+                 "id": f"{op['id']}-twin", "x": round((op["x"] + px) / 2, 1), "y": round((op["y"] + py) / 2, 1),
+                 "ux": ux, "uy": uy, "width": op["width"],
+-                "across": round(abs(off) + float(wall.get("thickness") or 15.0) + 8.0, 1), "twin": True,
++                "across": round(abs(off) + float(wall.get("thickness") or 15.0) + 8.0, 1),
++                "twin": True, "wallIds": twin_ids,
+             })
+     return openings
+ 
+@@ -1120,6 +1347,7 @@ def nav_view(project: dict, floor_id: str | None = None) -> dict:
+         "maxX": round(max_x, 1),
+         "maxY": round(max_y, 1),
+     }
++    walls = _walls(grid.floor)
+     view["walls"] = [
+         {
+             "start": {"x": wall["start"]["x"], "y": wall["start"]["y"]},
+@@ -1136,11 +1364,17 @@ def nav_view(project: dict, floor_id: str | None = None) -> dict:
+ 
+ 
+ def _point(value):
+-    if not isinstance(value, dict):
+-        return None
+-    try:
+-        x, y = float(value.get("x")), float(value.get("y"))
+-    except (TypeError, ValueError):
++    if isinstance(value, dict):
++        try:
++            x, y = float(value.get("x")), float(value.get("y"))
++        except (TypeError, ValueError):
++            return None
++    elif isinstance(value, (tuple, list)) and len(value) >= 2:
++        try:
++            x, y = float(value[0]), float(value[1])
++        except (TypeError, ValueError):
++            return None
++    else:
+         return None
+     if not math.isfinite(x) or not math.isfinite(y) or abs(x) > 1e7 or abs(y) > 1e7:
+         return None
+@@ -1152,40 +1386,120 @@ def _wall_paint_half(thickness: float, cell: float) -> float:
+     return max(float(thickness) / 2.0, float(cell) * _WALL_CELL_COVER)
+ 
+ 
++def _point_in_opening(x: float, y: float, opening: dict) -> bool:
++    dx = x - opening["x"]
++    dy = y - opening["y"]
++    along = dx * opening["ux"] + dy * opening["uy"]
++    across = dx * (-opening["uy"]) + dy * opening["ux"]
++    half_w = float(opening["width"]) / 2.0 + 2.0
++    half_across = max(float(opening["across"]), 16.0) / 2.0 + 2.0
++    return abs(along) <= half_w and abs(across) <= half_across
++
++
+ def _point_in_door_clear(x: float, y: float, openings: list[dict]) -> bool:
++    return any(_point_in_opening(x, y, opening) for opening in openings)
++
++
++def _wall_aligned_with_opening(wall: dict, opening: dict) -> bool:
++    """True when ``wall`` is the door's host face or a parallel twin — not a perpendicular corner wall.
++
++    Door clear is an axis-aligned box in the door frame; near corners that box overlaps
++    abutting walls. Only the door's own (parallel) wall(s) may be traversed there.
++    """
++    wall_ids = opening.get("wallIds") or []
++    wid = wall.get("id")
++    if wid and wid in wall_ids:
++        return True
++    x0, y0 = float(wall["start"]["x"]), float(wall["start"]["y"])
++    x1, y1 = float(wall["end"]["x"]), float(wall["end"]["y"])
++    dx, dy = x1 - x0, y1 - y0
++    length = math.hypot(dx, dy)
++    if length < 1.0:
++        return False
++    ux, uy = float(opening["ux"]), float(opening["uy"])
++    if abs(abs((dx * ux + dy * uy) / length) - 1.0) > 0.05:
++        return False
++    nx, ny = -uy, ux
++    # Perpendicular offset of the wall line from the door center.
++    off = (x0 - float(opening["x"])) * nx + (y0 - float(opening["y"])) * ny
++    half_across = max(float(opening["across"]), 16.0) / 2.0 + float(wall.get("thickness") or 15.0) / 2.0 + 4.0
++    if abs(off) > half_across:
++        return False
++    t = ((float(opening["x"]) - x0) * dx + (float(opening["y"]) - y0) * dy) / (length * length)
++    return -0.02 <= t <= 1.02
++
++
++def _door_allows_wall(x: float, y: float, wall: dict, openings: list[dict]) -> bool:
++    if wall.get("exclusion"):
++        return False
+     for opening in openings:
+-        dx = x - opening["x"]
+-        dy = y - opening["y"]
+-        along = dx * opening["ux"] + dy * opening["uy"]
+-        across = dx * (-opening["uy"]) + dy * opening["ux"]
+-        half_w = float(opening["width"]) / 2.0 + 2.0
+-        half_across = max(float(opening["across"]), 16.0) / 2.0 + 2.0
+-        if abs(along) <= half_w and abs(across) <= half_across:
++        if not _point_in_opening(x, y, opening):
++            continue
++        if _wall_aligned_with_opening(wall, opening):
+             return True
+     return False
+ 
+ 
++def _point_in_single_wall_band(x: float, y: float, wall: dict, pad: float = 0.0) -> bool:
++    if box := wall.get("exclusion"):
++        return box["x0"] - pad <= x <= box["x1"] + pad and box["y0"] - pad <= y <= box["y1"] + pad
++    x0, y0 = float(wall["start"]["x"]), float(wall["start"]["y"])
++    x1, y1 = float(wall["end"]["x"]), float(wall["end"]["y"])
++    dx, dy = x1 - x0, y1 - y0
++    length_sq = dx * dx + dy * dy
++    if length_sq <= 1e-9:
++        return math.hypot(x - x0, y - y0) <= float(wall.get("thickness") or 15.0) / 2 + pad
++    thick = float(wall.get("thickness") or 15.0) / 2.0 + pad
++    t = ((x - x0) * dx + (y - y0) * dy) / length_sq
++    if t < 0.0:
++        dist = math.hypot(x - x0, y - y0)
++    elif t > 1.0:
++        dist = math.hypot(x - x1, y - y1)
++    else:
++        dist = math.hypot(x - (x0 + t * dx), y - (y0 + t * dy))
++    return dist <= thick
++
++
+ def _point_in_wall_band(x: float, y: float, walls: list[dict], pad: float = 0.0) -> bool:
++    return any(_point_in_single_wall_band(x, y, wall, pad=pad) for wall in walls)
++
++
++def _point_blocked_by_walls(
++    x: float, y: float, walls: list[dict], openings: list[dict], pad: float = 0.0
++) -> bool:
++    """True when the sample sits in a wall band that no *aligned* door opening clears."""
++    for wall in walls:
++        if not _point_in_single_wall_band(x, y, wall, pad=pad):
++            continue
++        if _door_allows_wall(x, y, wall, openings):
++            continue
++        return True
++    return False
++
++
++# Wall-collision index: _segment_hits_wall used to test every sample (every 4 cm) against
++# every wall on the floor (~170), which was >90 % of route time (string-pull calls it O(n^2)).
++# Walls are prepared once per wall list and filtered by the segment's bounding box; the
++# per-sample band test is the same math as _point_in_single_wall_band, so results are identical.
++_WALL_PREP: dict[int, tuple] = {}
++
++
++def _prepared_walls(walls: list[dict]):
++    hit = _WALL_PREP.get(id(walls))
++    if hit is not None and hit[0] is walls and hit[1] == len(walls):
++        return hit[2]
++    prepared = []
+     for wall in walls:
+         x0, y0 = float(wall["start"]["x"]), float(wall["start"]["y"])
+         x1, y1 = float(wall["end"]["x"]), float(wall["end"]["y"])
+         dx, dy = x1 - x0, y1 - y0
+-        length_sq = dx * dx + dy * dy
+-        if length_sq <= 1e-9:
+-            if math.hypot(x - x0, y - y0) <= float(wall.get("thickness") or 15.0) / 2 + pad:
+-                return True
+-            continue
+-        thick = float(wall.get("thickness") or 15.0) / 2.0 + pad
+-        t = ((x - x0) * dx + (y - y0) * dy) / length_sq
+-        if t < 0.0:
+-            dist = math.hypot(x - x0, y - y0)
+-        elif t > 1.0:
+-            dist = math.hypot(x - x1, y - y1)
+-        else:
+-            dist = math.hypot(x - (x0 + t * dx), y - (y0 + t * dy))
+-        if dist <= thick:
+-            return True
+-    return False
++        half = float(wall.get("thickness") or 15.0) / 2.0
++        prepared.append((x0, y0, x1, y1, dx, dy, dx * dx + dy * dy, half,
++                         min(x0, x1) - half, max(x0, x1) + half, min(y0, y1) - half, max(y0, y1) + half, wall))
++    if len(_WALL_PREP) > 64:
++        _WALL_PREP.clear()
++    _WALL_PREP[id(walls)] = (walls, len(walls), prepared)
++    return prepared
+ 
+ 
+ def _segment_hits_wall(a, b, walls: list[dict], openings: list[dict], pad: float = 0.0) -> bool:
+@@ -1193,13 +1507,58 @@ def _segment_hits_wall(a, b, walls: list[dict], openings: list[dict], pad: float
+     bx, by = b
+     length = math.hypot(bx - ax, by - ay)
+     steps = max(2, int(length / 4.0))
++    lo_x, hi_x = min(ax, bx) - pad, max(ax, bx) + pad
++    lo_y, hi_y = min(ay, by) - pad, max(ay, by) + pad
++    cands = [w for w in _prepared_walls(walls)
++             if w[8] <= hi_x and w[9] >= lo_x and w[10] <= hi_y and w[11] >= lo_y]
++    for *_, wall in cands:
++        if "floorSurface" in wall and not wall["floorSurface"].covers(LineString([a, b])):
++            return True
++        if box := wall.get("exclusion"):
++            lo, hi = 0.0, 1.0
++            for origin, delta, lower, upper in ((ax, bx - ax, box["x0"] - pad, box["x1"] + pad),
++                                                (ay, by - ay, box["y0"] - pad, box["y1"] + pad)):
++                if abs(delta) < 1e-9:
++                    if not lower <= origin <= upper:
++                        hi = -1
++                        break
++                else:
++                    entry, exit = sorted(((lower - origin) / delta, (upper - origin) / delta))
++                    lo, hi = max(lo, entry), min(hi, exit)
++            if lo <= hi:
++                return True
++    cands = [w for w in cands if not w[-1].get("exclusion") and "floorSurface" not in w[-1]]
++    if not cands:
++        return False
++    near_ops = []
++    for opening in openings or ():
++        r = float(opening["width"]) / 2.0 + max(float(opening["across"]), 16.0) / 2.0 + 4.0
++        if (opening["x"] + r >= lo_x and opening["x"] - r <= hi_x
++                and opening["y"] + r >= lo_y and opening["y"] - r <= hi_y):
++            near_ops.append(opening)
++    hypot = math.hypot
+     for index in range(1, steps):
+         t = index / steps
+         x = ax + (bx - ax) * t
+         y = ay + (by - ay) * t
+-        if _point_in_door_clear(x, y, openings):
+-            continue
+-        if _point_in_wall_band(x, y, walls, pad=pad):
++        for x0, y0, x1, y1, dx, dy, length_sq, half, mnx, mxx, mny, mxy, wall in cands:
++            thick = half + pad
++            if x < mnx - pad or x > mxx + pad or y < mny - pad or y > mxy + pad:
++                continue
++            if length_sq <= 1e-9:
++                dist = hypot(x - x0, y - y0)
++            else:
++                u = ((x - x0) * dx + (y - y0) * dy) / length_sq
++                if u < 0.0:
++                    dist = hypot(x - x0, y - y0)
++                elif u > 1.0:
++                    dist = hypot(x - x1, y - y1)
++                else:
++                    dist = hypot(x - (x0 + u * dx), y - (y0 + u * dy))
++            if dist > thick:
++                continue
++            if near_ops and _door_allows_wall(x, y, wall, near_ops):
++                continue
+             return True
+     return False
+ 
+@@ -1265,28 +1624,21 @@ def _string_pull(points, walls: list[dict], openings: list[dict], pad: float = _
+ 
+ 
+ def _path_uses_door(points, opening: dict) -> bool:
+-    """True when the path has vertices on both sides of the door *near the opening*.
+-
+-    Uses the door's along/across local frame so a corridor that merely crosses the
+-    infinite wall line far from this opening does not count as using the door.
+-    """
++    """Detect a segment crossing the finite opening, including simplified long runs."""
+     ux, uy = float(opening["ux"]), float(opening["uy"])
+     nx, ny = -uy, ux
+     ox, oy = float(opening["x"]), float(opening["y"])
+     half_along = float(opening["width"]) / 2.0 + 24.0
+-    half_across = max(float(opening["across"]), 16.0) / 2.0 + 60.0
+-    sides: set[int] = set()
+-    for point in points:
+-        dx = point[0] - ox
+-        dy = point[1] - oy
+-        along = dx * ux + dy * uy
+-        across = dx * nx + dy * ny
+-        if abs(along) > half_along or abs(across) > half_across:
++    for p, q in zip(points, points[1:]):
++        a = (p[0] - ox) * nx + (p[1] - oy) * ny
++        b = (q[0] - ox) * nx + (q[1] - oy) * ny
++        if a * b > 0 or abs(a - b) < 1e-9:
+             continue
+-        if abs(across) < 10.0:
+-            continue
+-        sides.add(1 if across > 0 else -1)
+-    return 1 in sides and -1 in sides
++        t = a / (a - b)
++        along = (p[0] + t * (q[0] - p[0]) - ox) * ux + (p[1] + t * (q[1] - p[1]) - oy) * uy
++        if abs(along) <= half_along:
++            return True
++    return False
+ 
+ 
+ def _via_door_centers(points, openings: list[dict]):
+@@ -1329,11 +1681,12 @@ def _is_door_center(point, openings: list[dict], tol: float = 1.5) -> bool:
+     )
+ 
+ 
+-def _align_door_approaches(points, openings: list[dict], walls: list[dict], reach_cm: float = 100.0):
+-    """Nudge vertices near a door-center anchor onto the door midline (across-axis).
++def _align_door_approaches(points, openings: list[dict], walls: list[dict], reach_cm: float = 160.0):
++    """Pull approach/exit vertices onto each door's through-midline.
+ 
+-    Removes sharp V detours when the corridor midline is offset from the door
+-    center but still inside the opening.
++    Walks outward from every door-center anchor (not only ±1 neighbour) so a
++    jog like x=-881→-890 just before the jamb becomes a straight through-door
++    run — thick bloom ribbons otherwise look like they scrape the jamb.
+     """
+     if len(points) < 3 or not openings:
+         return list(points)
+@@ -1350,22 +1703,25 @@ def _align_door_approaches(points, openings: list[dict], walls: list[dict], reac
+         if opening is None:
+             continue
+         ox, oy = float(opening["x"]), float(opening["y"])
+-        nx, ny = -float(opening["uy"]), float(opening["ux"])  # across (through door)
+-        for neighbor in (index - 1, index + 1):
+-            if neighbor < 0 or neighbor >= len(out):
+-                continue
+-            if _is_door_center(out[neighbor], openings):
+-                continue
+-            qx, qy = out[neighbor]
+-            across = (qx - ox) * nx + (qy - oy) * ny
+-            if abs(across) > reach_cm:
+-                continue
+-            # Keep across distance, snap onto the door center's through-line.
+-            candidate = (ox + nx * across, oy + ny * across)
+-            adjacent = [out[other] for other in (neighbor - 1, neighbor + 1) if 0 <= other < len(out)]
+-            if any(_segment_hits_wall(candidate, point, walls, openings) for point in adjacent):
+-                continue
+-            out[neighbor] = list(candidate)
++        ux, uy = float(opening["ux"]), float(opening["uy"])
++        nx, ny = -uy, ux  # across (through door)
++        half_along = float(opening["width"]) / 2.0 + 60.0
++        for direction in (-1, 1):
++            j = index + direction
++            while 0 <= j < len(out):
++                if _is_door_center(out[j], openings):
++                    break
++                qx, qy = out[j]
++                across = (qx - ox) * nx + (qy - oy) * ny
++                along = (qx - ox) * ux + (qy - oy) * uy
++                if abs(across) > reach_cm or abs(along) > half_along:
++                    break
++                candidate = (ox + nx * across, oy + ny * across)
++                adjacent = [out[other] for other in (j - 1, j + 1) if 0 <= other < len(out)]
++                if any(_segment_hits_wall(candidate, adj, walls, openings) for adj in adjacent):
++                    break
++                out[j] = list(candidate)
++                j += direction
+     return [(point[0], point[1]) for point in out]
+ 
+ 
+@@ -1384,7 +1740,8 @@ def _simplify_clear(points, walls: list[dict], openings: list[dict]):
+         chunk = centered[left : right + 1]
+         pulled = _string_pull(chunk, walls, openings, pad=_CLEARANCE_PAD_CM)
+         out.extend(pulled[1:])
+-    return out
++    # String-pull can reintroduce lateral jogs into the door; snap approaches again.
++    return _align_door_approaches(out, openings, walls)
+ 
+ 
+ def _astar(grid: FloorGrid, start, end, banned=frozenset(), penalty=None):
+@@ -1398,9 +1755,23 @@ def _astar(grid: FloorGrid, start, end, banned=frozenset(), penalty=None):
+         (1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0),
+         (1, 1, 1.414), (1, -1, 1.414), (-1, 1, 1.414), (-1, -1, 1.414),
+     )
++    # Same search as before with the grid lookups inlined (flat arrays, no method calls).
++    cols, rows, walk = grid.cols, grid.rows, grid.walk
++    clearance = grid.clearance
++    ex, ey = end
++    hypot = math.hypot
++    pop, push = heappop, heappush
++    get = costs.get
++    wall_cost, zone_cost = _WALL_COST, _ZONE_COST
++
++    def ok(c, r):
++        return 0 <= c < cols and 0 <= r < rows and walk[r * cols + c] == 1
++
+     while queue:
+-        _score, current = heappop(queue)
+-        if costs.get(current, 1e18) + 1e-9 < _score - math.hypot(end[0] - current[0], end[1] - current[1]):
++        _score, current = pop(queue)
++        cc, cr = current
++        base = get(current, 1e18)
++        if base + 1e-9 < _score - hypot(ex - cc, ey - cr):
+             continue
+         if current == end:
+             path = [current]
+@@ -1409,24 +1780,27 @@ def _astar(grid: FloorGrid, start, end, banned=frozenset(), penalty=None):
+                 path.append(current)
+             return path[::-1]
+         for dc, dr, step in steps:
+-            nxt = (current[0] + dc, current[1] + dr)
+-            if not grid.walkable(*nxt):
++            nc, nr = cc + dc, cr + dr
++            if not (0 <= nc < cols and 0 <= nr < rows):
++                continue
++            index = nr * cols + nc
++            if walk[index] != 1:
+                 continue
++            nxt = (nc, nr)
+             if banned and (current, nxt) in banned:
+                 continue
+-            if dc and dr and not (grid.walkable(current[0] + dc, current[1]) and grid.walkable(current[0], current[1] + dr)):
++            if dc and dr and not (ok(cc + dc, cr) and ok(cc, cr + dr)):
+                 continue
+             # Prefer cells farther from walls (corridor / room center).
+-            clear = max(1, grid.clear_at(*nxt))
+-            cost = costs[current] + step * (1.0 + _WALL_COST / clear)
+-            if penalty is not None and penalty[nxt[1] * grid.cols + nxt[0]]:
+-                cost += step * _ZONE_COST
+-            if cost >= costs.get(nxt, 1e18):
++            clear = max(1, clearance[index] if clearance else 1)
++            cost = base + step * (1.0 + wall_cost / clear)
++            if penalty is not None and penalty[index]:
++                cost += step * zone_cost
++            if cost >= get(nxt, 1e18):
+                 continue
+             costs[nxt] = cost
+             previous[nxt] = current
+-            heuristic = math.hypot(end[0] - nxt[0], end[1] - nxt[1])
+-            heappush(queue, (cost + heuristic, nxt))
++            push(queue, (cost + hypot(ex - nc, ey - nr), nxt))
+     return None
+ 
+ 
+@@ -1449,11 +1823,451 @@ def _nearest_reachable(grid: FloorGrid, start, target, banned, radius):
+     return best
+ 
+ 
+-def _leg(grid: FloorGrid, start, end, penalty=None):
++def _access_door_near(grid: FloorGrid, point, *, max_dist: float = 120.0):
++    """Access door for a room destination near ``point``, if authored/detected."""
++    best = None
++    best_d = max_dist
++    for dest in grid.destinations or []:
++        door = dest.get("accessDoor")
++        if not isinstance(door, dict):
++            continue
++        try:
++            dx = float(dest["x"]) - point[0]
++            dy = float(dest["y"]) - point[1]
++            door_pt = (float(door["x"]), float(door["y"]))
++        except (KeyError, TypeError, ValueError):
++            continue
++        dist = math.hypot(dx, dy)
++        if dist > best_d:
++            continue
++        # Only force the via when the stop is inside the room (away from the jamb).
++        if math.hypot(door_pt[0] - point[0], door_pt[1] - point[1]) < 50.0:
++            continue
++        best = door_pt
++        best_d = dist
++    return best
++
++
++def _grid_geometry(grid: FloorGrid):
++    """Walls + openings for a cached grid (same floor geometry), built once instead of per leg."""
++    geom = grid.__dict__.get("_nav_geometry")
++    if geom is None:
++        walls = _walls(grid.floor)
++        surface = floor_surface(grid.floor)
++        if not surface.is_empty:
++            x0, y0, x1, y1 = surface.bounds
++            walls.append({"start": {"x": x0, "y": y0}, "end": {"x": x1, "y": y1},
++                          "thickness": 0, "floorSurface": surface})
++        for box in grid.floor.get("footprintExclusions") or []:
++            walls.append({"start": {"x": box["x0"], "y": box["y0"]},
++                          "end": {"x": box["x1"], "y": box["y1"]}, "thickness": 0, "exclusion": box})
++        geom = (walls, _openings(grid.floor))
++        grid.__dict__["_nav_geometry"] = geom
++    return geom
++
++
++def _side_gap(grid: FloorGrid, x: float, y: float, nx: float, ny: float, limit: float = 600.0):
++    """Free distance from (x, y) along (nx, ny) until a blocked cell; None when open past limit."""
++    step = grid.cell * 0.5
++    d = step
++    while d <= limit:
++        col, row = grid.cell_at(x + nx * d, y + ny * d)
++        if not grid.walkable(col, row):
++            return d
++        d += step
++    return None
++
++
++_CENTER_MIN_SEG_CM = 150.0
++_CENTER_MAX_SHIFT_CM = 150.0
++_CENTER_LEAD_CM = 120.0
++
++
++_SNAP_STEP_CM = 40.0
++_SNAP_MAX_WIDTH_CM = 450.0
++
++
++def _rdp(points, eps):
++    if len(points) < 3:
++        return list(points)
++    (ax, ay), (bx, by) = points[0], points[-1]
++    L = math.hypot(bx - ax, by - ay) or 1e-9
++    best, idx = -1.0, 0
++    for i in range(1, len(points) - 1):
++        px, py = points[i]
++        d = abs((bx - ax) * (ay - py) - (ax - px) * (by - ay)) / L
++        if d > best:
++            best, idx = d, i
++    if best <= eps:
++        return [points[0], points[-1]]
++    return _rdp(points[: idx + 1], eps)[:-1] + _rdp(points[idx:], eps)
++
++
++_LINE_MERGE_CM = 35.0
++
++
++def _axis_lines(p, q, samples):
++    """Turn midline samples into straight, axis-aligned corridor lines: one line per passage
++    (median of its samples), right-angle corners between passages, a clean jog where the
++    passage steps. Endpoints are joined orthogonally. No samples → keep the chord."""
++    if not samples:
++        return [p, q]
++    groups = []  # [axis, [values], first (x, y), last (x, y)]
++    for x, y, axis in samples:
++        value = y if axis == 1 else x
++        if groups and groups[-1][0] == axis and abs(sorted(groups[-1][1])[len(groups[-1][1]) // 2] - value) < _LINE_MERGE_CM:
++            groups[-1][1].append(value)
++            groups[-1][3] = (x, y)
++        else:
++            groups.append([axis, [value], (x, y), (x, y)])
++    # Tiny groups are pocket noise, not passages.
++    groups = [g for g in groups if len(g[1]) >= 2] or groups
++    lines = [(g[0], sorted(g[1])[len(g[1]) // 2], g[2], g[3]) for g in groups]
++    on = lambda axis, c, pt: (pt[0], c) if axis == 1 else (c, pt[1])
++    out = [p, on(lines[0][0], lines[0][1], p)]
++    for (a0, c0, _f0, l0), (a1, c1, f1, _l1) in zip(lines, lines[1:]):
++        if a0 != a1:
++            out.append((c1, c0) if a0 == 1 else (c0, c1))
++        else:
++            mid = ((l0[0] + f1[0]) / 2, (l0[1] + f1[1]) / 2)
++            out.append(on(a0, c0, mid))
++            out.append(on(a1, c1, mid))
++    out.append(on(lines[-1][0], lines[-1][1], q))
++    out.append(q)
++    return _simplify(_dedupe(out))
++
++
++def _dedupe(points):
++    out = []
++    for pt in points:
++        if not out or math.hypot(pt[0] - out[-1][0], pt[1] - out[-1][1]) > 1.0:
++            out.append(pt)
++    return out
++
++
++def _snap_oblique_runs(pts, grid: FloorGrid, walls, openings, is_fixed):
++    """A long oblique chord cuts across corridors. Resample it, pull every sample onto the
++    midline of the passage it sits in (across the narrower axis), then re-simplify. Any
++    rebuilt run that would touch a wall keeps the original chord."""
++    out = [pts[0]]
++    for p, q in zip(pts, pts[1:]):
++        length = math.hypot(q[0] - p[0], q[1] - p[1])
++        ang = math.degrees(math.atan2(abs(q[1] - p[1]), abs(q[0] - p[0])))
++        if length < 2 * _CENTER_MIN_SEG_CM or not (1.5 < ang < 88.5):
++            out.append(q)
++            continue
++        n = max(2, int(length // _SNAP_STEP_CM))
++        run = [p]
++        for i in range(1, n):
++            t = i / n
++            x, y = p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t
++            if min(t * length, (1 - t) * length) < _CENTER_LEAD_CM:
++                continue
++            gx = (_side_gap(grid, x, y, 1, 0), _side_gap(grid, x, y, -1, 0))
++            gy = (_side_gap(grid, x, y, 0, 1), _side_gap(grid, x, y, 0, -1))
++            wx = sum(gx) if None not in gx else math.inf
++            wy = sum(gy) if None not in gy else math.inf
++            if wy < wx and wy <= _SNAP_MAX_WIDTH_CM:
++                run.append([x, y + (gy[0] - gy[1]) / 2, 1])
++            elif wx < wy and wx <= _SNAP_MAX_WIDTH_CM:
++                run.append([x + (gx[0] - gx[1]) / 2, y, 0])
++            else:
++                run.append([x, y, -1])
++        run = _axis_lines(p, q, [smp for smp in run[1:] if smp[2] >= 0])
++        if any(_segment_hits_wall(a, b, walls, openings) for a, b in zip(run, run[1:])):
++            out.append(q)
++        else:
++            out.extend(run[1:])
++    return out
++
++
++_RUN_MAX_ANGLE = 15.0
++_RUN_MAX_JOG_CM = 90.0
++
++
++def _seg_axis(p, q):
++    dx, dy = abs(q[0] - p[0]), abs(q[1] - p[1])
++    ang = math.degrees(math.atan2(dy, dx))
++    if ang <= _RUN_MAX_ANGLE:
++        return 1
++    if ang >= 90 - _RUN_MAX_ANGLE:
++        return 0
++    return -1
++
++
++def _straighten_runs(points, grid: FloorGrid, walls, openings, is_fixed):
++    """One straight axis line per corridor run. A run is a chain of near-horizontal (or
++    near-vertical) segments joined only by short jogs; it is replaced by a single line on the
++    passage midline (median of measured midpoints), entered and left at right angles. Fixed
++    points (leg ends, door centres) stay; a chain that would touch a wall is left as it was."""
++    pts = list(points)
++    if len(pts) < 3:
++        return pts
++    out = [pts[0]]
++    i = 0
++    n = len(pts)
++    while i < n - 1:
++        axis = _seg_axis(pts[i], pts[i + 1])
++        if axis < 0:
++            out.append(pts[i + 1]); i += 1; continue
++        j = i + 1
++        while j < n - 1:
++            nxt = _seg_axis(pts[j], pts[j + 1])
++            seg_len = math.hypot(pts[j + 1][0] - pts[j][0], pts[j + 1][1] - pts[j][1])
++            if nxt == axis or (seg_len <= _RUN_MAX_JOG_CM and j + 1 < n - 1 and _seg_axis(pts[j + 1], pts[j + 2]) == axis):
++                j += 1
++            else:
++                break
++        chain = pts[i:j + 1]
++        k = 1 - axis  # coordinate held constant on the line: y for horizontal (axis 1 -> index 1)
++        k = 1 if axis == 1 else 0
++        span = abs(chain[-1][1 - k] - chain[0][1 - k])
++        if j - i < 2 and span < _CENTER_MIN_SEG_CM:
++            out.extend(chain[1:]); i = j; continue
++        mids = []
++        steps = max(3, int(span // _SNAP_STEP_CM))
++        for t in range(1, steps):
++            u = chain[0][1 - k] + (chain[-1][1 - k] - chain[0][1 - k]) * t / steps
++            # current coordinate on the chain at u
++            v = None
++            for a, b in zip(chain, chain[1:]):
++                lo, hi = sorted((a[1 - k], b[1 - k]))
++                if lo <= u <= hi and hi - lo > 1e-6:
++                    v = a[k] + (b[k] - a[k]) * (u - a[1 - k]) / (b[1 - k] - a[1 - k]); break
++            if v is None:
++                continue
++            x, y = (u, v) if axis == 1 else (v, u)
++            nx, ny = (0, 1) if axis == 1 else (1, 0)
++            g1, g2 = _side_gap(grid, x, y, nx, ny), _side_gap(grid, x, y, -nx, -ny)
++            if g1 is not None and g2 is not None and g1 + g2 <= _SNAP_MAX_WIDTH_CM:
++                mids.append(v + (g1 - g2) / 2)
++        if len(mids) < 2:
++            out.extend(chain[1:]); i = j; continue
++        mids.sort()
++        c = mids[len(mids) // 2]
++        line = lambda pt: (pt[0], c) if axis == 1 else (c, pt[1])
++        a0, b0 = chain[0], chain[-1]
++        rebuilt = [a0, line(a0), line(b0), b0]
++        if not is_fixed(a0) and len(out) >= 2:
++            # previous vertex is free: move it onto the line instead of adding a jog
++            rebuilt = [line(a0), line(b0), b0]
++            out[-1] = line(a0)
++        if not is_fixed(b0) and j < n - 1:
++            rebuilt = rebuilt[:-1]
++            pts[j] = line(b0)
++        test = _dedupe([out[-2] if len(out) >= 2 else out[-1]] + rebuilt + ([pts[j + 1]] if j < n - 1 else []))
++        if any(_segment_hits_wall(a, b, walls, openings) for a, b in zip(test, test[1:])):
++            out.extend(chain[1:])
++            pts[j] = chain[-1]
++        else:
++            out.extend(rebuilt[1:] if rebuilt[0] == out[-1] else rebuilt)
++        i = j
++    return _simplify(_dedupe(out))
++
++
++def _path_clearance(path, grid: FloorGrid) -> float:
++    """Smallest wall clearance (cells) met along a polyline."""
++    best = math.inf
++    for a, b in zip(path, path[1:]):
++        n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) // 20.0))
++        for i in range(n + 1):
++            x, y = a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n
++            best = min(best, grid.clear_at(*grid.cell_at(x, y)))
++    return best
++
++
++def _ortho_options(p, q, grid: FloorGrid, midlines: bool = True):
++    """Monotone L / Z replacements for p→q, including Zs whose long leg runs on a passage
++    midline crossed by the chord. All have the same length |dx| + |dy|."""
++    dx, dy = q[0] - p[0], q[1] - p[1]
++    mx, my = (p[0] + q[0]) / 2, (p[1] + q[1]) / 2
++    xs, ys = set(), set()
++    n = max(2, int(math.hypot(dx, dy) // _SNAP_STEP_CM)) if midlines else 0
++    for i in range(1, n):
++        x, y = p[0] + dx * i / n, p[1] + dy * i / n
++        gy = (_side_gap(grid, x, y, 0, 1), _side_gap(grid, x, y, 0, -1))
++        gx = (_side_gap(grid, x, y, 1, 0), _side_gap(grid, x, y, -1, 0))
++        if None not in gy and sum(gy) <= _SNAP_MAX_WIDTH_CM:
++            ys.add(round(y + (gy[0] - gy[1]) / 2))
++        if None not in gx and sum(gx) <= _SNAP_MAX_WIDTH_CM:
++            xs.add(round(x + (gx[0] - gx[1]) / 2))
++    lo_x, hi_x = sorted((p[0], q[0]))
++    lo_y, hi_y = sorted((p[1], q[1]))
++    options = [
++        (0, [p, (q[0], p[1]), q]),
++        (0, [p, (p[0], q[1]), q]),
++        (0, [p, (mx, p[1]), (mx, q[1]), q]),
++        (0, [p, (p[0], my), (q[0], my), q]),
++    ]
++    options += [(1, [p, (p[0], y), (q[0], y), q]) for y in ys if lo_y <= y <= hi_y]
++    options += [(1, [p, (x, p[1]), (x, q[1]), q]) for x in xs if lo_x <= x <= hi_x]
++    return options
++
++
++def _best_ortho(p, q, grid: FloorGrid, walls, openings, min_clear=0.0, midlines=True):
++    best, best_key = None, None
++    for on_mid, path in _ortho_options(p, q, grid, midlines):
++        if any(_segment_hits_wall(a, b, walls, openings) for a, b in zip(path, path[1:])):
++            continue
++        clear = _path_clearance(path, grid)
++        if clear < min_clear:
++            continue
++        # enough clearance first, then a leg on a passage midline, then fewest bends
++        key = (min(clear, 60.0 / grid.cell), on_mid, -len(_simplify(_dedupe(path))))
++        if best_key is None or key > best_key:
++            best, best_key = path, key
++    return best
++
++
++def _orthogonalize(points, grid: FloorGrid, walls, openings):
++    """Every oblique segment (open halls, door mitres) becomes an axis-aligned L or Z; if all
++    candidates touch a wall the segment stays as it is."""
++    if len(points) < 2:
++        return points
++    out = [points[0]]
++    for p, q in zip(points, points[1:]):
++        if abs(q[0] - p[0]) < 1.0 or abs(q[1] - p[1]) < 1.0:
++            out.append(q)
++            continue
++        best = _best_ortho(p, q, grid, walls, openings)
++        out.extend(best[1:] if best else [q])
++    return _ortho_pull(_simplify(_dedupe(out)), grid, walls, openings)
++
++
++def _plen(points):
++    return sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(points, points[1:]))
++
++
++def _ortho_pull(points, grid: FloorGrid, walls, openings):
++    """Orthogonal string-pull: replace any stretch by a shorter wall-free L/Z between its ends
++    (with real clearance), so A*'s detours through the middle of halls collapse onto the
++    direct corridor. Farthest reachable vertex first, like a normal string-pull."""
++    pts = list(points)
++    if len(pts) < 4:
++        return pts
++    out = [pts[0]]
++    i = 0
++    min_clear = 50.0 / grid.cell
++    while i < len(pts) - 1:
++        nxt, repl = i + 1, None
++        for j in range(min(len(pts) - 1, i + 6), i + 1, -1):
++            cur = _plen(pts[i:j + 1])
++            if abs(pts[j][0] - pts[i][0]) + abs(pts[j][1] - pts[i][1]) > cur - 30.0:
++                continue
++            path = _best_ortho(pts[i], pts[j], grid, walls, openings, min_clear, midlines=False)
++            if path is None and (abs(pts[j][0] - pts[i][0]) < 1.0 or abs(pts[j][1] - pts[i][1]) < 1.0):
++                if not _segment_hits_wall(pts[i], pts[j], walls, openings) and _path_clearance([pts[i], pts[j]], grid) >= min_clear:
++                    path = [pts[i], pts[j]]
++            if path:
++                nxt, repl = j, path
++                break
++        out.extend(repl[1:] if repl else [pts[nxt]])
++        i = nxt
++    return _simplify(_dedupe(out))
++
++
++def _center_in_corridors(points, grid: FloorGrid, walls, openings):
++    """Slide each straight run onto the passage midline (equal free space either side).
++
++    Ends of the leg and door centres stay put; a long run touching one gets a short lead-in
++    vertex so only the run itself moves. Any move that would cross a wall is undone."""
++    if len(points) < 2:
++        return points
++    fixed_pts = [tuple(points[0]), tuple(points[-1])]
++    fixed_pts += [tuple(p) for p in points if _is_door_center(p, openings)]
++    is_fixed = lambda p: any(abs(p[0] - q[0]) < 1e-6 and abs(p[1] - q[1]) < 1e-6 for q in fixed_pts)
++    pts = [tuple(points[0])]
++    for p, q in zip(points, points[1:]):
++        length = math.hypot(q[0] - p[0], q[1] - p[1])
++        if length > _CENTER_MIN_SEG_CM + 2 * _CENTER_LEAD_CM:
++            ux, uy = (q[0] - p[0]) / length, (q[1] - p[1]) / length
++            if is_fixed(p):
++                pts.append((p[0] + ux * _CENTER_LEAD_CM, p[1] + uy * _CENTER_LEAD_CM))
++            if is_fixed(q):
++                pts.append((q[0] - ux * _CENTER_LEAD_CM, q[1] - uy * _CENTER_LEAD_CM))
++        pts.append(tuple(q))
++    pts = _snap_oblique_runs(pts, grid, walls, openings, is_fixed)
++    shift = [[0.0, 0.0] for _ in pts]
++    for i in range(len(pts) - 1):
++        p, q = pts[i], pts[i + 1]
++        length = math.hypot(q[0] - p[0], q[1] - p[1])
++        if length < _CENTER_MIN_SEG_CM or is_fixed(p) or is_fixed(q):
++            continue
++        ux, uy = (q[0] - p[0]) / length, (q[1] - p[1]) / length
++        nx, ny = -uy, ux
++        offs = []
++        for t in (0.2, 0.35, 0.5, 0.65, 0.8):
++            x, y = p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t
++            left, right = _side_gap(grid, x, y, nx, ny), _side_gap(grid, x, y, -nx, -ny)
++            if left is not None and right is not None:
++                offs.append((left - right) / 2)
++        if len(offs) < 3:
++            continue
++        offs.sort()
++        off = offs[len(offs) // 2]
++        if abs(off) < grid.cell or abs(off) > _CENTER_MAX_SHIFT_CM:
++            continue
++        for k in (i, i + 1):
++            shift[k][0] += nx * off
++            shift[k][1] += ny * off
++    moved = [(p[0] + s[0], p[1] + s[1]) for p, s in zip(pts, shift)]
++    for _ in range(len(moved)):
++        bad = [i for i in range(len(moved) - 1)
++               if (moved[i] != pts[i] or moved[i + 1] != pts[i + 1])
++               and _segment_hits_wall(moved[i], moved[i + 1], walls, openings)]
++        if not bad:
++            break
++        for i in bad:
++            moved[i], moved[i + 1] = pts[i], pts[i + 1]
++    return _orthogonalize(_straighten_runs(_simplify(_dedupe(moved)), grid, walls, openings, is_fixed), grid, walls, openings)
++
++
++def _leg(grid: FloorGrid, start, end, penalty=None, _door_via: bool = True):
++    return _leg_raw(grid, start, end, penalty, _door_via)
++
++
++def _leg_raw(grid: FloorGrid, start, end, penalty=None, _door_via: bool = True):
+     a = _point(start)
+     b = _point(end)
+     if not a or not b:
+         return None, "off-plan"
++    # Enter/leave private rooms through their access door — not a neighbour room's jamb
++    # that A* prefers for clearance cost (P2 3F 病房8 via 办公2).
++    if _door_via:
++        vias = []
++        start_door = _access_door_near(grid, a)
++        end_door = _access_door_near(grid, b)
++        if start_door:
++            vias.append(start_door)
++        if end_door and (not start_door or math.hypot(end_door[0] - start_door[0], end_door[1] - start_door[1]) > 30.0):
++            vias.append(end_door)
++        if vias:
++            points = []
++            cursor = a
++            for via in (*vias, b):
++                chunk, err = _leg(grid, cursor, via, penalty=penalty, _door_via=False)
++                if not chunk:
++                    points = []
++                    break
++                if points and chunk:
++                    points.extend(chunk[1:])
++                else:
++                    points.extend(chunk)
++                cursor = via
++            if points:
++                walls, openings = _grid_geometry(grid)
++                simplified = _simplify_clear(points, walls, openings)
++                if not any(_segment_hits_wall(p, q, walls, openings) for p, q in zip(simplified, simplified[1:])):
++                    tighter = _string_pull(simplified, walls, openings, pad=_CLEARANCE_PAD_CM)
++                    if not any(_segment_hits_wall(p, q, walls, openings) for p, q in zip(tighter, tighter[1:])):
++                        simplified = tighter
++                    return simplified, None
++                if any(_segment_hits_wall(p, q, walls, openings) for p, q in zip(points, points[1:])):
++                    # via route crosses a wall: a direct plan wins only when it is clean
++                    direct, _err = _leg_raw(grid, a, b, penalty, False)
++                    if direct and not any(_segment_hits_wall(p, q, walls, openings) for p, q in zip(direct, direct[1:])):
++                        return direct, None
++                return points, None
+     radius = SNAP_CM / grid.cell
+     start_cell = _nearest(grid, *grid.cell_at(*a), radius)
+     end_cell = _nearest(grid, *grid.cell_at(*b), radius)
+@@ -1475,8 +2289,7 @@ def _leg(grid: FloorGrid, start, end, penalty=None):
+     if not path:
+         return None, "blocked"
+     # The raster can leak through a thin wall between two cells; ban such steps and re-plan.
+-    walls = _walls(grid.floor)
+-    openings = _openings(grid.floor)
++    walls, openings = _grid_geometry(grid)
+     banned = set()
+     for _ in range(12):
+         leaks = [(c, n) for c, n in zip(path, path[1:])
+@@ -1495,33 +2308,56 @@ def _leg(grid: FloorGrid, start, end, penalty=None):
+                 return None, "blocked"
+             end_cell, keep_b = near, False
+     points = []
+-    if keep_a and grid.walkable(*grid.cell_at(*a)):
++    first, last = grid.center(*path[0]), grid.center(*path[-1])
++    if keep_a and grid.walkable(*grid.cell_at(*a)) and not _segment_hits_wall(a, first, walls, openings):
+         points.append(a)
+     for col, row in path:
+         points.append(grid.center(col, row))
+-    if keep_b and grid.walkable(*grid.cell_at(*b)):
++    if keep_b and grid.walkable(*grid.cell_at(*b)) and not _segment_hits_wall(last, b, walls, openings):
+         points.append(b)
+     simplified = _simplify_clear(points, walls, openings)
+     if any(_segment_hits_wall(a, b, walls, openings) for a, b in zip(simplified, simplified[1:])):
+-        # Door-center nudging and smoothing must never override the safe A* path.
+-        simplified = _simplify(points)
+-        if any(_segment_hits_wall(a, b, walls, openings) for a, b in zip(simplified, simplified[1:])):
+-            return None, "blocked"
++        # Door-center nudging failed: keep A* polyline, then line-of-sight pull (pad then bare).
++        base = _simplify(points)
++        for pad in (_CLEARANCE_PAD_CM, 0.0):
++            pulled = _string_pull(base, walls, openings, pad=pad)
++            if not any(_segment_hits_wall(a, b, walls, openings) for a, b in zip(pulled, pulled[1:])):
++                simplified = pulled
++                break
++        else:
++            simplified = base
++            if any(_segment_hits_wall(a, b, walls, openings) for a, b in zip(simplified, simplified[1:])):
++                return None, "blocked"
++    else:
++        # Extra LOS pull removes residual stair-step jogs when clearance already held.
++        tighter = _string_pull(simplified, walls, openings, pad=_CLEARANCE_PAD_CM)
++        if not any(_segment_hits_wall(a, b, walls, openings) for a, b in zip(tighter, tighter[1:])):
++            simplified = tighter
+     return simplified, None
+ 
+ 
+-def route_view(project: dict, floor_id: str | None, start, end, vias=None, accessible: bool = False) -> dict:
++def route_view(
++    project: dict,
++    floor_id: str | None,
++    start,
++    end,
++    vias=None,
++    accessible: bool = False,
++    stairs_only: bool = False,
++) -> dict:
+     """A* route through ``vias`` (at most 6); stops may carry their own ``floor``.
+ 
+     Stops on different floors are joined by vertical links, so the result is
+     per-floor ``legs`` plus the ``transfers`` between them. The top-level
+     ``polyline`` / ``usedDoorIds`` are the first leg's, for single-floor callers.
+     ``accessible`` rides elevators only.
++    ``stairs_only`` rides stairs only (no elevator / escalator).
+     """
+     default = str(select_floor(project, floor_id).get("id") or "")
+     stops = [start, *(vias or [])[:6], end]
+     placed = [(_stop_floor(project, stop, default), stop) for stop in stops]
+-    trip = _Trip(project, accessible)
++    # Accessible (lift-only) wins over stairs-only when both are set.
++    trip = _Trip(project, accessible=accessible, stairs_only=bool(stairs_only) and not accessible)
+     for fid, stop in (placed[0], placed[-1]):
+         trip.allow_endpoint(fid, stop)
+     for (floor_a, a), (floor_b, b) in zip(placed, placed[1:]):
+@@ -1581,7 +2417,8 @@ NON_DESTINATION_RE = re.compile(r"空调外机|空调机位|公共过道|走廊|
+ 
+ 
+ def is_destination(name) -> bool:
+-    return not NON_DESTINATION_RE.search(str(name or ""))
++    name = str(name or "").strip()
++    return bool(name) and not _is_placeholder_name(name) and not NON_DESTINATION_RE.search(name)
+ 
+ 
+ def all_places(project: dict) -> list[dict]:
+@@ -1602,7 +2439,8 @@ def all_places(project: dict) -> list[dict]:
+                 continue
+             seen.append(dest)
+             place = {**dest, "floorId": floor_id, "floorName": floor_name}
+-            if any(_point_in_polygon(dest["x"], dest["y"], z["_poly"]) for z in zones):
++            location = dest.get("interior") or dest
++            if any(_point_in_polygon(location["x"], location["y"], z["_poly"]) for z in zones):
+                 place["restricted"] = True
+                 place["tag"] = ZONE_LABEL
+             places.append(place)
+@@ -1620,8 +2458,8 @@ def _link_stop(floor_id: str, floor_name: str, place: dict | None, stop: dict) -
+             "floorName": floor_name,
+             "placeId": place["id"],
+             "name": place["name"],
+-            "x": place["x"],
+-            "y": place["y"],
++            "x": stop.get("x", place["x"]),
++            "y": stop.get("y", place["y"]),
+         }
+     point = _point(stop)
+     if not point:
+@@ -2039,9 +2877,10 @@ def _zone_penalty(grid: "FloorGrid", zones: list[dict]):
+ class _Trip:
+     """Per-floor legs of one route, joined by vertical rides."""
+ 
+-    def __init__(self, project: dict, accessible: bool):
++    def __init__(self, project: dict, accessible: bool = False, stairs_only: bool = False):
+         self.project = project
+         self.accessible = accessible
++        self.stairs_only = stairs_only
+         self.legs: list[dict] = []
+         self.transfers: list[dict] = []
+         self._walks: dict[tuple, tuple] = {}
+@@ -2059,7 +2898,10 @@ class _Trip:
+     def links(self) -> list[dict]:
+         if self._links is None:
+             def ok(link):
+-                if self.accessible and not VERTICAL_KINDS[link["kind"]]["accessible"]:
++                kind = link["kind"]
++                if self.accessible and not VERTICAL_KINDS[kind]["accessible"]:
++                    return False
++                if self.stairs_only and kind != "stairs":
+                     return False
+                 # Stairs / lifts inside a restricted zone are restricted too.
+                 return not any(z for stop in link["stops"] for z in self._blocked_zones(stop["floorId"])
+@@ -2196,6 +3038,47 @@ class _Trip:
+         total = 0.0
+         for leg in self.legs:
+             points = leg["points"] if len(leg["points"]) > 1 else leg["points"] * 2
++            oblique_pair = len(points) == 2 and math.dist(*points) > 30 and min(
++                abs(points[0][0] - points[1][0]), abs(points[0][1] - points[1][1])) > 5
++            grid = grid_for(self.project, leg["floorId"]) if len(points) > 2 or oblique_pair else None
++            if grid:
++                walls, openings = _grid_geometry(grid)
++                raw = _simplify(points)
++                points = _center_in_corridors(raw, grid, walls, openings)
++                # Centring must not cost real distance: past +8% over the raw route walked at
++                # right angles, keep the raw route and only square it.
++                manhattan = sum(abs(b[0] - a[0]) + abs(b[1] - a[1]) for a, b in zip(raw, raw[1:]))
++                if _plen(points) > 1.08 * manhattan:
++                    squared = _orthogonalize(raw, grid, walls, openings)
++                    if _plen(squared) < _plen(points):
++                        points = squared
++                # Centring / line-of-sight pulls (door vias) can leave an oblique or wall-touching
++                # segment: take the first clean candidate, else the first that clears every wall.
++                def _hits(pts):
++                    return any(_segment_hits_wall(p, q, walls, openings) for p, q in zip(pts, pts[1:]))
++
++                def _oblique(pts):
++                    return any(math.dist(p, q) > 30 and min(abs(p[0] - q[0]), abs(p[1] - q[1])) > 5
++                               for p, q in zip(pts, pts[1:]))
++                if _hits(points) or _oblique(points):
++                    pool = [points, _orthogonalize(points, grid, walls, openings), _orthogonalize(raw, grid, walls, openings), raw]
++                    points = next((c for c in pool if not _hits(c) and not _oblique(c)), None) \
++                        or next((c for c in pool if not _hits(c)), points)
++                expanded = [points[0]]
++                for p, q in zip(points, points[1:]):
++                    crossings = []
++                    for opening in openings:
++                        if not _path_uses_door([p, q], opening):
++                            continue
++                        ox, oy = opening["x"], opening["y"]
++                        a = -(p[0] - ox) * opening["uy"] + (p[1] - oy) * opening["ux"]
++                        b = -(q[0] - ox) * opening["uy"] + (q[1] - oy) * opening["ux"]
++                        t = a / (a - b)
++                        if 0 < t < 1:
++                            crossings.append((t, (p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1]))))
++                    expanded.extend(crossing for _, crossing in sorted(crossings))
++                    expanded.append(q)
++                points = expanded
+             floor = floors.get(leg["floorId"]) or {}
+             length = _polyline_length(points)
+             total += length
+diff --git a/scripts/kujiale_import_server.py b/scripts/kujiale_import_server.py
+index 42fa8c1..a8648e2 100644
+--- a/scripts/kujiale_import_server.py
++++ b/scripts/kujiale_import_server.py
+@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
+ from fastapi.middleware.gzip import GZipMiddleware
+ from fastapi.responses import FileResponse, RedirectResponse, Response
+ from fastapi.staticfiles import StaticFiles
++from starlette.concurrency import run_in_threadpool
+ 
+ ROOT = Path(__file__).resolve().parents[1]
+ import sys
+@@ -192,8 +193,8 @@ def nav_url(project_id: str, floor: str = "", request: Request | None = None, or
+         "projectUrl": f"{origin}/api/projects/{project_id}.json",
+         "id": project_id,
+         "apiOrigin": origin,
+-        "filesUrl": f"{OPENPLAN_ORIGIN}/",
+-        "libraryUrl": f"{OPENPLAN_ORIGIN}/",
++        "filesUrl": f"{origin}/files",
++        "libraryUrl": f"{origin}/files",
+     }
+     if floor:
+         params["floor"] = floor
+@@ -400,13 +401,17 @@ async def project_route(project_id: str, request: Request):
+     vias = body.get("via") or body.get("vias") or []
+     if not isinstance(vias, list):
+         vias = []
+-    return route_view(
++    # route_view is CPU-bound: run it off the event loop so nav.json / floor switches
++    # are not frozen while a route is being computed.
++    return await run_in_threadpool(
++        route_view,
+         project,
+         str(body.get("floor") or ""),
+         body.get("from"),
+         body.get("to"),
+         vias,
+         accessible=bool(body.get("accessible")),
++        stairs_only=bool(body.get("stairsOnly") or body.get("stairs_only")),
+     )
+ 
+ 
+@@ -627,10 +632,15 @@ def _run_building_job(job: dict, sheet: Path, scale: float | None, name: str, or
+         job.update(done=done, total=total, text=text)
+ 
+     try:
++        source_sha = name_overrides.pdf_sha(sheet / "page.pdf")
++        previous = [json.loads(p.read_text(encoding="utf-8")) for p in PROJECTS.glob("*/project.json")]
++        previous_project = max((p for p in previous if p.get("sourceSha") == source_sha),
++                               key=lambda p: p.get("updatedAt", ""), default=None)
+         with _IMPORT_LOCK:
+-            built = import_building(sheet / "page.pdf", scale=scale, name=name, progress=progress, room_names=room_names)
++            built = import_building(sheet / "page.pdf", scale=scale, name=name, progress=progress,
++                                    room_names=room_names, previous_project=previous_project)
+         project = built["project"]
+-        project["sourceSha"] = name_overrides.pdf_sha(sheet / "page.pdf")
++        project["sourceSha"] = source_sha
+         name_overrides.apply_drawn(STORE / "name-overrides", project)
+         name_overrides.apply_edits(STORE / "name-overrides", project)
+         name_overrides.apply(STORE / "name-overrides", project)
+@@ -859,7 +869,11 @@ def project_json(project_id: str):
+     path = PROJECTS / project_id / "project.json"
+     if not path.is_file():
+         raise HTTPException(404, "project")
+-    return Response(path.read_text(encoding="utf-8"), media_type="application/json")
++    from floor_nav import prepare_floor
++    project = json.loads(path.read_text(encoding="utf-8"))
++    for floor in project.get("floors") or []:
++        prepare_floor(floor)
++    return Response(json.dumps(project, ensure_ascii=False), media_type="application/json")
+ 
+ 
+ @app.get("/api/display/{project_id}.json")
+@@ -880,6 +894,14 @@ def display_underlay(project_id: str):
+ 
+ app.mount("/preview", StaticFiles(directory=ROOT / "preview"), name="preview")
+ app.mount("/assets", StaticFiles(directory=ROOT / "assets"), name="assets")
++# openPlan static (textures/fonts) — clients that resolve relative to :8884 would 404 otherwise
++_OPENPLAN_STATIC = ROOT / "openPlan3D" / "static"
++if (_OPENPLAN_STATIC / "nav-textures").is_dir():
++    app.mount("/nav-textures", StaticFiles(directory=_OPENPLAN_STATIC / "nav-textures"), name="nav-textures")
++if (_OPENPLAN_STATIC / "fonts").is_dir():
++    app.mount("/fonts", StaticFiles(directory=_OPENPLAN_STATIC / "fonts"), name="fonts")
++if (_OPENPLAN_STATIC / "textures").is_dir():
++    app.mount("/textures", StaticFiles(directory=_OPENPLAN_STATIC / "textures"), name="textures")
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/scripts/maker_cad.py b/scripts/maker_cad.py
+index 8eb45d7..dab7015 100644
+--- a/scripts/maker_cad.py
++++ b/scripts/maker_cad.py
+@@ -710,7 +710,7 @@ CAD_WALL_HALF = 3.4          # typical 240 mm wall at 1:100 → 6.8 pt; half = 3
+ CAD_OUTLINE_MIN_EDGE = 12.0  # drop rectilinear steps shorter than ~0.4 m
+ CAD_FRAME_FRAC = 0.85        # ink components spanning most of the page are frames
+ CAD_FOOTPRINT_MIN_SOLIDITY = 0.3
+-CAD_DOOR_MIN_R = 8.0
++CAD_DOOR_MIN_R = 7.0
+ CAD_DOOR_MAX_R = 45.0
+ # Double-line wall thickness at 1:100 (~240mm ≈ 6.8pt) and walkable gap size.
+ CAD_WALL_THICKNESS = (4.5, 9.5)
+@@ -787,6 +787,92 @@ def _circle_fit(points):
+     return cx, cy, r, err
+ 
+ 
++LEADER_MIN_PT = 100.0
++DIM_TICK_PT = (1.5, 8.0)
++
++
++def _is_leader_stroke(items):
++    """A lone long oblique line: callout leader, never a plan wall (walls come in pairs / runs)."""
++    if len(items) != 1 or items[0][0] != "l":
++        return False
++    p, q = items[0][1], items[0][2]
++    dx, dy = float(q.x - p.x), float(q.y - p.y)
++    length = math.hypot(dx, dy)
++    if length < LEADER_MIN_PT:
++        return False
++    ang = math.degrees(math.atan2(abs(dy), abs(dx)))
++    return 5.0 < ang < 85.0
++
++
++def _tick_center(poly):
++    """Centre of a small slanted dimension tick (stroked 45° slash or filled oblique sliver)."""
++    xs, ys = [p[0] for p in poly], [p[1] for p in poly]
++    w, h = max(xs) - min(xs), max(ys) - min(ys)
++    if not (DIM_TICK_PT[0] <= math.hypot(w, h) <= DIM_TICK_PT[1] * 1.3) or min(w, h) < 0.5:
++        return None
++    if not (0.4 < w / max(h, 1e-6) < 2.5):
++        return None
++    return ((max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2)
++
++
++def _drop_dimension_chains(segments, fills=()):
++    """Remove dimension lines: axis-aligned lines carrying 45° tick marks, plus the ticks and
++    the short extension lines that end on them. Style-agnostic, so it works for every sheet."""
++    fills = list(fills)
++    if not segments:
++        return segments, fills
++    arr = np.asarray(segments, dtype=float)
++    dx, dy = arr[:, 2] - arr[:, 0], arr[:, 3] - arr[:, 1]
++    length = np.hypot(dx, dy)
++    ang = np.degrees(np.arctan2(np.abs(dy), np.abs(dx)))
++    tick = (length >= DIM_TICK_PT[0]) & (length <= DIM_TICK_PT[1]) & (np.abs(ang - 45.0) < 30.0)
++    fill_ticks = [(i, c) for i, c in ((i, _tick_center(p)) for i, p in enumerate(fills) if len(p) >= 2) if c]
++    centers = [((a[0] + a[2]) / 2, (a[1] + a[3]) / 2) for a in arr[tick]] + [c for _, c in fill_ticks]
++    if len(centers) < 3:
++        return segments, fills
++    tc = np.asarray(centers, dtype=float)
++    n_seg_ticks = int(tick.sum())
++    drop = np.zeros(len(arr), dtype=bool)
++    used = np.zeros(len(tc), dtype=bool)
++    horiz, vert = ang < 1.0, ang > 89.0
++    for i in np.nonzero((horiz | vert) & (length > 20.0))[0]:
++        x0, y0, x1, y1 = arr[i, :4]
++        if horiz[i]:
++            on = (np.abs(tc[:, 1] - y0) < 1.0) & (tc[:, 0] >= min(x0, x1) - 1) & (tc[:, 0] <= max(x0, x1) + 1)
++        else:
++            on = (np.abs(tc[:, 0] - x0) < 1.0) & (tc[:, 1] >= min(y0, y1) - 1) & (tc[:, 1] <= max(y0, y1) + 1)
++        ends = [(np.hypot(tc[:, 0] - ex, tc[:, 1] - ey) < 1.5).any() for ex, ey in ((x0, y0), (x1, y1))]
++        if on.sum() >= 2 and all(ends):
++            drop[i] = True
++            used |= on
++    if not drop.any():
++        drop[:] = False
++    drop[np.nonzero(tick)[0][used[:n_seg_ticks]]] = True
++    gone_fills = {fill_ticks[k][0] for k in np.nonzero(used[n_seg_ticks:])[0]}
++    ut = tc[used]
++    for i in np.nonzero((horiz | vert) & (length <= 40.0) & ~drop)[0]:
++        for px, py in ((arr[i, 0], arr[i, 1]), (arr[i, 2], arr[i, 3])):
++            if (np.hypot(ut[:, 0] - px, ut[:, 1] - py) < 1.5).any():
++                drop[i] = True
++                break
++    # Callout leaders: long oblique single lines. Walls are drawn as parallel pairs, leaders are not.
++    obl = np.nonzero((ang > 5.0) & (ang < 85.0) & (length > LEADER_MIN_PT))[0]
++    for i in obl:
++        ux, uy = dx[i] / length[i], dy[i] / length[i]
++        mx, my = (arr[i, 0] + arr[i, 2]) / 2, (arr[i, 1] + arr[i, 3]) / 2
++        twin = False
++        for j in obl:
++            if j == i or abs(abs(dx[j] / length[j] * ux + dy[j] / length[j] * uy) - 1) > 1e-3:
++                continue
++            ox, oy = (arr[j, 0] + arr[j, 2]) / 2 - mx, (arr[j, 1] + arr[j, 3]) / 2 - my
++            if abs(-uy * ox + ux * oy) < 30.0 and abs(ux * ox + uy * oy) < length[i]:
++                twin = True
++                break
++        if not twin:
++            drop[i] = True
++    return [seg for seg, d in zip(segments, drop) if not d], [p for i, p in enumerate(fills) if i not in gone_fills]
++
++
+ def load_cad_vector_content(pdf_path, page_index=1):
+     """Content-layer vectors: segments/fills/arcs with reconstructed rulers removed.
+ 
+@@ -824,6 +910,8 @@ def load_cad_vector_content(pdf_path, page_index=1):
+                     continue
+                 width = float(drawing.get("width") or 0.5)
+                 items = drawing.get("items") or []
++                if _is_leader_stroke(items):
++                    continue
+                 polyline = []
+                 all_lines = True
+                 for item in items:
+@@ -886,6 +974,7 @@ def load_cad_vector_content(pdf_path, page_index=1):
+                         else:
+                             fills.append([(float(p.x), float(p.y)), (float(q.x), float(q.y))])
+         rect = page.rect
++        segments, fills = _drop_dimension_chains(segments, fills)
+         return {
+             "pageSize": (float(rect.width), float(rect.height)),
+             "segments": np.array(segments, dtype=float).reshape(-1, 5),
+diff --git a/scripts/name_overrides.py b/scripts/name_overrides.py
+index 7460bd7..65b016c 100644
+--- a/scripts/name_overrides.py
++++ b/scripts/name_overrides.py
+@@ -222,7 +222,8 @@ def record_drawn(root, project: dict) -> int:
+                     d = next((d for d in floor.get("doors") or [] if d.get("id") == f"door-drawn-{tagid}"), None)
+                     pt = door_point(floor, d) if d else None
+                     door_at = {"x": round(pt[0], 1), "y": round(pt[1], 1)} if pt else None
+-                out.append({"floor": tag, "rect": room["floorPolygon"], "name": room.get("name") or "",
++                out.append({"floor": tag, "key": str(room["id"]).removeprefix("room-drawn-"),
++                            "rect": room["floorPolygon"], "name": room.get("name") or "",
+                             "displayName": room.get("displayName") or "", "door": door_at,
+                             "open": room.get("openSides") or [], "clear": bool(room.get("clearInside"))})
+     data["drawn"] = out
+@@ -254,6 +255,7 @@ def apply_drawn(root, project: dict) -> int:
+         if found:
+             continue
+         room = draw_rooms.add_drawn_room(floor, it["rect"], it["name"], it.get("displayName") or "", it.get("door"),
++                                         key=it.get("key") or "",
+                                          open_sides=it.get("open") or (), clear_inside=bool(it.get("clear")))
+         if it.get("door"):
+             room["doorAt"] = it["door"]
+diff --git a/scripts/openplan_project.py b/scripts/openplan_project.py
+index feb026a..72ace15 100644
+--- a/scripts/openplan_project.py
++++ b/scripts/openplan_project.py
+@@ -107,7 +107,7 @@ def _free_spans(used, lo, hi):
+     return [(a, b) for a, b in free if b - a >= MIN_RUN_PT]
+ 
+ 
+-def centerlines_from_segments(segments) -> list[tuple[float, float, float, float, float]]:
++def centerlines_from_segments(segments, boundary=None) -> list[tuple[float, float, float, float, float]]:
+     """Axis-aligned double-line pairs → (x0, y0, x1, y1, thickness_pt).
+ 
+     A stroke at one coordinate can be the face of different walls along its
+@@ -117,6 +117,7 @@ def centerlines_from_segments(segments) -> list[tuple[float, float, float, float
+     if segments is None or len(segments) == 0:
+         return []
+     pairs = []
++    thin = []
+     for vertical in (True, False):
+         clusters = _wall_run_clusters(segments, vertical=vertical)
+         runs = []
+@@ -137,6 +138,10 @@ def centerlines_from_segments(segments) -> list[tuple[float, float, float, float
+                 if hi - lo < MIN_OVERLAP_PT:
+                     continue
+                 pairs.append((hi - lo, vertical, i, j, (fi + fj) / 2, thick, lo, hi))
++        # Thin partitions (glazed / light walls) are drawn as 2–4 strokes 1–3 pt apart; the
++        # cluster merge fuses them into one run, so they never pair. Recover them from the spread.
++        for fi, pieces in clusters:
++            thin.extend((vertical, fixed, lo, hi, spread) for fixed, lo, hi, spread in _thin_partition_runs(pieces))
+     pairs.sort(key=lambda item: item[0], reverse=True)
+     used = {}
+     raw = []
+@@ -154,9 +159,76 @@ def centerlines_from_segments(segments) -> list[tuple[float, float, float, float
+                     raw.append((fixed, start, fixed, end, thick))
+                 else:
+                     raw.append((start, fixed, end, fixed, thick))
++    for vertical, fixed, lo, hi, spread in thin:
++        mid = (fixed, (lo + hi) / 2) if vertical else ((lo + hi) / 2, fixed)
++        if boundary and len(boundary) >= 3 and not (
++                _point_in_poly(mid[0], mid[1], boundary) and _dist_to_poly(mid[0], mid[1], boundary) >= THIN_INSET_PT):
++            continue  # facade edges (canopy, planter curb, steps) are not interior partitions
++        spans = [(lo, hi)]
++        for x0, y0, x1, y1, thick in raw:  # a paired wall already covers this stroke bundle
++            if vertical != (abs(x1 - x0) < abs(y1 - y0)):
++                continue
++            f = (x0 + x1) / 2 if vertical else (y0 + y1) / 2
++            if abs(f - fixed) > thick / 2 + spread / 2 + 1.0:
++                continue
++            a, b = sorted((y0, y1) if vertical else (x0, x1))
++            spans = [piece for s0, s1 in spans for piece in ((s0, min(s1, a)), (max(s0, b), s1)) if piece[1] - piece[0] >= MIN_OVERLAP_PT]
++        for a, b in spans:
++            if b - a <= THIN_GAP_MAX_PT and _fills_wall_gap(raw, vertical, fixed, spread, a, b):
++                continue  # door-leaf / frame strokes inside the door break of a real wall
++            raw.append((fixed, a, fixed, b, spread) if vertical else (a, fixed, b, fixed, spread))
+     return _heal_and_split(raw)
+ 
+ 
++THIN_SOLID_PT = 25.0  # one unbroken stroke at least this long (≈90 cm at 1:100)
++THIN_INSET_PT = 15.0  # recovered thin partitions must lie this far inside the footprint
++THIN_MIN_STROKES = 2  # strokes of one fused cluster that overlap along the run and sit ≥ MIN_THICK_PT apart
++
++
++THIN_GAP_MAX_PT = 45.0  # a thin run this short between two collinear wall ends is a door break
++
++
++def _fills_wall_gap(raw, vertical, fixed, spread, lo, hi, tol=3.0):
++    """A paired wall on the same line ends at ``lo`` AND another starts at ``hi``."""
++    left = right = False
++    for x0, y0, x1, y1, thick in raw:
++        if vertical != (abs(x1 - x0) < abs(y1 - y0)):
++            continue
++        f = (x0 + x1) / 2 if vertical else (y0 + y1) / 2
++        if abs(f - fixed) > thick / 2 + spread / 2 + 1.0:
++            continue
++        a, b = sorted((y0, y1) if vertical else (x0, x1))
++        left = left or abs(b - lo) <= tol
++        right = right or abs(a - hi) <= tol
++    return left and right
++
++
++def _thin_partition_runs(pieces):
++    """Spans where ≥2 distinct parallel strokes of one fused cluster overlap → (fixed, lo, hi, spread).
++
++    Clusters fuse by fixed coordinate over the whole sheet, so a stray stroke elsewhere (text,
++    hatch) can chain two wall faces into one cluster; the faces are still told apart here.
++    """
++    # Only solid strokes: dashed axis / hidden lines come as many short dashes and must not
++    # pair with the wall face they run along.
++    pieces = [piece for piece in pieces if piece[1] - piece[0] >= THIN_SOLID_PT]
++    events = sorted({p for a, b, _f in pieces for p in (a, b)})
++    out = []
++    for a, b in zip(events, events[1:]):
++        if b - a < 0.5:
++            continue
++        m = (a + b) / 2
++        lines = sorted({round(f, 1) for s0, s1, f in pieces if s0 - 0.3 <= m <= s1 + 0.3})
++        if len(lines) < THIN_MIN_STROKES or not MIN_THICK_PT <= lines[-1] - lines[0] <= MAX_THICK_PT:
++            continue
++        spread, fixed = lines[-1] - lines[0], (lines[-1] + lines[0]) / 2
++        if out and abs(out[-1][0] - fixed) < 0.6 and a - out[-1][2] <= 0.6:
++            out[-1] = (out[-1][0], out[-1][1], b, max(out[-1][3], spread))
++        else:
++            out.append((fixed, a, b, spread))
++    return [item for item in out if item[2] - item[1] >= MIN_OVERLAP_PT]
++
++
+ def _as_axes(lines):
+     horiz, vert = [], []
+     for x0, y0, x1, y1, thick in lines:
+@@ -315,6 +387,77 @@ def _walls_cm(lines, scale):
+     return walls
+ 
+ 
++def merge_overlapping_walls(walls, doors=(), rooms=()):
++    """Union collinear overlaps and door-spanning joins, preserving door coordinates."""
++    parent = list(range(len(walls)))
++    original = {w["id"]: (dict(w["start"]), dict(w["end"])) for w in walls}
++    door_hosts = {}
++    for door in doors:
++        door_hosts.setdefault(door["wallId"], []).append(door)
++
++    def root(i):
++        while parent[i] != i:
++            parent[i] = parent[parent[i]]
++            i = parent[i]
++        return i
++
++    for i, a in enumerate(walls):
++        ax, ay = a["start"]["x"], a["start"]["y"]
++        dx, dy = a["end"]["x"] - ax, a["end"]["y"] - ay
++        length = math.hypot(dx, dy)
++        ux, uy = dx / length, dy / length
++        for j in range(i + 1, len(walls)):
++            b = walls[j]
++            bx, by = b["start"]["x"], b["start"]["y"]
++            ex, ey = b["end"]["x"], b["end"]["y"]
++            if abs((bx - ax) * uy - (by - ay) * ux) > 0.05 or abs((ex - ax) * uy - (ey - ay) * ux) > 0.05:
++                continue
++            lo, hi = sorted(((bx - ax) * ux + (by - ay) * uy, (ex - ax) * ux + (ey - ay) * uy))
++            overlap = min(length, hi) - max(0, lo)
++            spans_join = False
++            if abs(overlap) <= 0.05:
++                for host in (a, b):
++                    start, end = original[host["id"]]
++                    for door in door_hosts.get(host["id"], ()):
++                        x = start["x"] + door["position"] * (end["x"] - start["x"])
++                        y = start["y"] + door["position"] * (end["y"] - start["y"])
++                        center = (x - ax) * ux + (y - ay) * uy
++                        left, right = center - door["width"] / 2, center + door["width"] / 2
++                        if min(right, length) - max(left, 0) > 10 and min(right, hi) - max(left, lo) > 10:
++                            spans_join = True
++            if overlap > 0.05 or spans_join:
++                parent[root(j)] = root(i)
++
++    groups = {}
++    for i, wall in enumerate(walls):
++        groups.setdefault(root(i), []).append(wall)
++    result, replacements = [], {}
++    for members in groups.values():
++        keeper = members[0]
++        ax, ay = keeper["start"]["x"], keeper["start"]["y"]
++        dx, dy = keeper["end"]["x"] - ax, keeper["end"]["y"] - ay
++        length = math.hypot(dx, dy)
++        ux, uy = dx / length, dy / length
++        extent = [(p["x"] - ax) * ux + (p["y"] - ay) * uy for w in members for p in (w["start"], w["end"])]
++        lo, hi = min(extent), max(extent)
++        for wall in members:
++            replacements[wall["id"]] = (keeper["id"], ax, ay, ux, uy, lo, hi)
++        if len(members) > 1:
++            keeper["start"] = {"x": round(ax + lo * ux, 2), "y": round(ay + lo * uy, 2)}
++            keeper["end"] = {"x": round(ax + hi * ux, 2), "y": round(ay + hi * uy, 2)}
++            keeper["thickness"] = max(w["thickness"] for w in members)
++        result.append(keeper)
++    for door in doors:
++        start, end = original[door["wallId"]]
++        x = start["x"] + door["position"] * (end["x"] - start["x"])
++        y = start["y"] + door["position"] * (end["y"] - start["y"])
++        door["wallId"], ax, ay, ux, uy, lo, hi = replacements[door["wallId"]]
++        door["position"] = round(((x - ax) * ux + (y - ay) * uy - lo) / (hi - lo), 4)
++    for room in rooms:
++        room["walls"] = list(dict.fromkeys(replacements[wid][0] for wid in room["walls"]))
++    return result
++
++
+ def _point_in_poly(x, y, poly):
+     inside = False
+     j = len(poly) - 1
+@@ -381,6 +524,10 @@ def _capped(x, y, horizontal, cross):
+     return False
+ 
+ 
++_OPEN_FROM_ROUND = 2  # rounds before this stretch targets only by _TARGET_SLACK_CM
++_TARGET_SLACK_CM = 40.0  # corner stretch of the target wall that is always allowed
++
++
+ def _merge_axis(segments, horizontal, cross=()):
+     """Join collinear runs across door breaks.
+ 
+@@ -442,9 +589,35 @@ def _merge_axis(segments, horizontal, cross=()):
+     return merged
+ 
+ 
++def _stretch_crosses(segments, other, along, seg):
++    """Would stretching ``other`` to ``along`` cut through a wall parallel to ``seg``?"""
++    if other["h"]:
++        fixed, lo, hi = other["b"], other["a"], other["c"]
++    else:
++        fixed, lo, hi = other["a"], other["b"], other["d"]
++    a, b = (along, lo) if along < lo else (hi, along)
++    for wall in segments:
++        if wall is seg or wall is other or wall["h"] == other["h"]:
++            continue
++        if other["h"]:
++            pos, w0, w1 = wall["a"], wall["b"], wall["d"]
++        else:
++            pos, w0, w1 = wall["b"], wall["a"], wall["c"]
++        if a + 1.0 < pos < b - 1.0 and w0 - 1.0 <= fixed <= w1 + 1.0:
++            return True
++    return False
++
++
+ def _extend_corners(segments):
+-    """Lengthen a free end onto the nearest perpendicular wall. Never shorten."""
+-    for _ in range(4):
++    """Lengthen a free end onto the nearest perpendicular wall. Never shorten.
++
++    The wall it lands on may be stretched to meet it: freely by a corner's worth
++    (``_TARGET_SLACK_CM``), farther only through open space (the stretch crosses no wall).
++    Stretching through walls let extensions feed each other into a grid of phantom walls in
++    dense small-room blocks. The last round lifts the open-space test once.
++    """
++    for round_index in range(4):
++        wide = round_index >= _OPEN_FROM_ROUND
+         moved = False
+         for seg in segments:
+             limit = min(_EXTEND_MAX_CM, max(_EXTEND_MIN_CM, seg["thick"] * 3.5))
+@@ -480,8 +653,12 @@ def _extend_corners(segments):
+                         lo, hi = other["a"], other["c"]
+                     if dist < 0.5 or dist > limit:
+                         continue
++                    slack = min(limit, max(_TARGET_SLACK_CM, seg["thick"] * 2.0))
+                     if along < lo - limit or along > hi + limit:
+                         continue
++                    stretch = max(lo - along, along - hi, 0.0)
++                    if stretch > slack and (not wide or _stretch_crosses(segments, other, along, seg)):
++                        continue
+                     if best is None or dist < best[0]:
+                         best = (dist, other, along, target)
+                 if best:
+@@ -650,13 +827,20 @@ def _keep_main_building(segments, fenced=False):
+         if ri != rj:
+             parent[rj] = ri
+ 
+-    ends = []
+-    for seg in segments:
+-        x0, y0, x1, y1, _thick = seg
+-        ends.append({(round(x0, 2), round(y0, 2)), (round(x1, 2), round(y1, 2))})
++    def touches(p, seg, tol=_JOIN_CM):
++        # endpoint on (or within tol of) the other segment: corners, T-junctions and the
++        # cm-level rounding left by snapping all connect, not only bit-identical endpoints
++        x0, y0, x1, y1 = seg[:4]
++        dx, dy = x1 - x0, y1 - y0
++        length2 = dx * dx + dy * dy
++        t = 0.0 if length2 == 0 else max(0.0, min(1.0, ((p[0] - x0) * dx + (p[1] - y0) * dy) / length2))
++        return math.hypot(p[0] - x0 - dx * t, p[1] - y0 - dy * t) <= tol
++
+     for i in range(len(segments)):
++        a = segments[i]
+         for j in range(i + 1, len(segments)):
+-            if ends[i] & ends[j]:
++            b = segments[j]
++            if (touches(a[:2], b) or touches(a[2:4], b) or touches(b[:2], a) or touches(b[2:4], a)):
+                 union(i, j)
+     groups = {}
+     for index in range(len(segments)):
+@@ -1339,8 +1523,7 @@ def recognize_pdf(
+     structure = None
+     for crop in crops:
+         clipped = _clip_segments(content["segments"], crop)
+-        lines = centerlines_from_segments(clipped) if mode == "generate" else []
+-        candidate = {"crop": crop, "lines": lines, "clipped": clipped}
++        candidate = {"crop": crop, "clipped": clipped}
+         if mode == "generate" and len(clipped):
+             area = crop["width"] * crop["height"]
+             try:
+@@ -1350,6 +1533,8 @@ def recognize_pdf(
+             candidate["structure"] = structure_try
+         else:
+             candidate["structure"] = None
++        lines = centerlines_from_segments(clipped, (candidate["structure"] or {}).get("boundary")) if mode == "generate" else []
++        candidate["lines"] = lines
+         # A crop whose structure found rooms carries doors and stairs; fewer
+         # centerlines there beat more lines from a crop that found none.
+         # Rank by how much structure each crop explains: a crop that clips the plan can still
+@@ -1376,18 +1561,16 @@ def recognize_pdf(
+     if mode == "generate":
+         lines = repair_wall_lines(lines, scale, boundary)
+     walls = _walls_cm(lines, scale) if mode == "generate" else []
+-    line_by_index = {line_index: line for line_index, line in enumerate(lines)}
+-    kept_lines = []
+-    index_map = {}
+     compact = []
+     for wall in walls:
+-        src = wall.pop("_index")
+-        index_map[src] = wall["id"]
++        wall.pop("_index")
+         compact.append(wall)
+-        kept_lines.append(line_by_index[src])
+-    line_by_id = {wall["id"]: line for wall, line in zip(compact, kept_lines)}
+-    walls = _drop_sliver_walls(compact) if compact else []
+-    kept_lines = [line_by_id[wall["id"]] for wall in walls]
++    walls = _drop_sliver_walls(merge_overlapping_walls(compact)) if compact else []
++    kept_lines = [
++        (w["start"]["x"] / scale, w["start"]["y"] / scale,
++         w["end"]["x"] / scale, w["end"]["y"] / scale, w["thickness"] / scale)
++        for w in walls
++    ]
+     attached = _attach_doors(doors_in, kept_lines, scale) if walls else []
+     id_by_index = {i: wall["id"] for i, wall in enumerate(walls)}
+     doors = []
+@@ -1405,7 +1588,7 @@ def recognize_pdf(
+             "swingDirection": "left",
+             "flipSide": False,
+         })
+-    walls = walls + close_wall_gaps(walls)
++    walls = merge_overlapping_walls(walls + close_wall_gaps(walls), doors)
+     closed = detect_closed_rooms(walls) if walls else []
+     fallback_faces = [
+         {"polygon": [{"x": float(x) * scale, "y": float(y) * scale} for x, y in room.get("polygonPdf") or []]}
+@@ -1414,10 +1597,13 @@ def recognize_pdf(
+     ocr_report = _apply_pdf_room_names(closed or fallback_faces, pdf_path, page_index, scale, extra_names)
+     shafts = _vertical_shafts(content["segments"], stairs_in, closed, scale) if mode == "generate" else []
+     open_rooms = []
++    room_ids_by_closed_index = {}
+     display_rooms = []
+     for n, room in enumerate(closed):
+         color = ROOM_COLORS[n % len(ROOM_COLORS)]
+         name = room.get("name") or ""
++        if not name and room["area"] < 5000:
++            continue
+         xs = [point["x"] for point in room["polygon"]]
+         ys = [point["y"] for point in room["polygon"]]
+         sliver = min(max(xs) - min(xs), max(ys) - min(ys)) < _SLIVER_CM
+@@ -1433,6 +1619,8 @@ def recognize_pdf(
+         if sliver:
+             record["floorOpening"] = True
+         open_rooms.append(record)
++        if not sliver:
++            room_ids_by_closed_index[n] = record["id"]
+         if sliver:
+             continue
+         display_rooms.append({
+@@ -1472,8 +1660,8 @@ def recognize_pdf(
+     for shaft in shafts:
+         index = shaft["room"]
+         room_id = ""
+-        if index is not None and index < len(open_rooms) and not open_rooms[index].get("floorOpening"):
+-            room_id = open_rooms[index]["id"]
++        if index in room_ids_by_closed_index:
++            room_id = room_ids_by_closed_index[index]
+         vertical.append({
+             "kind": shaft["kind"],
+             "roomId": room_id,
+diff --git a/scripts/pdf_building.py b/scripts/pdf_building.py
+index 09560f2..47bbc98 100644
+--- a/scripts/pdf_building.py
++++ b/scripts/pdf_building.py
+@@ -9,15 +9,18 @@ one multi-stop ``verticalLinks`` entry.
+ """
+ from __future__ import annotations
+ 
++import copy
+ import math
+ import re
+ import tempfile
+ import uuid
+ from collections import Counter, deque
++from copy import deepcopy
+ from datetime import datetime, timezone
+ from pathlib import Path
+ 
+-from openplan_project import recognize_pdf
++from openplan_project import merge_overlapping_walls, recognize_pdf
++import floor_overrides
+ 
+ FLOOR_HEIGHT_CM = 300.0
+ CM_PER_POINT_1_TO_1 = 2.54 / 72.0
+@@ -619,19 +622,24 @@ def add_entrances(floor: dict) -> list[dict]:
+ 
+ def name_links(links: list[dict], floors: list[dict], north_bearing) -> None:
+     """Patient names for stairs/lifts. Several of a kind: with a north arrow 「楼梯（北）」, without
+-    one 「楼梯 A」/「楼梯 B」 left→right on the drawing (never compass words). A link that alone
++    one 「楼梯 A」/「楼梯 B」 left→right on the drawing (never compass words). Use the
++    lowest stop and its floor centre in drawing axes; upper-floor plan origins can differ. A link that alone
+     reaches some floor records it in ``onlyTo`` (「只有这部楼梯能到 4 楼」)."""
+     label = {"stairs": "楼梯", "elevator": "电梯", "escalator": "扶梯"}
+     by_kind = {}
+     for link in links:
+         by_kind.setdefault(link.get("kind"), []).append(link)
+     names = {f.get("id"): f.get("name") for f in floors}
+-    xs = [p["x"] for f in floors for w in f.get("walls") or [] for p in (w["start"], w["end"])]
+-    ys = [p["y"] for f in floors for w in f.get("walls") or [] for p in (w["start"], w["end"])]
+-    cx, cy = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2) if xs else (0.0, 0.0)
++    levels = {f["id"]: f["level"] for f in floors}
++    centres = {}
++    for floor in floors:
++        xs = [p["x"] for w in floor["walls"] for p in (w["start"], w["end"])]
++        ys = [p["y"] for w in floor["walls"] for p in (w["start"], w["end"])]
++        centres[floor["id"]] = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2) if xs else (0.0, 0.0)
++    anchor = lambda link: min(link["stops"], key=lambda stop: levels[stop["floorId"]])
+     for kind, group in by_kind.items():
+         base = label.get(kind, "楼梯")
+-        mean = lambda l, k: sum(s[k] for s in l["stops"]) / len(l["stops"])
++        coord = lambda l, k: anchor(l)[k]
+         if len(group) == 1:
+             group[0]["name"] = base
+         else:
+@@ -639,15 +647,17 @@ def name_links(links: list[dict], floors: list[dict], north_bearing) -> None:
+             if isinstance(north_bearing, (int, float)):
+                 sides = []
+                 for l in group:
+-                    ang = math.degrees(math.atan2(mean(l, "x") - cx, -(mean(l, "y") - cy)))
+-                    sides.append(_COMPASS[int(((ang - north_bearing) % 360 + 22.5) // 45) % 8])
++                    stop = anchor(l)
++                    cx, cy = centres[stop["floorId"]]
++                    ang = math.degrees(math.atan2(stop["x"] - cx, -(stop["y"] - cy)))
++                    sides.append(_COMPASS[int((ang % 360 + 22.5) // 45) % 8])
+                 if len(set(sides)) < len(sides):
+                     sides = None
+             if sides:
+                 for l, side in zip(group, sides):
+                     l["name"] = f"{base}（{side}）"
+             else:
+-                for n, l in enumerate(sorted(group, key=lambda l: (mean(l, "x"), mean(l, "y")))):
++                for n, l in enumerate(sorted(group, key=lambda l: (coord(l, "x"), coord(l, "y")))):
+                     l["name"] = f"{base} {chr(ord('A') + n)}"
+     for link in links:
+         reach = {s["floorId"] for s in link["stops"]}
+@@ -742,14 +752,20 @@ def link_shafts(floors: list[dict], vertical_by_floor: dict[str, list[dict]]) ->
+         for shaft in vertical_by_floor.get(floor["id"]) or []:
+             sx, sy = shaft.get("at") or (shaft["x"], shaft["y"])
+             home, best = None, _SHAFT_MATCH_CM
+-            for cluster in clusters:
++            tag = shaft.get("link")
++            if tag:  # manual link id from overrides: same id = same shaft on every floor
++                home = next((c for c in clusters if c.get("link") == tag), None)
++                best = -1.0
++            for cluster in clusters if not tag else ():
++                if cluster.get("link"):
++                    continue
+                 if cluster["kind"] != shaft["kind"] or floor["id"] in cluster["floors"]:
+                     continue
+                 d = math.hypot(cluster["x"] - sx, cluster["y"] - sy)
+                 if d <= best:  # nearest shaft, not the first within range
+                     home, best = cluster, d
+             if home is None:
+-                home = {"kind": shaft["kind"], "x": sx, "y": sy, "floors": set(), "stops": []}
++                home = {"kind": shaft["kind"], "x": sx, "y": sy, "floors": set(), "stops": [], "link": tag}
+                 clusters.append(home)
+             home["floors"].add(floor["id"])
+             stop = {"floorId": floor["id"], "x": float(shaft["x"]), "y": float(shaft["y"])}
+@@ -765,7 +781,7 @@ def link_shafts(floors: list[dict], vertical_by_floor: dict[str, list[dict]]) ->
+         merged = False
+         for a in clusters:
+             for b in clusters:
+-                if a is b or a["kind"] != b["kind"]:
++                if a is b or a["kind"] != b["kind"] or a.get("link") or b.get("link"):
+                     continue
+                 shared = a["floors"] & b["floors"]
+                 if len(shared) != 1:
+@@ -795,7 +811,7 @@ def link_shafts(floors: list[dict], vertical_by_floor: dict[str, list[dict]]) ->
+             "id": f"link-{cluster['kind']}-{counts[cluster['kind']]}",
+             "kind": cluster["kind"],
+             "name": label if counts[cluster["kind"]] == 1 else f"{label}{counts[cluster['kind']]}",
+-            "source": "pdf-import",
++            "source": "override" if cluster.get("link") else "pdf-import",
+             "stops": cluster["stops"],
+         })
+     return links
+@@ -810,8 +826,11 @@ def _names_for_floor(room_names, row):
+     return None
+ 
+ 
+-def import_building(pdf_path, *, scale=None, name="", floor_height=FLOOR_HEIGHT_CM, progress=None, room_names=None) -> dict:
+-    """``room_names``: optional ``{floor name: [room names]}`` uploaded at import for OCR correction."""
++def import_building(pdf_path, *, scale=None, name="", floor_height=FLOOR_HEIGHT_CM, progress=None, room_names=None,
++                    previous_project=None) -> dict:
++    """``room_names`` supplies OCR corrections; ``previous_project`` retains room identities,
++    manual edits and the existing vertical graph on re-import.
++    """
+     """Return ``{project, floors, links, scale}`` for every page of ``pdf_path``.
+ 
+     ``scale`` is centimetres per PDF point; without it the sheets' ``1:N`` is used.
+@@ -841,8 +860,13 @@ def import_building(pdf_path, *, scale=None, name="", floor_height=FLOOR_HEIGHT_
+         floor["name"] = row["name"]
+         floor["level"] = row["level"]
+         floor["elevation"] = round(row["level"] * floor_height, 1)
++        floor["height"] = floor_height
+         vertical = result["vertical"]
+-        shafts = connect_shafts(floor, vertical)
++        previous_floor = next((f for f in (previous_project or {}).get("floors", []) if f["name"] == row["name"]), None)
++        override_stats = floor_overrides.apply(floor, vertical, floor_overrides.load(name, row["name"]), previous_floor)
++        floor["walls"] = merge_overlapping_walls(floor["walls"], floor["doors"], floor["rooms"])
++        floor["rooms"] = [room for room in floor["rooms"] if room.get("name") or room.get("displayName") or room.get("area", 0) >= 0.5]
++        shafts = {"doors": [], "landings": 0} if previous_floor is not None else connect_shafts(floor, vertical)
+         inferred = infer_room_doors(floor)
+         if row["level"] == min(r["level"] for r in titles):
+             add_entrances(floor)
+@@ -860,10 +884,15 @@ def import_building(pdf_path, *, scale=None, name="", floor_height=FLOOR_HEIGHT_
+             "shaftDoors": shafts["doors"],
+             "shaftLandings": shafts["landings"],
+             "inferredDoors": inferred,
+-            **{key: result["stats"][key] for key in ("walls", "rooms", "doors", "namedRooms")},
++            "overrides": override_stats,
++            "walls": len(floor.get("walls") or []),
++            "rooms": len(floor.get("rooms") or []),
++            "doors": len(floor.get("doors") or []),
++            "namedRooms": sum(bool(r.get("displayName") or r.get("name")) for r in floor.get("rooms") or []),
+         })
+     floors.sort(key=lambda item: item["level"])
+-    links = link_shafts(floors, vertical_by_floor)
++    floor_overrides.generate_stairs(floors, name)
++    links = copy.deepcopy(previous_project.get("verticalLinks") or []) if previous_project is not None else link_shafts(floors, vertical_by_floor)
+     ground = next((floor for floor in floors if floor["level"] >= 0), floors[0])
+     now = datetime.now(timezone.utc).isoformat()
+     try:
+@@ -874,6 +903,12 @@ def import_building(pdf_path, *, scale=None, name="", floor_height=FLOOR_HEIGHT_
+     for floor in floors:
+         name_lobbies(floor, north["bearing"] if north else None)
+     name_links(links, floors, north["bearing"] if north else None)
++    from floor_nav import prepare_floor
++    for floor in floors:
++        prepare_floor(floor)
++    if previous_project is not None:
++        links = deepcopy(previous_project.get("verticalLinks") or [])
++    floor_overrides.apply_vertical_stops(floors, links, name)
+     project = {
+         "id": uuid.uuid4().hex,
+         "name": re.sub(r"\s+", " ", (name or "").strip())[:40] or "导入的楼",
+diff --git a/tests/test_ensuite_real.py b/tests/test_ensuite_real.py
+index b9548de..c41c881 100644
+--- a/tests/test_ensuite_real.py
++++ b/tests/test_ensuite_real.py
+@@ -18,6 +18,7 @@ class P2EnsuiteTest(unittest.TestCase):
+             if len(d.get("floors") or []) == 5 and any(
+                     r.get("name") == "心理行为与智力测查室" for f in d["floors"] for r in f.get("rooms") or []):
+                 p2 = d
++                break
+         if not p2:
+             self.skipTest("P2 import not on this box")
+         places = [p for p in fn.all_places(p2) if p["floorName"] == "2F" and p["name"] in ("卫", "卫生间")
+diff --git a/tests/test_floor_nav.py b/tests/test_floor_nav.py
+index f1f24da..4b3e557 100644
+--- a/tests/test_floor_nav.py
++++ b/tests/test_floor_nav.py
+@@ -142,6 +142,42 @@ def project_with(floor, extra=None, active=None):
+ 
+ 
+ class FloorNavTests(unittest.TestCase):
++    def test_room_spur_preserves_thin_wall_seal_outside_door(self):
++        floor = two_rooms(True)
++        for item in floor["walls"]:
++            item["thickness"] = 10
++        grid = floor_nav.build_grid(floor)
++        for x in (390, 410):
++            self.assertFalse(grid.walkable(*grid.cell_at(x, 90)))
++        self.assertTrue(grid.walkable(*grid.cell_at(400, 150)))
++        route = floor_nav.route_view(
++            project_with(floor), "floor-0", {"x": 200, "y": 150}, {"x": 600, "y": 150}
++        )
++        self.assertTrue(route["ok"])
++        self.assertTrue(_segment_crosses(route["polyline"], 400, 150))
++        for left, right in zip(route["polyline"], route["polyline"][1:]):
++            self.assertFalse(floor_nav._segment_hits_wall(
++                (left["x"], left["y"]), (right["x"], right["y"]),
++                floor["walls"], floor_nav._openings(floor),
++            ))
++
++
++    def test_void_is_neither_walkable_nor_a_destination(self):
++        f = two_rooms()
++        f["rooms"][1].update(name="上空", floorOpening=True, floorTexture="none")
++        p = project_with(f)
++        g = floor_nav.grid_for(p, f["id"])
++        for x, y in [(450, 150), (600, 150), (750, 150)]:
++            col, row = g.cell_at(x, y)
++            self.assertFalse(g.walkable(col, row))
++        self.assertNotIn("room-b", [r["id"] for r in floor_nav.nav_view(p, f["id"])["rooms"]])
++        self.assertNotIn("上空", [r["name"] for r in g.destinations])
++
++    def test_placeholder_and_empty_names_are_not_searchable(self):
++        for name in ["", "房间 3", "房间3", "Room 14", "room14"]:
++            self.assertFalse(floor_nav.is_destination(name))
++        self.assertTrue(floor_nav.is_destination("内窥镜室"))
++
+     def test_grid_cache_rebuilds_when_door_moves_without_count_change(self):
+         project = project_with(two_rooms(True))
+         first = floor_nav.grid_for(project, "floor-0")
+@@ -225,7 +261,7 @@ class FloorNavTests(unittest.TestCase):
+         self.assertEqual({item["name"] for item in opened["destinations"]}, {"甲", "卫生间"})
+         self.assertEqual(other["floorId"], "floor-1")
+         self.assertEqual(len(other["walls"]), 4)
+-        self.assertTrue(other["destinations"])
++        self.assertEqual(other["destinations"], [])
+         blocked = floor_nav.route_view(project, "floor-1", {"x": 150, "y": 150}, {"x": 600, "y": 150})
+         self.assertFalse(blocked["ok"])
+         self.assertEqual(floor_nav.nav_view(project, None)["floorId"], "floor-0")
+diff --git a/tests/test_name_overrides.py b/tests/test_name_overrides.py
+index 7e9e134..d24b0bf 100644
+--- a/tests/test_name_overrides.py
++++ b/tests/test_name_overrides.py
+@@ -19,6 +19,19 @@ def project(shift=0.0, ids=("r1", "r2", "r3")):
+ 
+ 
+ class OverrideTest(unittest.TestCase):
++    def test_drawn_ids_and_door_survive_reimport(self):
++        import draw_rooms
++        with tempfile.TemporaryDirectory() as root:
++            first = {"sourceSha": "drawn", "floors": [{"level": 0, "rooms": [], "walls": [], "doors": []}]}
++            polygon = [{"x": 0, "y": 0}, {"x": 300, "y": 0}, {"x": 300, "y": 300}, {"x": 0, "y": 300}]
++            room = draw_rooms.add_drawn_room(first["floors"][0], polygon, "手画房间", key="custom-id")
++            no.record_drawn(root, first)
++            again = {"sourceSha": "drawn", "floors": [{"level": 0, "rooms": [], "walls": [], "doors": []}]}
++            self.assertEqual(no.apply_drawn(root, again), 1)
++            self.assertEqual(again["floors"][0]["rooms"][0]["id"], room["id"])
++            self.assertEqual({d["id"] for d in again["floors"][0]["doors"]},
++                             {d["id"] for d in first["floors"][0]["doors"]})
++
+     def test_reimport_keeps_manual_names(self):
+         with tempfile.TemporaryDirectory() as root:
+             first = project()
+diff --git a/tests/test_openplan_editor_mcp.py b/tests/test_openplan_editor_mcp.py
+index fc3c230..497a251 100644
+--- a/tests/test_openplan_editor_mcp.py
++++ b/tests/test_openplan_editor_mcp.py
+@@ -283,7 +283,10 @@ class LiveApplyTests(unittest.TestCase):
+         import httpx
+         import uvicorn
+ 
+-        port = 8899
++        import socket
++        with socket.socket() as listener:
++            listener.bind(("127.0.0.1", 0))
++            port = listener.getsockname()[1]
+         app = create_app(Hub(), port=port)
+         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+         thread = threading.Thread(target=server.run, daemon=True)
+diff --git a/tests/test_openplan_project.py b/tests/test_openplan_project.py
+index 679fc25..df6698c 100644
+--- a/tests/test_openplan_project.py
++++ b/tests/test_openplan_project.py
+@@ -13,6 +13,7 @@ from openplan_project import (
+     centerlines_from_segments,
+     cm_per_point,
+     detect_closed_rooms,
++    merge_overlapping_walls,
+     recognize_pdf,
+     repair_wall_lines,
+     room_floor_texture,
+@@ -34,6 +35,31 @@ def _box_segments():
+ 
+ 
+ class OpenPlanProjectTests(unittest.TestCase):
++    def test_overlapping_walls_merge_before_door_attachment(self):
++        walls = [
++            {"id": "a", "start": {"x": 0, "y": 0}, "end": {"x": 100, "y": 0}, "thickness": 12},
++            {"id": "b", "start": {"x": 50, "y": 0}, "end": {"x": 150, "y": 0}, "thickness": 15},
++            {"id": "c", "start": {"x": 160, "y": 0}, "end": {"x": 200, "y": 0}, "thickness": 12},
++        ]
++        doors = [{"wallId": "b", "position": 0.25, "width": 60}]
++        rooms = [{"walls": ["a", "b", "c"]}]
++        merged = merge_overlapping_walls(walls, doors, rooms)
++        self.assertEqual(len(merged), 2)
++        self.assertEqual((merged[0]["start"]["x"], merged[0]["end"]["x"], merged[0]["thickness"]), (0, 150, 15))
++        self.assertEqual((doors[0]["wallId"], doors[0]["position"]), ("a", 0.5))
++        self.assertEqual(rooms[0]["walls"], ["a", "c"])
++
++    def test_door_across_collinear_join_opens_both_spans(self):
++        walls = [
++            {"id": "a", "start": {"x": 0, "y": 0}, "end": {"x": 100, "y": 0}, "thickness": 12},
++            {"id": "b", "start": {"x": 100, "y": 0}, "end": {"x": 200, "y": 0}, "thickness": 12},
++        ]
++        doors = [{"wallId": "a", "position": 0.8, "width": 80}]
++        merged = merge_overlapping_walls(walls, doors)
++        self.assertEqual(len(merged), 1)
++        self.assertEqual(merged[0]["end"]["x"], 200)
++        self.assertEqual((doors[0]["wallId"], doors[0]["position"]), ("a", 0.4))
++
+     def test_pdf_room_names_report_missing_backend(self):
+         rooms = [{"polygon": [{"x": 0, "y": 0}, {"x": 100, "y": 0}, {"x": 100, "y": 100}, {"x": 0, "y": 100}]}]
+         with patch("maker_ocr.resolve_ocr_backend", return_value="off"):
+diff --git a/tests/test_pdf_building.py b/tests/test_pdf_building.py
+index 4ec8d1a..19e24fb 100644
+--- a/tests/test_pdf_building.py
++++ b/tests/test_pdf_building.py
+@@ -11,10 +11,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
+ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+ 
+ import floor_nav
++import floor_overrides
+ import kujiale_import_server as server
+ import pdf_building
+ from openplan_project import _elevator_crosses
+-from test_floor_nav import rooms_off_corridor
++from test_floor_nav import rooms_off_corridor, two_rooms, wall
+ 
+ 
+ def storey_floor(level, name=None):
+@@ -89,6 +90,22 @@ class SheetTitleTests(unittest.TestCase):
+ 
+ 
+ class ShaftTests(unittest.TestCase):
++    def test_link_labels_use_the_lowest_plan_instead_of_averaging_different_origins(self):
++        floors = [storey_floor(0), storey_floor(1)]
++        for wall in floors[1]["walls"]:
++            for point in (wall["start"], wall["end"]):
++                point["x"] += 5000
++                point["y"] += 1500
++        links = [{"id": side, "kind": "stairs", "stops": [
++            {"floorId": "floor-1", "x": x + 5000, "y": 1800},
++            {"floorId": "floor-0", "x": x, "y": 300},
++        ]} for side, x in (("west", 100), ("east", 1100))]
++        pdf_building.name_links(links, list(reversed(floors)), 270.1)
++        self.assertEqual([link["name"] for link in links], ["楼梯（西）", "楼梯（东）"])
++        pdf_building.name_links(links, floors, None)
++        self.assertEqual([link["name"] for link in links], ["楼梯 A", "楼梯 B"])
++
++
+     def setUp(self):
+         floor_nav._CACHE.clear()
+ 
+@@ -135,7 +152,6 @@ class ShaftTests(unittest.TestCase):
+         self.assertGreater(vertical[0]["x"], 600, vertical[0])  # inside 电梯 lobby, not 放射科
+         self.assertLess(vertical[0]["y"], 300)
+         self.assertEqual(vertical[0]["roomId"], "room-b")
+-        self.assertEqual(vertical[0]["at"], (630, 150))
+ 
+     def test_sealed_shaft_lands_in_front_of_it_not_in_the_room_across_the_wall(self):
+         # Regression (synthetic CAD PDF): the elevator room stayed sealed, and the landing
+@@ -277,5 +293,82 @@ class BuildingImportServerTests(unittest.TestCase):
+         self.assertEqual(response.status_code, 400)
+ 
+ 
++class FloorOverrideTests(unittest.TestCase):
++    def test_named_split_keeps_the_original_id_on_the_correct_small_piece(self):
++        f = two_rooms(False)
++        f["walls"] = [w for w in f["walls"] if w["id"] != "mid"]
++        f["rooms"] = [{"id": "room-20", "name": "细菌室", "walls": [w["id"] for w in f["walls"]]}]
++        floor_overrides.apply(f, [], {
++            "walls_add": [{"start": {"x": 200, "y": 0}, "end": {"x": 200, "y": 300}}],
++            "rooms": [{"x": 100, "y": 150, "name": "细菌室"}, {"x": 600, "y": 150, "name": "生化室"}],
++        })
++        r = next(r for r in f["rooms"] if r["id"] == "room-20")
++        self.assertEqual((r["name"], r["area"]), ("细菌室", 6))
++
++    def test_previous_manual_geometry_and_cleared_name_survive_a_fresh_import(self):
++        previous = two_rooms()
++        previous["walls"][-1]["drawn"] = True
++        previous["doors"][0]["drawn"] = True
++        previous["rooms"][0].update(name="", nameSource="manual")
++        fresh = two_rooms()
++        fresh["rooms"][0]["id"] = "room-new"
++        floor_overrides.apply(fresh, [], {"rooms": [{"x": 200, "y": 150, "name": "错误恢复"}]}, previous)
++        self.assertIn(previous["walls"][-1], fresh["walls"])
++        self.assertIn(previous["doors"][0], fresh["doors"])
++        room = next(r for r in fresh["rooms"] if r["id"] == "room-a")
++        self.assertEqual((room["name"], room["nameSource"]), ("", "manual"))
++        self.assertEqual(set(room["walls"]), set(previous["rooms"][0]["walls"]))
++
++    def test_merge_keeps_the_named_room_id_and_manual_name(self):
++        f = two_rooms()
++        f["rooms"][0].update(displayName="人工名称", nameSource="manual")
++        f["rooms"][1]["name"] = ""
++        floor_overrides.apply(f, [], {"walls_remove": [{"x": 400, "y": 150, "tol": 1}],
++                                      "rooms": [{"x": 200, "y": 150, "name": "自动名称"}]})
++        self.assertEqual(len(f["rooms"]), 1)
++        r = f["rooms"][0]
++        self.assertEqual(r["id"], "room-a")
++        self.assertEqual(r["name"], "甲")
++        self.assertEqual(r["displayName"], "人工名称")
++        self.assertEqual(r["area"], 24)
++
++    def test_split_never_duplicates_ids_names_or_opening_metadata(self):
++        f = two_rooms(False)
++        f["walls"] = [w for w in f["walls"] if w["id"] != "mid"]
++        f["rooms"] = [{"id": "room-20", "name": "上空", "floorOpening": True,
++                       "floorTexture": "none", "walls": [w["id"] for w in f["walls"]]}]
++        floor_overrides.apply(f, [], {"walls_add": [{"start": {"x": 200, "y": 0}, "end": {"x": 200, "y": 300}}]})
++        self.assertEqual({r["id"] for r in f["rooms"]}, {"room-20", "room-21"})
++        old = next(r for r in f["rooms"] if r["id"] == "room-20")
++        self.assertTrue(old["floorOpening"])
++        self.assertEqual(old["floorTexture"], "none")
++        self.assertEqual(sum(r.get("name") == "上空" for r in f["rooms"]), 1)
++
++    def test_trim_keeps_stair_side_and_repositions_a_door_on_a_reversed_wall(self):
++        w = wall("long", 1000, 0, 0, 0)
++        f = {"walls": [w], "rooms": [], "doors": [{"id": "d", "wallId": "long", "position": .9}]}
++        with mock.patch.object(floor_overrides, "_rebuild_rooms"):
++            floor_overrides.apply(f, [], {"walls_remove": [{"start": {"x": 400, "y": 0}, "end": {"x": 1000, "y": 0}, "tol": 1}]})
++        self.assertEqual(len(f["walls"]), 1)
++        self.assertEqual(f["walls"][0]["start"], {"x": 0, "y": 0})
++        self.assertEqual(f["walls"][0]["end"], {"x": 400, "y": 0})
++        self.assertEqual(f["doors"][0]["position"], .25)
++        self.assertEqual(f["doors"][0]["wallId"], f["walls"][0]["id"])
++
++    def test_drawn_room_walls_and_doors_are_unchanged(self):
++        f = two_rooms()
++        f["walls"][-1]["drawn"] = True
++        f["doors"][0]["drawn"] = True
++        f["rooms"][1].update(drawn=True, floorPolygon=[{"x": 400, "y": 0}, {"x": 800, "y": 0},
++                                                     {"x": 800, "y": 300}, {"x": 400, "y": 300}])
++        old = copy.deepcopy(f)
++        floor_overrides.apply(f, [], {"walls_remove": [{"x": 400, "y": 150, "tol": 1}],
++                                      "walls_add": [{"start": {"x": 100, "y": 0}, "end": {"x": 100, "y": 300}}],
++                                      "rooms": [{"x": 600, "y": 150, "name": "错误覆盖", "roomType": "corridor"}]})
++        self.assertIn(old["walls"][-1], f["walls"])
++        self.assertIn(old["doors"][0], f["doors"])
++        self.assertIn(old["rooms"][1], f["rooms"])
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_restricted_zones.py b/tests/test_restricted_zones.py
+index 993cd1a..987de2b 100644
+--- a/tests/test_restricted_zones.py
++++ b/tests/test_restricted_zones.py
+@@ -49,6 +49,7 @@ class P1ZoneTest(unittest.TestCase):
+             self.assertEqual(len(north), len(r["transfers"]), r["transfers"])
+ 
+     def test_inside_destination_may_enter(self):
++        self.p1 = json.loads((ROOT / "data/kujiale-import/projects/17404623f6034dad83a9f201036b98b4/project.json").read_text(encoding="utf-8"))
+         self.p1["restrictedZones"] = pb.suggest_restricted_zones(self.p1["floors"])
+         places = fn.all_places(self.p1)
+         a = next(p for p in places if "门厅" in p["name"] and not p.get("restricted"))

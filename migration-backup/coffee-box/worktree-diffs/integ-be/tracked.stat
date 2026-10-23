@@ -1,0 +1,23 @@
+ data/overrides/P1-1F.json        |  194 +++++++++++++++++++++++++++++
+ data/overrides/P1-2F.json        |  760 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ data/overrides/P1-3F.json        | 1086 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ data/overrides/P2-3F.json        |   32 +++++
+ data/overrides/P3-1F.json        |    2 +
+ data/overrides/P3-2F.json        |    3 +
+ data/overrides/P3-3F.json        |    2 +
+ data/overrides/P3-4F.json        |    1 +
+ data/overrides/pdf_truth.json    |    7 ++
+ requirements.txt                 |    1 +
+ scripts/floor_nav.py             | 1028 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-------------------
+ scripts/floor_overrides.py       |  287 ++++++++++++++++++++++++++++++++++++++++++
+ scripts/kujiale_import_server.py |   28 ++++-
+ scripts/maker_cad.py             |   89 +++++++++++++
+ scripts/name_overrides.py        |    4 +-
+ scripts/openplan_project.py      |  134 ++++++++++++++++++--
+ scripts/pdf_building.py          |   38 ++++--
+ scripts/verify_import.py         |  155 +++++++++++++++++++++++
+ tests/test_floor_nav.py          |   18 ++-
+ tests/test_floor_overrides.py    |  100 +++++++++++++++
+ tests/test_name_overrides.py     |   13 ++
+ tests/test_pdf_building.py       |   80 +++++++++++-
+ 22 files changed, 3908 insertions(+), 154 deletions(-)

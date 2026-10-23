@@ -1,0 +1,5 @@
+path: /workspace/gifu-before
+remote: https://origin.cursor.com/loooke19/gifu-hospital-3d-tour.git
+branch: HEAD
+HEAD: ec4d584a55ff3e05aa778443550c412fb53812c2
+HEAD subject: Keep editor returns on the current preview and make saves self-heal.

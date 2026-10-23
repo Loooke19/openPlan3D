@@ -1,0 +1,47 @@
+{
+  "name": "@ambientcss/css",
+  "version": "3.0.1",
+  "description": "Pure CSS ambient lighting and skeuomorphic utility classes",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kikkupico/ambientcss.git",
+    "directory": "packages/ambient-css"
+  },
+  "homepage": "https://kikkupico.github.io/ambientcss/",
+  "bugs": {
+    "url": "https://github.com/kikkupico/ambientcss/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "style": "dist/ambient.css",
+  "sideEffects": [
+    "*.css"
+  ],
+  "exports": {
+    ".": {
+      "development": "./src/ambient.css",
+      "default": "./dist/ambient.css"
+    },
+    "./ambient.css": {
+      "development": "./src/ambient.css",
+      "default": "./dist/ambient.css"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "devDependencies": {
+    "lightningcss": "^1.30.1"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build-css.mjs src/ambient.css dist/ambient.css",
+    "api:check": "node ../../scripts/check-css-api.mjs src/ambient.css api-baseline.json",
+    "api:write": "node ../../scripts/check-css-api.mjs src/ambient.css api-baseline.json --write",
+    "clean": "rm -rf dist",
+    "typecheck": "echo \"No typecheck for CSS package\""
+  }
+}
