@@ -17,7 +17,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:4188',
+    baseURL: 'http://127.0.0.1:4211',
     viewport: { width: 1440, height: 900 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -35,12 +35,12 @@ export default defineConfig({
   ],
   webServer: {
     command: 'node build/index.js',
-    url: 'http://127.0.0.1:4188',
+    url: 'http://127.0.0.1:4211',
     reuseExistingServer: false,
     timeout: 30_000,
     env: {
-      NODE_ENV: 'production', HOST: '127.0.0.1', PORT: '4188',
-      ORIGIN: 'http://127.0.0.1:4188', PUBLIC_ENABLE_ANALYTICS: 'false',
+      NODE_ENV: 'production', HOST: '127.0.0.1', PORT: '4211',
+      ORIGIN: 'http://127.0.0.1:4211', PUBLIC_ENABLE_ANALYTICS: 'false',
       HANDOFF_UPLOADS_ENABLED: 'false', HANDOFF_BUCKET: '',
       BODY_SIZE_LIMIT: '2M',
     },
