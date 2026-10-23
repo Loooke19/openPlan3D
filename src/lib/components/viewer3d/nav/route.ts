@@ -11,8 +11,10 @@ export type P2 = { x: number; y: number };
 export function ribbonGeometry(points: P2[], halfWidth: number): THREE.BufferGeometry {
   const pts = points.filter((p, i) => i === 0 || Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y) > 0.5);
   const n = pts.length;
-  const position = new Float32Array(n * 6), uv = new Float32Array(n * 4), index: number[] = [];
-  let along = 0;
+  // Mitred edge points per vertex, then one quad per segment with its own vertices. Each quad's
+  // uv.x is the exact projection onto that segment's centreline, so the chevron field is affine
+  // across both triangles and its tip lands on the line centre on straights and turns alike.
+  const edges: [number, number, number, number][] = [];
   for (let i = 0; i < n; i++) {
     const p = pts[i], prev = pts[Math.max(0, i - 1)], next = pts[Math.min(n - 1, i + 1)];
     const d0 = new THREE.Vector2(p.x - prev.x, p.y - prev.y), d1 = new THREE.Vector2(next.x - p.x, next.y - p.y);
@@ -24,27 +26,39 @@ export function ribbonGeometry(points: P2[], halfWidth: number): THREE.BufferGeo
     tangent.normalize();
     const normal = new THREE.Vector2(-tangent.y, tangent.x);
     const miter = Math.min(2.2, 1 / Math.max(0.3, normal.dot(new THREE.Vector2(-d1.y, d1.x))));
-    if (i) along += Math.hypot(p.x - prev.x, p.y - prev.y);
-    for (const [k, side] of [[0, 1], [1, -1]] as const) {
-      position.set([p.x + normal.x * halfWidth * miter * side, 0, p.y + normal.y * halfWidth * miter * side], (i * 2 + k) * 3);
-      uv.set([along, side], (i * 2 + k) * 2);
-    }
-    if (i) { const a = (i - 1) * 2, b = i * 2; index.push(a, b, a + 1, a + 1, b, b + 1); }
+    const ox = normal.x * halfWidth * miter, oy = normal.y * halfWidth * miter;
+    edges.push([p.x + ox, p.y + oy, p.x - ox, p.y - oy]);
+  }
+  const segs = Math.max(0, n - 1);
+  const position = new Float32Array(segs * 12), uv = new Float32Array(segs * 8), seg = new Float32Array(segs * 8), index: number[] = [];
+  let along = 0;
+  for (let i = 0; i < segs; i++) {
+    const a = pts[i], b = pts[i + 1], len = Math.hypot(b.x - a.x, b.y - a.y), tx = (b.x - a.x) / len, ty = (b.y - a.y) / len;
+    const verts: [number, number, number][] = [[edges[i][0], edges[i][1], 1], [edges[i][2], edges[i][3], -1], [edges[i + 1][0], edges[i + 1][1], 1], [edges[i + 1][2], edges[i + 1][3], -1]];
+    verts.forEach(([x, z, side], k) => {
+      position.set([x, 0, z], (i * 4 + k) * 3);
+      uv.set([along + (x - a.x) * tx + (z - a.y) * ty, side], (i * 4 + k) * 2);
+      seg.set([along, along + len], (i * 4 + k) * 2);
+    });
+    const o = i * 4; index.push(o, o + 2, o + 1, o + 1, o + 2, o + 3);
+    along += len;
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geometry.setAttribute('seg', new THREE.BufferAttribute(seg, 2));
   geometry.setIndex(index);
   geometry.userData.length = along;
   return geometry;
 }
 
 const VERT = /* glsl */`
-  varying vec2 vUv;
+  attribute vec2 seg;
+  varying vec2 vUv, vSeg;
   #include <common>
   #include <logdepthbuf_pars_vertex>
   void main() {
-    vUv = uv;
+    vUv = uv; vSeg = seg;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     #include <logdepthbuf_vertex>
   }`;
@@ -66,7 +80,7 @@ export class NavRouteVisual {
     const y = opts.y ?? 4.5;
     this.group.userData.navRoute = true;
     if (points.length < 2) return;
-    for (const [view, core, rim, glow] of [['walk', 15, 21, 60], ['overview', 30, 41, 130]] as const) {
+    for (const [view, core, rim, glow] of [['walk', 12.5, 17.5, 60], ['overview', 25, 34, 130]] as const) {
       this.buildSet(points, y, view, core, rim, glow);
     }
     this.length = (this.group.children[0] as THREE.Mesh)?.geometry.userData.length ?? 0;
@@ -76,7 +90,7 @@ export class NavRouteVisual {
 
 
   private buildSet(points: P2[], y: number, view: 'walk' | 'overview', halfCore: number, halfRim: number, halfGlow: number) {
-    const u = { ...this.uniforms, uHalf: { value: halfCore } };
+    const u = { ...this.uniforms, uHalf: { value: halfCore * 1.2 } }; // chevron scale kept from pre-thinning width
     const core = ribbonGeometry(points, halfCore);
     const rim = ribbonGeometry(points, halfRim);
     const glow = ribbonGeometry(points, halfGlow);
@@ -84,15 +98,20 @@ export class NavRouteVisual {
       uniforms: u, vertexShader: VERT,
       fragmentShader: /* glsl */`
         uniform float uTime, uTraveled, uHalf, uWalk; uniform vec3 uAccent;
-        varying vec2 vUv;
+        varying vec2 vUv, vSeg;
         #include <common>
         #include <logdepthbuf_pars_fragment>
         void main() {
           #include <logdepthbuf_fragment>
           float along = vUv.x, across = abs(vUv.y);
+          // Whole chevrons only, inside one straight run: none straddles a corner joint.
           // Chevrons tip forward (+along). Do not put backticks in this comment — they truncate the GLSL template.
           float v = fract((along + across * uHalf * 1.1) / (uHalf * 7.) - uTime * 80. / (uHalf * 7.));
           float chev = smoothstep(.0, .06, v) * (1. - smoothstep(.18, .24, v)) * (1. - smoothstep(.72, .86, across));
+          float chevRaw = (along + across * uHalf * 1.1) / (uHalf * 7.) - uTime * 80. / (uHalf * 7.);
+          float tipAt = (floor(chevRaw + .5) + uTime * 80. / (uHalf * 7.)) * uHalf * 7.; // one value per chevron
+          // Soft 2-unit gate so a chevron flowing out of a run fades as a whole (no per-pixel flicker).
+          chev *= smoothstep(0., 2., tipAt - vSeg.x - uHalf * 1.1) * smoothstep(0., 2., vSeg.y - tipAt - uHalf * 7. * .24);
           vec3 base = uAccent * (1.25 - .25 * uWalk);
           vec3 col = mix(base, mix(vec3(2.2, 2.4, 2.6), vec3(1.25, 1.35, 1.45), uWalk), chev * .9);
           if (along < uTraveled) col = mix(vec3(.42, .46, .45), vec3(.6), chev * .3);

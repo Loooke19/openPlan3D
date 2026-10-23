@@ -77,11 +77,14 @@
   import { NavPipeline, type NavLook } from './nav/pipeline';
   import { NavRouteVisual } from './nav/route';
   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
-  import { NavSigns, type SignDoor } from './nav/signs';
+  import { NavSigns, isPlaceholderRoomName, type SignDoor } from './nav/signs';
   import { NAV_FONT, navFontLoaded, navFontReady } from '$lib/utils/navFonts';
   import { hospitalFloorY } from '$lib/utils/hospitalMaterials';
   import { centerRoute, enclosedRooms, inside as layoutInside } from './nav/layout';
   import { navDoors } from './nav/navDoors';
+  import { auditOpenings, type OpeningBox } from './nav/openingAudit';
+  import { holeCuts, duplicateCuts, holeKeeper, bridgeSlivers, type Hole, type Cut } from './nav/openingRules';
+  import { NavKitDressing, regularizeWalls, signBoxes, bakeWallAo } from './nav/kitDressing';
   import { pinText, mapLabels, nearRoute } from '$lib/utils/navCopy';
   import { base as appBase } from '$app/paths';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
@@ -173,6 +176,11 @@
   let navPipeline: NavPipeline | null = null;
   let navDressing: NavDressing | null = null;
   let navSigns: NavSigns | null = null;
+  // Licensed clinic kit (wu9777) trims/floor/props in nav: on by default; ?kit=0 or debugForTest('nokit') turns it off.
+  let navKit: NavKitDressing | null = null;
+  let navKitOn = typeof location !== 'undefined' && new URLSearchParams(location.search).get('kit') !== '0';
+  let rawFloor: Floor | null = null;
+  const navFloorOf = (f: Floor | null) => (f && navShell && navKitOn ? { ...f, walls: regularizeWalls(f.walls).walls } : f);
   let navRouteVisual: NavRouteVisual | null = null;
   let navLook: NavLook = 'overview';
   let navBackdrops: Partial<Record<NavLook, THREE.Texture>> = {};
@@ -792,6 +800,21 @@
     return { msPerFrame: (performance.now() - t0) / frames, ...getRenderStatsForTest(), ...stats, pixelRatio: renderer.getPixelRatio() };
   }
 
+  /** Dev: door-opening geometry audit (off-axis triangles, coplanar faces, reveal orientation). */
+  export function auditOpeningsForTest(hide?: string[]) {
+    const skip = (o: THREE.Object3D) => { for (let k: THREE.Object3D | null = o; k; k = k.parent) if (k.userData.navPart === 'leaf' || k.userData.navDressing || k.userData.navKit) return true; return false; };
+    return auditOpenings(wallGroup, navOpeningBoxes, skip);
+  }
+  /** Dev: hide one class of door-opening parts for root-cause isolation. */
+  export function hidePartForTest(part: string, on = false) {
+    wallGroup.traverse(o => {
+      const u = o.userData;
+      const cls = u.navPart ?? (u.wallJoint ? 'joint' : u.wallId ? 'wall' : (o as THREE.Mesh).isMesh && ((o as THREE.Mesh).material as THREE.Material)?.name === 'baseboard' ? 'baseboard' : '');
+      if (cls === part) o.visible = on;
+    });
+    markSceneDirty(); renderFrameForTest();
+  }
+
   /** Dev/nav test hook: what is under a canvas pixel (fractions 0..1). */
   export function pickForTest(fx: number, fy: number) {
     const rc = new THREE.Raycaster();
@@ -802,7 +825,34 @@
       color: ((h.object as THREE.Mesh).material as THREE.MeshStandardMaterial)?.color?.getHexString?.(), face: h.face?.normal?.toArray().map(v => Math.round(v * 100) / 100) }));
   }
 
+  /** Dev: scene cost (draw-call estimate = visible mesh × material groups; triangles incl. instances). */
+  export function debugSceneForKit() {
+    let calls = 0, tris = 0, kitCalls = 0, kitTris = 0;
+    scene.traverseVisible(o => {
+      const m = o as THREE.Mesh; if (!m.isMesh) return;
+      const g = m.geometry; const t = (g.index ? g.index.count : g.attributes.position?.count ?? 0) / 3;
+      const n = (m as unknown as THREE.InstancedMesh).isInstancedMesh ? (m as unknown as THREE.InstancedMesh).count : 1;
+      const groups = Array.isArray(m.material) ? Math.max(1, g.groups.length) : 1;
+      calls += groups; tris += t * n;
+      let k: THREE.Object3D | null = m; while (k && !k.userData.navKit) k = k.parent;
+      if (k) { kitCalls += groups; kitTris += t * n; }
+    });
+    const tex = new Map<string, number>();
+    scene.traverse(o => { const m = o as THREE.Mesh; if (!m.isMesh) return; for (const mt of ([] as THREE.Material[]).concat(m.material)) for (const v of Object.values(mt)) if (v && (v as THREE.Texture).isTexture) { const t = v as THREE.Texture; const k = `${t.constructor.name}:${t.name || (t.image?.tagName ?? '')}`; tex.set(k, (tex.get(k) ?? 0) + 0) ; (tex as any)._s ??= new Set(); (tex as any)._s.add(t); tex.set(k, [...(tex as any)._s].filter((x: THREE.Texture) => `${x.constructor.name}:${x.name || (x.image?.tagName ?? '')}` === k).length); } });
+    return { calls, tris: Math.round(tris), kitCalls, kitTris: Math.round(kitTris), sceneTextures: Object.fromEntries(tex), gpuTextures: renderer.info.memory.textures, programs: renderer.info.programs?.length };
+  }
+
   export function debugForTest(what: string) {
+    if (what === 'kit' || what === 'nokit') {
+      navKitOn = what === 'kit';
+      currentFloor = navFloorOf(rawFloor);
+      rebuildScene(true);
+      rebuildNavDressing();
+      return;
+    }
+    if (what === 'noceil') { // test-only: cutaway for elevated cover-angle shots
+      scene.traverse(o => { if (o.userData.navCeiling || (o as THREE.Mesh).isMesh && o.parent === navDressing?.group && o.position.y > 250) o.visible = false; });
+    }
     if (what === 'noshadow') { sunLight.castShadow = false; renderer.shadowMap.needsUpdate = true; }
     if (what === 'nodressing' && navDressing) navDressing.group.visible = false;
     if (what === 'nopost') navPipeline = null;
@@ -1484,20 +1534,31 @@
     navSigns = null;
     if (currentFloor) {
       const doors: SignDoor[] = [];
-      for (const door of currentFloor.doors) {
+      // navDoors: doorAt-only rooms get their passage row too (else those rooms had no sign).
+      for (const door of navDoors(currentFloor) as typeof currentFloor.doors) {
         const wall = currentFloor.walls.find(w => w.id === door.wallId);
         if (!wall) continue;
         const dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y, len = Math.hypot(dx, dy) || 1;
         doors.push({ center: { x: wall.start.x + dx * door.position, y: wall.start.y + dy * door.position }, along: { x: dx / len, y: dy / len },
-          normal: { x: -dy / len, y: dx / len }, width: door.width, wallThickness: wall.thickness || 15, height: door.height || 210 });
+          normal: { x: -dy / len, y: dx / len }, width: door.width, wallThickness: wall.thickness || 15, height: door.height || 210, wallHeight: wall.height || 280 });
       }
       const fid = currentFloor.id;
       const links = navLinkSigns.filter(l => l.floorId === fid);
       // A stair/lift room's door sign carries the same patient name as banner and steps.
       const linkName = (poly: { x: number; y: number }[]) => links.find(l => insidePoly(l, poly))?.name;
-      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
-      navSigns = new NavSigns(doors, named, activeFloorElevation, links);
+      const named = roomFaces(currentFloor).filter(r => !isPlaceholderRoomName(r.room.name) && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
+      navSigns = new NavSigns(doors, named, activeFloorElevation, links, currentFloor.walls);
       scene.add(navSigns.group);
+    }
+    navKit?.dispose();
+    navKit = null;
+    if (navKitOn && currentFloor) {
+      const rooms = roomFaces(currentFloor).filter(r => r.polygon.length > 2).map(r => ({ name: isPlaceholderRoomName(r.room.name) ? '' : (r.room.name ?? ''), polygon: r.polygon }));
+      navKit = new NavKitDressing(currentFloor.walls, navDoors(currentFloor), rooms, (currentFloor as { footprint?: { x: number; y: number }[] }).footprint ?? null, activeFloorElevation, '/nav-kit', () => markSceneDirty(), navKitKeep.filter(k => k.floorId === currentFloor!.id), signBoxes(navSigns?.placements ?? [], activeFloorElevation));
+      if (import.meta.env.DEV) Object.assign(window, { __navKit: navKit, __navKitInput: { walls: currentFloor.walls, rawWalls: rawFloor?.walls, doors: navDoors(currentFloor), rooms, footprint: (currentFloor as { footprint?: unknown }).footprint ?? null, keep: navKitKeep.filter(k => k.floorId === currentFloor!.id) } });
+      scene.add(navKit.group);
+      // pre-baked wall AO + warm fill into vertex colours (static walls only; door leaves untouched)
+      if (new URLSearchParams(location.search).get('bake') !== '0') bakeWallAo(wallGroup, currentFloor.walls, activeFloorElevation);
     }
     applyNavLook(navLook, true);
   }
@@ -2182,6 +2243,12 @@
     return c;
   }
   /** Patient names of stairs/lifts at each stop; hung as 3D signs (「楼梯 A」). */
+  let navKitKeep: { floorId: string; x: number; y: number }[] = [];
+  export function setNavKitKeepout(list: { floorId: string; x: number; y: number }[]) {
+    navKitKeep = list;
+    if (navKitOn) rebuildNavDressing();
+  }
+
   export function setNavLinkSigns(list: { floorId: string; x: number; y: number; name: string }[]) {
     navLinkSigns = list;
     rebuildNavDressing();
@@ -2745,6 +2812,7 @@
 
   function addNavDoorLeaf(doorId: string, hinge: Point, width: number, height: number, angle: number, hingeSide: number, face: number, wallThickness: number) {
     const pivot = new THREE.Group();
+    pivot.userData.navPart = 'leaf';
     // Park the slab just outside the swing-side wall face so thickness faces
     // never share volume with full-depth jambs (coplanar z-fight → vertical stripes).
     // Closed: the leaf sits flush, centred in the wall opening (inside the wall thickness).
@@ -2804,6 +2872,7 @@
       mesh.position.set(center.x, (rect.bottom + rect.top) / 2, center.y);
       mesh.rotation.y = -Math.atan2(span.end.y - span.start.y, span.end.x - span.start.x);
       mesh.userData.renderExclude = excludeFromRender;
+      mesh.userData.navPart = 'frame';
       // Nav FPS: shadow acne on thin jamb edges shows as fine vertical stripes.
       mesh.castShadow = !excludeFromRender && !navShell;
       mesh.receiveShadow = !navShell;
@@ -2813,7 +2882,9 @@
     }
   }
 
+  let navOpeningBoxes: OpeningBox[] = [];
   function buildWalls(floor: Floor) {
+    navOpeningBoxes = [];
     hospitalFloorY.value = activeFloorElevation;
     wallHighlight.clear();
     if (doorAnimationRaf) cancelAnimationFrame(doorAnimationRaf);
@@ -2824,6 +2895,41 @@
     wallMeshMap.clear();
     // Include room.doorAt jambs so nav paths through authored doors aren't hidden behind solid walls.
     const floorDoors = navDoors(floor);
+    // Door holes as oriented boxes, computed once and shared by every wall / skirting / joint cap.
+    const doorHoles: Hole[] = [];
+    const holeLeafFirst = [...floorDoors].sort((a, b) => Number(a.type === 'opening' || !!(a as { fromDoorAt?: boolean }).fromDoorAt) - Number(b.type === 'opening' || !!(b as { fromDoorAt?: boolean }).fromDoorAt));
+    for (const d of holeLeafFirst) {
+      const w = floor.walls.find((x) => x.id === d.wallId); if (!w || w.curvePoint) continue;
+      const path = wallPathProfile(w);
+      const h = d.type === 'opening' || (d as { fromDoorAt?: boolean }).fromDoorAt ? Math.max(d.height ?? 210, getWallStartHeight(w) ?? 0, getWallEndHeight(w) ?? 0) : (d.height ?? 210);
+      const o = pathOpening(path, path.distanceAt(d.position as number), d.width as number, 0, h);
+      if (!o || o.right - o.left <= 2) continue;
+      const l = path.sample(o.left).point, r = path.sample(o.right).point, L = Math.hypot(r.x - l.x, r.y - l.y) || 1;
+      doorHoles.push({ door: d, doorId: d.id ?? "", wallId: w.id, c: { x: (l.x + r.x) / 2, y: (l.y + r.y) / 2 }, u: { x: (r.x - l.x) / L, y: (r.y - l.y) / L }, half: L / 2, depth: Math.max(w.thickness, WALL_THICKNESS), top: o.top });
+    }
+    const holeDropped = new Set(doorHoles.filter((_, i) => holeKeeper(doorHoles, i) !== i).map(h => h.door));
+    const wallThick = (w: { thickness: number }) => Math.max(w.thickness, WALL_THICKNESS);
+    // Cuts per wall body: other walls' door holes (full height inside the host body: the host lintel
+    // covers above), collinear duplicate spans, and slivers < 2 cm between holes / wall ends.
+    const cutsFor = (w: Wall, i: number, thickness: number, skirting = false): Cut[] => {
+      const L = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y);
+      if (w.curvePoint || L <= 0) return [];
+      const full = Math.max(getWallStartHeight(w) ?? 0, getWallEndHeight(w) ?? 0) + 1;
+      const foreign = holeCuts(w, doorHoles, thickness, skirting ? 0.8 : 0.5).flatMap(c => (c.inside ? [{ ...c, height: full }] : skirting ? [c] : [])); // walls that only touch the hole keep their reveal; skirting is pulled back
+      const dup = duplicateCuts(w, i, floor.walls, wallThick, full);
+      const own = doorHoles.filter(h => h.wallId === w.id).map(h => {
+        const s = (h.c.x - w.start.x) * (w.end.x - w.start.x) / L + (h.c.y - w.start.y) * (w.end.y - w.start.y) / L;
+        return { position: s / L, width: h.half * 2 + (skirting ? 0.6 : 0), height: h.top };
+      });
+      // skirting: gaps follow the rendered hole (not the raw door record) and stop 0.3 cm short
+      const all = skirting ? [...foreign, ...dup, ...own] : [...foreign, ...dup];
+      return [...all, ...bridgeSlivers(L, [...own, ...all])];
+    };
+    const extraCuts = new Map<string, Cut[]>(), extraBaseCuts = new Map<string, Cut[]>();
+    floor.walls.forEach((w, i) => {
+      const c = cutsFor(w, i, wallThick(w)); if (c.length) extraCuts.set(w.id, c);
+      const b = cutsFor(w, i, wallThick(w) + 2, true); if (b.length) extraBaseCuts.set(w.id, b); // skirting is 2 cm wider
+    });
 
     // Wall fill colours / wall-top trim: Luke owns — do not retint defaults here.
     const defaultInteriorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
@@ -2940,6 +3046,7 @@
               : d,
           );
         const winOpenings = floor.windows.filter((w) => w.wallId === wall.id);
+        doorOpenings.push(...((extraCuts.get(wall.id) ?? []) as unknown as typeof doorOpenings));
         const segments = buildWallSegments(len, startH, endH, doorOpenings, winOpenings);
 
         for (const seg of segments) {
@@ -2947,7 +3054,9 @@
 
           // Create a multi-material wall: interior white, exterior brown
           const materials = [
-            exteriorMat, exteriorMat, // left, right
+            // ±X end faces are the door/window reveals and wall ends: same finish as the wall
+            // face (and the same baked AO), not the darker exterior tone.
+            interiorMat, interiorMat, // left, right
             interiorMat, interiorMat, // top, bottom
             interiorMat, exteriorMat, // front (interior), back (exterior)
           ];
@@ -2969,10 +3078,10 @@
 
         // Baseboard — with gaps at door openings
         if (Math.min(startH, endH) >= BASEBOARD_HEIGHT) {
-        const doorOpeningsForBB = floorDoors.filter((d) => d.wallId === wall.id);
+        const doorOpeningsForBB = [...floorDoors.filter((d) => d.wallId === wall.id), ...((extraBaseCuts.get(wall.id) ?? []) as unknown as typeof floorDoors)];
         if (doorOpeningsForBB.length === 0) {
           const bbGeo = new THREE.BoxGeometry(len, BASEBOARD_HEIGHT, t + 2);
-          const bbMesh = new THREE.Mesh(bbGeo, baseboardMat);
+          const bbMesh = new THREE.Mesh(bbGeo, baseboardMat); bbMesh.userData.navPart = 'baseboard'; bbMesh.userData.bbWall = wall.id;
           bbMesh.position.set(cx, BASEBOARD_HEIGHT / 2, cy);
           bbMesh.rotation.y = -angle;
           bbMesh.castShadow = true;
@@ -2982,13 +3091,15 @@
           const sortedDoors = [...doorOpeningsForBB].sort((a, b) => a.position - b.position);
           let bbCursor = 0;
           for (const door of sortedDoors) {
-            const dLeft = door.position * len - door.width / 2;
-            const dRight = door.position * len + door.width / 2;
+            // Stop the skirting 0.3 cm short of the reveal: flush ends were coplanar with the
+            // wall's reveal face (z-fight stripes at the bottom of every door hole).
+            const dLeft = door.position * len - door.width / 2 - 0.3;
+            const dRight = door.position * len + door.width / 2 + 0.3;
             if (dLeft > bbCursor) {
               const segLen = dLeft - bbCursor;
               const segCenter = bbCursor + segLen / 2 - len / 2;
               const bbGeo = new THREE.BoxGeometry(segLen, BASEBOARD_HEIGHT, t + 2);
-              const bbMesh = new THREE.Mesh(bbGeo, baseboardMat);
+              const bbMesh = new THREE.Mesh(bbGeo, baseboardMat); bbMesh.userData.navPart = 'baseboard'; bbMesh.userData.bbWall = wall.id; bbMesh.userData.navPart = 'baseboard'; bbMesh.userData.navPart = 'baseboard';
               bbMesh.position.set(
                 cx + segCenter * Math.cos(angle),
                 BASEBOARD_HEIGHT / 2,
@@ -3004,7 +3115,7 @@
             const segLen = len - bbCursor;
             const segCenter = bbCursor + segLen / 2 - len / 2;
             const bbGeo = new THREE.BoxGeometry(segLen, BASEBOARD_HEIGHT, t + 2);
-            const bbMesh = new THREE.Mesh(bbGeo, baseboardMat);
+            const bbMesh = new THREE.Mesh(bbGeo, baseboardMat); bbMesh.userData.navPart = 'baseboard'; bbMesh.userData.bbWall = wall.id; bbMesh.userData.navPart = 'baseboard';
             bbMesh.position.set(
               cx + segCenter * Math.cos(angle),
               BASEBOARD_HEIGHT / 2,
@@ -3020,7 +3131,7 @@
 
     // Seal L / coincident-endpoint T joints (same grouping as 2D drawWallJoints).
     const fit = navFitParams();
-    if (fit.jointSealed) addWallJointCaps(floor, wallGroup, defaultExteriorMat);
+    if (fit.jointSealed) addWallJointCaps(floor, wallGroup, defaultExteriorMat, doorHoles);
 
     // Doors (doors[] + room.doorAt)
     for (const sourceDoor of floorDoors) {
@@ -3030,6 +3141,8 @@
       const opening = pathOpening(path, path.distanceAt(sourceDoor.position), sourceDoor.width, 0, sourceDoor.height ?? 210);
       if (!opening || opening.top < 6 || opening.right - opening.left <= 2) continue;
       const left = path.sample(opening.left).point, right = path.sample(opening.right).point;
+      if (holeDropped.has(sourceDoor)) continue; // duplicate record of an already-framed hole
+      { const L = Math.hypot(right.x - left.x, right.y - left.y) || 1; navOpeningBoxes.push({ id: sourceDoor.id, wallId: wall.id, c: { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2 }, u: { x: (right.x - left.x) / L, y: (right.y - left.y) / L }, half: L / 2, depth: Math.max(wall.thickness, WALL_THICKNESS), top: opening.top }); }
       const door = { ...sourceDoor, width: Math.hypot(right.x - left.x, right.y - left.y), position: (opening.left + opening.right) / 2 / length };
       if (door.width <= 2) continue;
       // Nav: elevator/stair shafts have no cabin-door model — keep the wall hole + jamb/header,
@@ -3071,7 +3184,10 @@
       addOpeningFrame(wall, (opening.left + jamb / 2 + jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
       addOpeningFrame(wall, (opening.right - jamb / 2 - jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
       if (!skipHeader) {
-        addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - jambClear * 2), doorHeight, jamb, frameDepth, frameMat);
+        // Header sits INSIDE the hole (just under the soffit, between the jambs). It used to start at
+        // doorHeight, i.e. buried in the wall above with its bottom face coplanar with the wall's
+        // soffit → per-triangle z-fight (the pale diagonal triangle over every door leaf).
+        addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - (jambClear + jamb) * 2), doorHeight - jamb, jamb, frameDepth, frameMat);
       }
 
       if (plainOpen) {
@@ -3084,7 +3200,7 @@
             ? new THREE.MeshStandardMaterial({ color: 0xe8e2d6, roughness: 0.85 })
             : frameMat;
           const sill = new THREE.Mesh(
-            new THREE.BoxGeometry(Math.max(2, door.width - jambClear * 2), sillH, frameDepth + (fromDoorAt ? 8 : 0)),
+            new THREE.BoxGeometry(Math.max(2, door.width - (jambClear + jamb) * 2), sillH, frameDepth + (fromDoorAt ? 8 : 0)), // between the jambs: flush ends were coplanar with them
             sillMat,
           );
           sill.position.set(px, sillH / 2, py);
@@ -3876,7 +3992,8 @@
           }
         }
       }
-      currentFloor = f;
+      rawFloor = f;
+      currentFloor = navFloorOf(f);
       if (f) rebuildScene();
     });
     // Room area labels are textures and must refresh when display units change.

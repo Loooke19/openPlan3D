@@ -230,6 +230,9 @@
     if (!viewer) return;
     const list = links.flatMap((l) => l.name ? l.stops.map((st) => ({ floorId: st.floorId, x: st.x, y: st.y, name: l.name! })) : []);
     untrack(() => viewer?.setNavLinkSigns?.(list));
+    // Route end points (destinations, landings) stay clear of placed props.
+    const keep = [...allPlaces().map((p) => ({ floorId: p.floorId || view?.floorId || '', x: p.x, y: p.y })), ...list];
+    untrack(() => viewer?.setNavKitKeepout?.(keep));
   });
 
   // The 3D viewer mounts lazily; rebuild the floor stack once it exists.

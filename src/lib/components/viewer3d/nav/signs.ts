@@ -8,8 +8,13 @@ import * as THREE from 'three';
 import { toiletKind } from '$lib/utils/placeSearch';
 
 type P = { x: number; y: number };
-export type SignDoor = { center: P; along: P; normal: P; width: number; wallThickness: number; height: number };
+export type SignDoor = { center: P; along: P; normal: P; width: number; wallThickness: number; height: number; wallHeight?: number };
 export type SignRoom = { name: string; displayName?: string; polygon: P[] };
+
+/** Auto-generated placeholder labels (「Room 12」) are not names: corridors on upper floors carry them. */
+export function isPlaceholderRoomName(name?: string | null) {
+  return !name || /^\s*(room|房间)\s*\d+\s*$/i.test(name);
+}
 
 function inside(p: P, poly: P[]) {
   let c = false;
@@ -138,11 +143,232 @@ function signTexture(name: string) {
   return t;
 }
 
+
+export type SignWall = { start: P; end: P; thickness?: number; height?: number };
+const HUB_DOORS = 3;
+
+/** A named room with no door row but a gap in its outline (no wall over ≥ 60 cm) is entered
+ * through that gap: sign it like a door (open counters, waiting bays, halls). */
+export function outlineOpenings(rooms: SignRoom[], doors: SignDoor[], walls: SignWall[]): SignDoor[] {
+  const out: SignDoor[] = [];
+  const covered = (q: P) => walls.some((w) => segDist(q, q, w.start, w.end) < (w.thickness || 15) / 2 + 2);
+  for (const r of rooms) {
+    const poly = r.polygon;
+    if (doors.some((d) => [1, -1].some((k) => inside({ x: d.center.x + d.normal.x * k * 40, y: d.center.y + d.normal.y * k * 40 }, poly)))) continue;
+    let best: { a: P; b: P; len: number } | null = null;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length], L = Math.hypot(b.x - a.x, b.y - a.y);
+      let s0 = -1;
+      for (let t = 5; t <= L; t += 10) {
+        const q = { x: a.x + (b.x - a.x) * t / L, y: a.y + (b.y - a.y) * t / L };
+        const open = !covered(q) && t < L - 4;
+        if (open && s0 < 0) s0 = t;
+        if ((!open || t + 10 > L) && s0 >= 0) {
+          const e = open ? t : t - 10, len = e - s0;
+          if (len >= 60 && (!best || len > best.len)) best = { a: { x: a.x + (b.x - a.x) * s0 / L, y: a.y + (b.y - a.y) * s0 / L }, b: { x: a.x + (b.x - a.x) * e / L, y: a.y + (b.y - a.y) * e / L }, len };
+          s0 = -1;
+        }
+      }
+    }
+    if (!best) continue;
+    const ux = (best.b.x - best.a.x) / best.len, uy = (best.b.y - best.a.y) / best.len;
+    // blade hangs from the wall end next to the gap, so the opening width is the gap (capped)
+    const w = Math.min(best.len, 160);
+    const c = { x: best.a.x + ux * w / 2, y: best.a.y + uy * w / 2 };
+    const near = walls.reduce((m, wl) => Math.min(m, segDist(best!.a, best!.a, wl.start, wl.end) < 30 ? wl.thickness || 15 : m), 999);
+    out.push({ center: c, along: { x: ux, y: uy }, normal: { x: -uy, y: ux }, width: w, wallThickness: near < 999 ? near : 15, height: 210, wallHeight: 280 });
+  }
+  return out;
+}
+/** Plan-view footprint of a sign: thin segment a→b at a height band. */
+export type SignPlacement = {
+  kind: 'blade' | 'hang'; name: string; key: string;
+  center: P; normal: P; jamb: P; a: P; b: P; y0: number; y1: number;
+  /** Uniform size factor (1 = full size); wallTop is the storey's wall top (world Y). */
+  scale: number; wallTop: number; doorCenter?: P;
+};
+
+const SIGN_TOP_CLEAR = 10; // sign top stays this far under the wall top / ceiling
+const ARM_TOP = 12; // arm top above blade centre (original: arm at +11, 2cm thick)
+
+const BLADE_LEN = 64, BLADE_H = 20, HANG_LEN = 90, HANG_H = 28, SIGN_GAP = 4;
+
+function segDist(p1: P, p2: P, q1: P, q2: P) {
+  const d = (p: P, a: P, b: P) => {
+    const vx = b.x - a.x, vy = b.y - a.y, L = vx * vx + vy * vy || 1e-9;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / L));
+    return Math.hypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
+  };
+  const cross = (o: P, a: P, b: P) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const hit = cross(p1, p2, q1) * cross(p1, p2, q2) < 0 && cross(q1, q2, p1) * cross(q1, q2, p2) < 0;
+  return hit ? 0 : Math.min(d(p1, q1, q2), d(p2, q1, q2), d(q1, p1, p2), d(q2, p1, p2));
+}
+
+/** Sign top above its limit: blades must clear the wall top by SIGN_TOP_CLEAR; hanging boards
+ * (rod included) may reach the ceiling but not pass it. */
+export function signAboveWall(s: SignPlacement) {
+  return s.kind === 'blade' ? s.y1 > s.wallTop - SIGN_TOP_CLEAR + 1e-6 : s.y1 > s.wallTop + 1e-6;
+}
+
+/** Sign footprint enters a wall body (thin-sign half thickness included). */
+export function signHitsWall(s: SignPlacement, walls: SignWall[]) {
+  return walls.some((w) => segDist(s.a, s.b, w.start, w.end) < (w.thickness || 15) / 2 + 1.5);
+}
+
+/** Two signs share space: footprints closer than the gap and height bands overlap. */
+export function signsOverlap(s: SignPlacement, t: SignPlacement) {
+  return s.y0 < t.y1 && t.y0 < s.y1 && segDist(s.a, s.b, t.a, t.b) < SIGN_GAP;
+}
+
+function freeRun(p: P, dir: P, walls: SignWall[], limit = 2000) {
+  let best = limit;
+  for (const w of walls) {
+    const ex = w.end.x - w.start.x, ey = w.end.y - w.start.y;
+    const den = dir.x * ey - dir.y * ex;
+    if (Math.abs(den) < 1e-9) continue;
+    const t = ((w.start.x - p.x) * ey - (w.start.y - p.y) * ex) / den;
+    const u = ((w.start.x - p.x) * dir.y - (w.start.y - p.y) * dir.x) / den;
+    if (t > 0 && u >= 0 && u <= 1) best = Math.min(best, t);
+  }
+  return best;
+}
+
+/**
+ * Where every sign goes, before any mesh is built. One blade per room (its widest corridor
+ * door), hung on the jamb, normal into the corridor. A blade that would cut a wall or touch an
+ * already placed sign tries the other jamb, then slides along the wall; if nothing fits it is
+ * dropped (the room keeps its other door's sign, or none rather than a clash). Stair/lift
+ * banners are one board facing along the passage, never a crossed pair.
+ */
+export function planSigns(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string }[] = [], walls: SignWall[] = []): SignPlacement[] {
+  const placed: SignPlacement[] = [];
+  const fits = (s: SignPlacement) => !signHitsWall(s, walls) && !placed.some((t) => signsOverlap(s, t));
+  const byRoom = new Map<SignRoom, { d: SignDoor; outward: P; rank: number }[]>();
+  const unique = dedupeSignDoors([...doors, ...outlineOpenings(rooms, doors, walls)]);
+  // Doors per room: a named face with many doors is circulation (named hall / waiting area /
+  // corridor). A door between it and an ordinary room signs the ordinary room, facing the hub.
+  const side = (d: SignDoor, k: number) => rooms.find((r) => inside({ x: d.center.x + d.normal.x * k * 70, y: d.center.y + d.normal.y * k * 70 }, r.polygon));
+  const doorCount = new Map<SignRoom, number>();
+  for (const d of unique) for (const k of [1, -1]) { const r = side(d, k); if (r) doorCount.set(r, (doorCount.get(r) || 0) + 1); }
+  const area = (r: SignRoom) => { let a = 0; const q = r.polygon; for (let i = 0, j = q.length - 1; i < q.length; j = i++) a += (q[j].x + q[i].x) * (q[j].y - q[i].y); return Math.abs(a / 2); };
+  const hubOutward = (d: SignDoor): { room: SignRoom; outward: P; rank?: number } | null => {
+    const a = side(d, 1), b = side(d, -1);
+    if (!a || !b || a === b) return null;
+    const ca = doorCount.get(a) || 0, cb = doorCount.get(b) || 0;
+    const hubA = ca >= HUB_DOORS && (ca > cb || (ca === cb && area(a) > area(b) * 2));
+    const hubB = cb >= HUB_DOORS && (cb > ca || (ca === cb && area(b) > area(a) * 2));
+    if (hubA === hubB) {
+      // suite door (both ordinary rooms): sign the inner one (fewer doors, then smaller)
+      const innerA = ca < cb || (ca === cb && area(a) < area(b));
+      return innerA ? { room: a, outward: { x: -d.normal.x, y: -d.normal.y }, rank: 2 } : { room: b, outward: { x: d.normal.x, y: d.normal.y }, rank: 2 };
+    }
+    return hubA ? { room: b, outward: { x: d.normal.x, y: d.normal.y } } : { room: a, outward: { x: -d.normal.x, y: -d.normal.y } };
+  };
+  for (const d of unique) {
+    const cor = corridorOutward(d, rooms);
+    const hit = cor ? { ...cor, rank: 0 } : hubOutward(d);
+    if (!hit) continue;
+    if (!byRoom.has(hit.room)) byRoom.set(hit.room, []);
+    byRoom.get(hit.room)!.push({ d, outward: hit.outward, rank: hit.rank ?? 1 });
+  }
+  let roomNo = 0;
+  for (const [room, list] of byRoom) {
+    const label = room.displayName || room.name;
+    const key = `room${roomNo++}:${label}`;
+    list.sort((a, b) => a.rank - b.rank || b.d.width - a.d.width); // corridor doors first, then hub, then suite
+    let done = false;
+    for (const { d, outward } of list) {
+      const jl = Math.hypot(d.along.x, d.along.y) || 1;
+      const jamb = { x: d.along.x / jl, y: d.along.y / jl };
+      // Original projecting blade (5f77cdc look): full size, centre at max(door+10, 218) above the
+      // floor, hung beside the jamb, sticking out into the corridor. Only lowered if its arm would
+      // come within SIGN_TOP_CLEAR of the wall top.
+      const wallTop = floorY + (d.wallHeight || 280);
+      const yc = Math.min(floorY + Math.max(d.height + 10, 218), wallTop - SIGN_TOP_CLEAR - ARM_TOP);
+      // full size first; a 3/4 blade only where a narrow slot cannot take the full one
+      for (const sc of [1, 0.75]) { if (done) break;
+      for (const slide of [0, 24, 48, 72, 96, 130, 170]) {
+        for (const side of [1, -1]) {
+          const off = side * (d.width / 2 + 14 + slide);
+          const root = { x: d.center.x + jamb.x * off + outward.x * (d.wallThickness / 2 + 6), y: d.center.y + jamb.y * off + outward.y * (d.wallThickness / 2 + 6) };
+          const tip = { x: root.x + outward.x * BLADE_LEN * sc, y: root.y + outward.y * BLADE_LEN * sc };
+          const s: SignPlacement = {
+            kind: 'blade', name: label, key,
+            center: { x: (root.x + tip.x) / 2, y: (root.y + tip.y) / 2 }, normal: outward, jamb: { x: jamb.x * side, y: jamb.y * side },
+            a: root, b: tip, y0: yc - BLADE_H * sc / 2, y1: yc + ARM_TOP * sc, scale: sc, wallTop, doorCenter: d.center,
+          };
+          if (fits(s)) { placed.push(s); done = true; break; }
+        }
+        if (done) break;
+      }
+      }
+      if (done) break;
+    }
+  }
+  // Rooms still without a blade (no usable door in the data, e.g. a stair core or an open bay
+  // whose door was not recognised): hang it on the outline edge that faces circulation.
+  const signedRooms = new Set(placed.map((p) => p.key.replace(/^room\d+:/, '')));
+  for (const room of rooms) {
+    const label = room.displayName || room.name;
+    if (signedRooms.has(label)) continue;
+    const poly = room.polygon;
+    const cands: { d: SignDoor; outward: P; len: number }[] = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length], L = Math.hypot(b.x - a.x, b.y - a.y);
+      if (L < 80) continue;
+      const u = { x: (b.x - a.x) / L, y: (b.y - a.y) / L }, n = { x: -u.y, y: u.x };
+      const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      for (const k of [1, -1]) {
+        const out = { x: m.x + n.x * k * 70, y: m.y + n.y * k * 70 }, inn = { x: m.x - n.x * k * 40, y: m.y - n.y * k * 40 };
+        if (!inside(inn, poly) || rooms.some((r) => inside(out, r.polygon))) continue;
+        if (freeRun(out, { x: n.x * k, y: n.y * k }, walls) >= 2000) continue; // exterior
+        const wl = walls.find((w) => segDist(m, m, w.start, w.end) < 30);
+        cands.push({ d: { center: m, along: u, normal: n, width: Math.min(L - 40, 90), wallThickness: wl?.thickness || 15, height: 210, wallHeight: wl?.height || 280 }, outward: { x: n.x * k, y: n.y * k }, len: L });
+      }
+    }
+    cands.sort((x, y) => y.len - x.len);
+    const key = `room${roomNo++}:${label}`;
+    outer: for (const { d, outward } of cands) {
+      const wallTop = floorY + (d.wallHeight || 280);
+      const yc = Math.min(floorY + Math.max(d.height + 10, 218), wallTop - SIGN_TOP_CLEAR - ARM_TOP);
+      for (const slide of [0, 24, 48, 72, 96, 130, 170]) for (const side of [1, -1]) {
+        const off = side * (d.width / 2 + 14 + slide);
+        const root = { x: d.center.x + d.along.x * off + outward.x * (d.wallThickness / 2 + 6), y: d.center.y + d.along.y * off + outward.y * (d.wallThickness / 2 + 6) };
+        const tip = { x: root.x + outward.x * BLADE_LEN, y: root.y + outward.y * BLADE_LEN };
+        const s: SignPlacement = { kind: 'blade', name: label, key, center: { x: (root.x + tip.x) / 2, y: (root.y + tip.y) / 2 }, normal: outward, jamb: { x: d.along.x * side, y: d.along.y * side }, a: root, b: tip, y0: yc - BLADE_H / 2, y1: yc + ARM_TOP, scale: 1, wallTop, doorCenter: d.center };
+        if (fits(s)) { placed.push(s); signedRooms.add(label); break outer; }
+      }
+    }
+  }
+  const heights = walls.map((w) => w.height || 280).sort((a, b) => a - b);
+  const storeyTop = floorY + (heights.length ? heights[heights.length >> 1] : 280);
+  for (const l of links) {
+    // Board hangs under the ceiling on a rod that ends at the ceiling, never above it.
+    const hsc = Math.min(1, Math.max(0.8, (storeyTop - SIGN_TOP_CLEAR - (floorY + 212)) / HANG_H));
+    const boardTop = Math.min(floorY + 232 + HANG_H / 2, storeyTop - SIGN_TOP_CLEAR);
+    // Board spans across the passage (the shorter free axis) so both faces read along it.
+    const across = [{ x: 1, y: 0 }, { x: 0, y: 1 }]
+      .map((dir) => ({ dir, w: freeRun(l, dir, walls) + freeRun(l, { x: -dir.x, y: -dir.y }, walls) }))
+      .sort((a, b) => a.w - b.w);
+    for (const { dir } of across) {
+      const s: SignPlacement = {
+        kind: 'hang', name: l.name, key: `link:${l.name}`,
+        center: { x: l.x, y: l.y }, normal: { x: -dir.y, y: dir.x }, jamb: dir,
+        a: { x: l.x - dir.x * HANG_LEN * hsc / 2, y: l.y - dir.y * HANG_LEN * hsc / 2 }, b: { x: l.x + dir.x * HANG_LEN * hsc / 2, y: l.y + dir.y * HANG_LEN * hsc / 2 },
+        y0: boardTop - HANG_H * hsc, y1: storeyTop, scale: hsc, wallTop: storeyTop,
+      };
+      if (fits(s)) { placed.push(s); break; }
+    }
+  }
+  return placed;
+}
+
 export class NavSigns {
   readonly group = new THREE.Group();
+  placements: SignPlacement[] = [];
   private disposables: { dispose(): void }[] = [];
 
-  constructor(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string }[] = []) {
+  constructor(doors: SignDoor[], rooms: SignRoom[], floorY: number, links: { x: number; y: number; name: string }[] = [], walls: SignWall[] = []) {
     this.group.userData.navDressing = true;
     const edge = new THREE.MeshStandardMaterial({ color: '#cfd4d2', metalness: 0.6, roughness: 0.35 });
     const bracketMat = new THREE.MeshStandardMaterial({ color: '#9aa2a0', metalness: 0.7, roughness: 0.3 });
@@ -162,41 +388,30 @@ export class NavSigns {
       const [front, back] = textures.get(name)!;
       return [edge, edge, edge, edge, front, back];
     };
-    for (const d of dedupeSignDoors(doors)) {
-      const hit = corridorOutward(d, rooms);
-      if (!hit) continue;
-      const { room, outward } = hit;
-      const { x: n, y: up, z: faceDir } = bladeBasis(outward, d.along);
-      // Door-side offset keeps the authored wall tangent (which jamb the blade hangs on).
-      const jamb = new THREE.Vector3(d.along.x, 0, d.along.y);
-      if (jamb.lengthSq() > 1e-8) jamb.normalize();
-      else jamb.copy(faceDir);
-      const base = new THREE.Vector3(d.center.x, floorY, d.center.y);
-      const label = room.displayName || room.name;
-      // Blade: projects into the corridor; ±Z faces read when looking along the hall.
-      const blade = new THREE.Mesh(this.box(64, 20, 2.5), faceMats(label));
-      blade.position.copy(base).addScaledVector(jamb, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 38);
-      blade.position.y = floorY + Math.max(d.height + 10, 218);
-      blade.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(n, up, faceDir));
-      blade.userData.navSign = { kind: 'blade', name: label };
-      const arm = new THREE.Mesh(this.box(42, 2, 2), bracketMat);
-      arm.position.copy(base).addScaledVector(jamb, d.width / 2 + 14).addScaledVector(n, d.wallThickness / 2 + 20);
-      arm.position.y = blade.position.y + 11;
-      arm.quaternion.copy(blade.quaternion);
-      for (const m of [blade, arm]) { m.userData.navDressing = true; this.group.add(m); }
-    }
-    this.hangLinks(links, floorY, faceMats, bracketMat);
-  }
-
-  /** Ceiling-hung two-sided sign over each stair/lift landing with its patient name (「楼梯 A」). */
-  private hangLinks(links: { x: number; y: number; name: string }[], floorY: number, faceMats: (n: string) => THREE.Material[], mat: THREE.Material) {
-    for (const l of links) {
-      for (const rot of [0, Math.PI / 2]) {
-        const sign = new THREE.Mesh(this.box(90, 28, 3), faceMats(l.name));
-        sign.position.set(l.x, floorY + 232, l.y);
-        sign.rotation.y = rot;
-        const rod = new THREE.Mesh(this.box(1.5, 30, 1.5), mat);
-        rod.position.set(l.x, floorY + 261, l.y);
+    this.placements = planSigns(doors, rooms, floorY, links, walls);
+    for (const p of this.placements) {
+      const up = new THREE.Vector3(0, 1, 0);
+      if (p.kind === 'blade') {
+        const { x: n, y: yb, z: faceDir } = bladeBasis(p.normal);
+        const blade = new THREE.Mesh(this.box(BLADE_LEN, BLADE_H, 2.5), faceMats(p.name));
+        blade.scale.set(p.scale, p.scale, 1);
+        blade.position.set(p.center.x, p.y0 + BLADE_H * p.scale / 2, p.center.y);
+        blade.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(n, yb, faceDir));
+        blade.userData.navSign = { kind: 'blade', name: p.name };
+        const arm = new THREE.Mesh(this.box(42 * p.scale, 2, 2), bracketMat);
+        arm.position.set(p.a.x + p.normal.x * 14 * p.scale, blade.position.y + 11 * p.scale, p.a.y + p.normal.y * 14 * p.scale);
+        arm.quaternion.copy(blade.quaternion);
+        for (const m of [blade, arm]) { m.userData.navDressing = true; this.group.add(m); }
+      } else {
+        const along = new THREE.Vector3(p.jamb.x, 0, p.jamb.y), face = new THREE.Vector3(p.normal.x, 0, p.normal.y);
+        const sign = new THREE.Mesh(this.box(HANG_LEN, HANG_H, 3), faceMats(p.name));
+        sign.scale.setScalar(p.scale);
+        sign.position.set(p.center.x, p.y0 + HANG_H * p.scale / 2, p.center.y);
+        sign.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(along, up, face));
+        sign.userData.navSign = { kind: 'hang', name: p.name };
+        const boardTop = p.y0 + HANG_H * p.scale, rodLen = Math.max(1, p.wallTop - boardTop);
+        const rod = new THREE.Mesh(this.box(1.5, rodLen, 1.5), bracketMat);
+        rod.position.set(p.center.x, boardTop + rodLen / 2, p.center.y);
         for (const m of [sign, rod]) { m.userData.navDressing = true; this.group.add(m); }
       }
     }

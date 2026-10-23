@@ -64,7 +64,8 @@ function probeHdrMsaa(renderer: THREE.WebGLRenderer): { type: THREE.TextureDataT
 type Grade = { lift: [number, number, number]; gain: [number, number, number]; contrast: number; saturation: number };
 const GRADES: Record<NavLook, Grade> = {
   overview: { lift: [0.0, 0.004, 0.012], gain: [0.995, 1.0, 1.01], contrast: 1.06, saturation: 1.06 },
-  walk: { lift: [0.006, 0.01, 0.02], gain: [1.04, 1.0, 0.95], contrast: 1.14, saturation: 1.08 },
+  // walk: neutral grade (no warm gain -> no yellow cast)
+  walk: { lift: [0, 0, 0], gain: [1, 1, 1], contrast: 1.1, saturation: 1.0 },
 };
 
 function buildLut(grade: Grade, size = 32): THREE.Data3DTexture {
@@ -93,11 +94,12 @@ const FinalShaderLut = {
     exposure: { value: 1 },
     lut: { value: null as THREE.Data3DTexture | null },
     vignette: { value: 0.18 },
+    useAgx: { value: 0 },
   },
   vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */`
     precision highp sampler3D;
-    uniform sampler2D tDiffuse; uniform sampler3D lut; uniform float exposure, vignette;
+    uniform sampler2D tDiffuse; uniform sampler3D lut; uniform float exposure, vignette, useAgx;
     varying vec2 vUv;
     vec3 neutral(vec3 color) {
       const float StartCompression = 0.8 - 0.04; const float Desaturation = 0.15;
@@ -112,10 +114,21 @@ const FinalShaderLut = {
       float g = 1. - 1. / (Desaturation * (peak - newPeak) + 1.);
       return mix(color, vec3(newPeak), g);
     }
+    vec3 agx(vec3 color) { // Blender AgX base (as three.js AgXToneMapping), linear Rec.709 in -> display-linear out
+      const mat3 inM = mat3(0.856627153315983, 0.137318972929847, 0.11189821299995, 0.0951212405381588, 0.761241990602591, 0.0767994186031903, 0.0482516061458583, 0.101439036467562, 0.811302368396859);
+      const mat3 outM = mat3(1.1271005818144368, -0.1413297634984383, -0.14132976349843826, -0.11060664309660323, 1.157823702216272, -0.11060664309660294, -0.016493938717834573, -0.016493938717834257, 1.2519364065950405);
+      color = inM * max(color, 0.0);
+      color = clamp(log2(color), -12.47393, 4.026069);
+      color = (color + 12.47393) / 16.5;
+      vec3 x2 = color * color, x4 = x2 * x2;
+      color = 15.5 * x4 * x2 - 40.14 * x4 * color + 31.96 * x4 - 6.868 * x2 * color + 0.4298 * x2 + 0.1191 * color - 0.00232;
+      color = outM * color;
+      return clamp(pow(max(color, 0.0), vec3(2.2)), 0., 1.);
+    }
     vec3 toSRGB(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1. / 2.4)) - 0.055, step(0.0031308, c)); }
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
-      vec3 col = toSRGB(clamp(neutral(c.rgb * exposure), 0., 1.));
+      vec3 col = toSRGB(useAgx > 0.5 ? agx(c.rgb * exposure) : clamp(neutral(c.rgb * exposure), 0., 1.));
       col = texture3D(lut, col * (31. / 32.) + .5 / 32.).rgb;
       vec2 d = (vUv - .5) * vec2(1.15, 1.);
       col *= 1. - vignette * smoothstep(.35, .95, length(d));
@@ -130,6 +143,7 @@ const FinalShaderNoLut = {
     tDiffuse: { value: null as THREE.Texture | null },
     exposure: { value: 1 },
     vignette: { value: 0.18 },
+    useAgx: { value: 0 },
     lift: { value: new THREE.Vector3(...GRADES.overview.lift) },
     gain: { value: new THREE.Vector3(...GRADES.overview.gain) },
     contrast: { value: GRADES.overview.contrast },
@@ -137,7 +151,7 @@ const FinalShaderNoLut = {
   },
   vertexShader: /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */`
-    uniform sampler2D tDiffuse; uniform float exposure, vignette, contrast, saturation;
+    uniform sampler2D tDiffuse; uniform float exposure, vignette, contrast, saturation, useAgx;
     uniform vec3 lift, gain;
     varying vec2 vUv;
     vec3 neutral(vec3 color) {
@@ -153,10 +167,21 @@ const FinalShaderNoLut = {
       float g = 1. - 1. / (Desaturation * (peak - newPeak) + 1.);
       return mix(color, vec3(newPeak), g);
     }
+    vec3 agx(vec3 color) { // Blender AgX base (as three.js AgXToneMapping), linear Rec.709 in -> display-linear out
+      const mat3 inM = mat3(0.856627153315983, 0.137318972929847, 0.11189821299995, 0.0951212405381588, 0.761241990602591, 0.0767994186031903, 0.0482516061458583, 0.101439036467562, 0.811302368396859);
+      const mat3 outM = mat3(1.1271005818144368, -0.1413297634984383, -0.14132976349843826, -0.11060664309660323, 1.157823702216272, -0.11060664309660294, -0.016493938717834573, -0.016493938717834257, 1.2519364065950405);
+      color = inM * max(color, 0.0);
+      color = clamp(log2(color), -12.47393, 4.026069);
+      color = (color + 12.47393) / 16.5;
+      vec3 x2 = color * color, x4 = x2 * x2;
+      color = 15.5 * x4 * x2 - 40.14 * x4 * color + 31.96 * x4 - 6.868 * x2 * color + 0.4298 * x2 + 0.1191 * color - 0.00232;
+      color = outM * color;
+      return clamp(pow(max(color, 0.0), vec3(2.2)), 0., 1.);
+    }
     vec3 toSRGB(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1. / 2.4)) - 0.055, step(0.0031308, c)); }
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
-      vec3 col = toSRGB(clamp(neutral(c.rgb * exposure), 0., 1.));
+      vec3 col = toSRGB(useAgx > 0.5 ? agx(c.rgb * exposure) : clamp(neutral(c.rgb * exposure), 0., 1.));
       // Match 32³ LUT grade without sampler3D (Windows path).
       col = lift * (1. - col) + col * gain;
       col = clamp((col - 0.5) * contrast + 0.5, 0., 1.);
@@ -316,7 +341,10 @@ export class NavPipeline {
 
     if (this.final) composer.addPass(this.final);
 
-    if (quality === 'ultra' && !win) {
+    // The composer renders into its own target, so the canvas' `antialias` never applies here.
+    // With an MSAA-less target (Windows HF path, probe fallbacks) the frame had NO anti-aliasing
+    // at all; SMAA (2D textures only, ANGLE-safe) is the post AA for every such case.
+    if (samples === 0 || quality === 'ultra') {
       this.smaa = new SMAAPass();
       composer.addPass(this.smaa);
     }
@@ -367,6 +395,7 @@ export class NavPipeline {
         const base = look === 'walk' ? 0.32 : 0.14;
         this.final.uniforms.vignette.value = base + this.vignetteBoost;
       }
+      if (this.final.uniforms.useAgx) this.final.uniforms.useAgx.value = 0; // AgX (kit .blend) parked until the Blender match pass
       // Windows no-LUT: push the same Grade as the 3D LUT path.
       const g = GRADES[look];
       if (this.final.uniforms.lift) this.final.uniforms.lift.value.set(...g.lift);
