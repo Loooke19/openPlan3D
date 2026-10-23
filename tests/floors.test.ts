@@ -4,9 +4,23 @@ import { addFloor, createDefaultFloor, currentProject, loadProject, removeFloor,
 import { roomProject } from './fixtures/project';
 import { updateFloorElevation, updateFloorSlabThickness } from '$lib/stores/project';
 import { calibrationMode, calibrationPoints } from '$lib/stores/project';
-import { floorElevations } from '$lib/utils/floors';
+import { floorElevations, floorStoreyHeight } from '$lib/utils/floors';
 
 beforeEach(() => loadProject(roomProject()));
+
+it('uses adjacent elevations for stairs and keeps top/single floor heights independent of walls', () => {
+  const floors = [0, 1, 2].map(level => createDefaultFloor(level));
+  floors[0].elevation = -80;
+  floors[1].elevation = 260;
+  floors[2].elevation = 650;
+  floors[0].height = 320;
+  expect(floors.map(floor => floorStoreyHeight(floor, [...floors].reverse()))).toEqual([340, 390, 390]);
+  floors[2].height = 360;
+  expect(floorStoreyHeight(floors[2], floors)).toBe(360);
+  expect(floorStoreyHeight(floors[0], [floors[0]])).toBe(320);
+  delete floors[0].height;
+  expect(floorStoreyHeight(floors[0], [floors[0]])).toBe(300);
+});
 
 it('copies wall geometry without sharing editable points with the source floor', () => {
   const source = get(currentProject)!.floors[0];

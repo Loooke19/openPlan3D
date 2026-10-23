@@ -1,0 +1,5 @@
+$env:NAV_WARM = '0'
+$env:OPENPLAN_ORIGIN = 'http://127.0.0.1:5361'
+$env:EXTRA_CORS_ORIGINS = 'http://127.0.0.1:5361,http://localhost:5361,http://127.0.0.1:4231'
+Set-Location 'C:\Users\offic\Documents\Cursor\_tmp-merge-4-kit\be'
+& 'C:\Users\offic\Documents\Cursor\gifu-nav-monorepo\.venv\Scripts\python.exe' scripts\kujiale_import_server.py --host 127.0.0.1 --port 8961 *> 'C:\Users\offic\Documents\Cursor\_tmp-merge-4-kit\_api.out.log'

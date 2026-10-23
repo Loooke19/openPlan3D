@@ -119,4 +119,14 @@ describe('corridor lights outside room faces', () => {
     const wrap = { polygon: [{ x: 0, y: 0 }, { x: 2400, y: 0 }, { x: 2400, y: -600 }, { x: 2600, y: -600 }, { x: 2600, y: 840 }, { x: 2400, y: 840 }, { x: 2400, y: 240 }, { x: 0, y: 240 }] };
     expect(enclosedRooms([{ polygon: top }, { polygon: bottom }, wrap]).length).toBe(2);
   });
+  it('lights a wide circulation hall with an open entrance on a regular grid', () => {
+    const walls = [W(-1800, 0, 0, 0), W(-1800, 900, 0, 900), W(-1800, 0, -1800, 900)];
+    const spots = corridorLightSpots([], walls);
+    expect(spots.length).toBe(10);
+    expect([...new Set(spots.map(s => s.z))]).toEqual([300, 600]);
+    expect([...new Set(spots.map(s => s.x))]).toEqual([-1500, -1200, -900, -600, -300]);
+  });
+  it('does not place hall lights in outdoor space with two open sides', () => {
+    expect(corridorLightSpots([], [W(-1800, 0, 0, 0), W(-1800, 0, -1800, 900)])).toEqual([]);
+  });
 });
