@@ -8,6 +8,7 @@ import * as THREE from 'three';
 export const HOSPITAL_WALL_ID = 'hospital-wall';
 export const HOSPITAL_FLOOR_ID = 'hospital-floor';
 export const HOSPITAL_WALL_COLOR = '#e2e6e3';
+export const NAV_WALL_PAINT = '#e5eae7';
 export const HOSPITAL_FLOOR_COLOR = '#fbfcfa';
 
 /** Nav door leaf: cool blue-grey HPL / bakelite (matte), no wood grain. */
@@ -96,9 +97,16 @@ export function createHospitalSurfaceMaterial(
   own?: (mat: THREE.MeshStandardMaterial) => THREE.MeshStandardMaterial,
 ): THREE.MeshStandardMaterial {
   const usePbr = !!pbr;
+  if (usePbr && kind === 'wall') {
+    const material = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(0.78, 0.82, 0.8),
+      roughness: 0.36,
+      metalness: 0.03,
+      side: THREE.DoubleSide,
+    });
+    return own ? own(material) : material;
+  }
   const usePbrLook = usePbr;
-  // Nav look (PBR on): imported walls carry the old cool-grey default; read it as 鸽白 warm white.
-  if (usePbr && (!color || color.toLowerCase() === HOSPITAL_WALL_COLOR) && kind === 'wall') color = '#f1eee7';
   if (usePbr && (!color || color.toLowerCase() === HOSPITAL_FLOOR_COLOR) && kind === 'floor') color = '#e3dfd6';
   const material = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color || (kind === 'wall' ? HOSPITAL_WALL_COLOR : HOSPITAL_FLOOR_COLOR)),
@@ -113,9 +121,8 @@ export function createHospitalSurfaceMaterial(
     hospitalSkirt: { value: SKIRT_CM },
     hospitalBaseboard: { value: BASEBOARD_CM },
   };
-  material.customProgramCacheKey = () => `openplan-hospital-${kind}-v2${usePbr ? '-pbr' : ''}`;
+  material.customProgramCacheKey = () => `openplan-hospital-${kind}-v5${usePbr ? '-pbr' : ''}`;
   if (usePbr && kind === 'floor') { material.roughness = 0.6; material.envMapIntensity = 0.7; } // low-gloss PVC
-  if (usePbr && kind === 'wall') material.roughness = 0.92;
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = 'varying vec3 hospitalPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
@@ -132,20 +139,22 @@ export function createHospitalSurfaceMaterial(
     Object.assign(shader.uniforms ||= {}, uniforms);
     shader.fragmentShader =
       'varying vec3 hospitalPosition;\nuniform float hospitalFloorY;\nuniform float hospitalModern;\nuniform float hospitalGrain;\nuniform float hospitalTileSize;\nuniform float hospitalSkirt;\nuniform float hospitalBaseboard;\n' +
+      'float hospitalHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }\n' +
+      'float hospitalNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);\n' +
+      '  return mix(mix(mix(hospitalHash(i), hospitalHash(i + vec3(1,0,0)), f.x), mix(hospitalHash(i + vec3(0,1,0)), hospitalHash(i + vec3(1,1,0)), f.x), f.y),\n' +
+      '             mix(mix(hospitalHash(i + vec3(0,0,1)), hospitalHash(i + vec3(1,0,1)), f.x), mix(hospitalHash(i + vec3(0,1,1)), hospitalHash(i + vec3(1,1,1)), f.x), f.y), f.z); }\n' +
       shader.fragmentShader;
     const surface =
       kind === 'wall'
         ? `
         float hy = hospitalPosition.y - hospitalFloorY; // height above this floor (any storey)
-        float grain = sin(hospitalPosition.x * 0.42 + hospitalPosition.z * 0.37) * sin(hospitalPosition.y * 0.51);
-        diffuseColor.rgb *= 0.97 + grain * 0.025 * hospitalGrain;
         if (hospitalModern > 0.5) {
-          // Coved warm-grey skirting, light poplar wood-grain antibacterial panel to 1.2 m,
-          // a slim bumper-rail band at the joint, 鸽白 matte above.
-          if (hy < hospitalBaseboard) diffuseColor.rgb *= vec3(0.66, 0.64, 0.61);
-          else if (hy < hospitalSkirt) diffuseColor.rgb *= vec3(0.93, 0.80, 0.64);
-          if (hy > hospitalSkirt - 3.0 && hy < hospitalSkirt + 6.0) diffuseColor.rgb *= vec3(0.78, 0.72, 0.64);
+          // Nav look: flat clinic-kit wall finish (solid colour, no grain / mottle / texture).
+          if (hy < hospitalBaseboard) diffuseColor.rgb = vec3(0.36, 0.36, 0.35);
+          else if (hy < hospitalBaseboard + 0.8) diffuseColor.rgb *= 0.8; // skirting top shadow line
         } else {
+          float grain = sin(hospitalPosition.x * 0.42 + hospitalPosition.z * 0.37) * sin(hospitalPosition.y * 0.51);
+          diffuseColor.rgb *= 0.97 + grain * 0.025 * hospitalGrain;
           if (hy < hospitalBaseboard) diffuseColor.rgb *= vec3(0.39, 0.47, 0.45);
           else if (hy < hospitalSkirt) diffuseColor.rgb *= vec3(0.80, 0.88, 0.85);
           if (hy > hospitalSkirt - 4.0 && hy < hospitalSkirt + 3.0) diffuseColor.rgb *= vec3(0.54, 0.66, 0.59);
@@ -170,21 +179,13 @@ export function createHospitalSurfaceMaterial(
         pbrRoughB: { value: pbr.wainscot.rough },
       });
       shader.fragmentShader = 'uniform sampler2D pbrDetailA, pbrRoughA, pbrDetailB, pbrRoughB;\n' + shader.fragmentShader;
-      pbrCode = kind === 'wall'
-        ? `
-        vec3 pbrN = normalize(cross(dFdx(hospitalPosition), dFdy(hospitalPosition)));
-        vec2 pbrUv = (abs(pbrN.x) > abs(pbrN.z) ? hospitalPosition.zy : hospitalPosition.xy);
-        bool pbrLow = hospitalPosition.y - hospitalFloorY < hospitalSkirt;
-        float pbrD = pbrLow ? texture2D(pbrDetailB, pbrUv / 90.0).r : texture2D(pbrDetailA, pbrUv / 140.0).r;
-        float pbrR = pbrLow ? texture2D(pbrRoughB, pbrUv / 90.0).r : texture2D(pbrRoughA, pbrUv / 140.0).r;
-        diffuseColor.rgb *= 0.8 + pbrD * 0.4;
-      `
-        : `
+      // walls: no detail/roughness texture (that was the visible chequer); floors keep theirs
+      pbrCode = kind === 'wall' ? '' : `
         float pbrD = texture2D(pbrDetailA, hospitalPosition.xz / 160.0).r;
         float pbrR = texture2D(pbrRoughA, hospitalPosition.xz / 160.0).r;
         diffuseColor.rgb *= 0.84 + pbrD * 0.32;
       `;
-      roughCode = 'roughnessFactor = clamp(roughnessFactor * (0.65 + pbrR * 0.7), 0.08, 1.0);';
+      if (kind !== 'wall') roughCode = 'roughnessFactor = clamp(roughnessFactor * (0.65 + pbrR * 0.7), 0.08, 1.0);';
     }
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <color_fragment>',

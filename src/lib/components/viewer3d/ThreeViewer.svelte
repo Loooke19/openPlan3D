@@ -50,6 +50,7 @@
     };
   }
   import { doorVerticalFacilityKind, navSuppressDoorLeaf } from '$lib/utils/verticalFacility';
+  import { floorStoreyHeight } from '$lib/utils/floors';
   import { assembleFloorStack } from '$lib/utils/floorStack';
   import {
     applyOrbitRelativeToFloor,
@@ -75,13 +76,17 @@
   import { effectivePixelRatio } from '$lib/utils/pixelRatio';
   import { getMaterial } from '$lib/utils/materials';
   import { NavPipeline, type NavLook } from './nav/pipeline';
-  import { NavRouteVisual } from './nav/route';
+  import { NavRouteVisual, transferStepPose } from './nav/route';
   import { NavDressing, applyNavLightRig, navBackdrop } from './nav/dressing';
-  import { NavSigns, type SignDoor } from './nav/signs';
+  import { NavSigns, isPlaceholderRoomName, type SignDoor } from './nav/signs';
   import { NAV_FONT, navFontLoaded, navFontReady } from '$lib/utils/navFonts';
   import { hospitalFloorY } from '$lib/utils/hospitalMaterials';
   import { centerRoute, enclosedRooms, inside as layoutInside } from './nav/layout';
   import { navDoors } from './nav/navDoors';
+  import { auditOpenings, type OpeningBox } from './nav/openingAudit';
+  import { holeCuts, duplicateCuts, holeKeeper, bridgeSlivers, type Hole, type Cut } from './nav/openingRules';
+  import { NavKitDressing, regularizeWalls, signBoxes, bakeWallAo } from './nav/kitDressing';
+  import { bakeVertexAo, KIT_PALETTE } from './nav/kitDressing';
   import { pinText, mapLabels, nearRoute } from '$lib/utils/navCopy';
   import { base as appBase } from '$app/paths';
   import { getWallTextureCanvas, getFloorTextureCanvas, setTextureLoadCallback } from '$lib/utils/textureGenerator';
@@ -173,6 +178,11 @@
   let navPipeline: NavPipeline | null = null;
   let navDressing: NavDressing | null = null;
   let navSigns: NavSigns | null = null;
+  // Licensed clinic kit (wu9777) trims/floor/props in nav: on by default; ?kit=0 or debugForTest('nokit') turns it off.
+  let navKit: NavKitDressing | null = null;
+  let navKitOn = typeof location !== 'undefined' && new URLSearchParams(location.search).get('kit') !== '0';
+  let rawFloor: Floor | null = null;
+  const navFloorOf = (f: Floor | null) => (f && navShell && navKitOn ? { ...f, walls: regularizeWalls(f.walls).walls } : f);
   let navRouteVisual: NavRouteVisual | null = null;
   let navLook: NavLook = 'overview';
   let navBackdrops: Partial<Record<NavLook, THREE.Texture>> = {};
@@ -185,6 +195,23 @@
   let navDoorLeaves: NavDoorLeaf[] = [];
   let activeRouteDoorIds = new Set<string>();
   let doorAnimationRaf = 0;
+  /** Nav shell: keep visited floors' meshes instead of dispose+rebuild on every transfer. */
+  type NavFloorCacheEntry = {
+    signature: string;
+    root: THREE.Group;
+    wallMeshEntries: [THREE.Object3D, string][];
+    navDoorLeaves: NavDoorLeaf[];
+    navOpeningBoxes: OpeningBox[];
+    dressing: NavDressing | null;
+    signs: NavSigns | null;
+    kit: NavKitDressing | null;
+  };
+  const navFloorCache = new Map<string, NavFloorCacheEntry>();
+  const navPendingSignature = new Map<string, string>();
+  let navDisplayedFloorId = '';
+  let navFloorBuildSilent = false;
+  let navPrefetching: Promise<boolean> | null = null;
+  let navPrefetchFloorId = '';
   let simPlaying = $state(false);
   let simProgress = $state(0);
   let simSpeed = $state(1);
@@ -792,6 +819,21 @@
     return { msPerFrame: (performance.now() - t0) / frames, ...getRenderStatsForTest(), ...stats, pixelRatio: renderer.getPixelRatio() };
   }
 
+  /** Dev: door-opening geometry audit (off-axis triangles, coplanar faces, reveal orientation). */
+  export function auditOpeningsForTest(hide?: string[]) {
+    const skip = (o: THREE.Object3D) => { for (let k: THREE.Object3D | null = o; k; k = k.parent) if (k.userData.navPart === 'leaf' || k.userData.navDressing || k.userData.navKit) return true; return false; };
+    return auditOpenings(wallGroup, navOpeningBoxes, skip);
+  }
+  /** Dev: hide one class of door-opening parts for root-cause isolation. */
+  export function hidePartForTest(part: string, on = false) {
+    wallGroup.traverse(o => {
+      const u = o.userData;
+      const cls = u.navPart ?? (u.wallJoint ? 'joint' : u.wallId ? 'wall' : (o as THREE.Mesh).isMesh && ((o as THREE.Mesh).material as THREE.Material)?.name === 'baseboard' ? 'baseboard' : '');
+      if (cls === part) o.visible = on;
+    });
+    markSceneDirty(); renderFrameForTest();
+  }
+
   /** Dev/nav test hook: what is under a canvas pixel (fractions 0..1). */
   export function pickForTest(fx: number, fy: number) {
     const rc = new THREE.Raycaster();
@@ -802,7 +844,35 @@
       color: ((h.object as THREE.Mesh).material as THREE.MeshStandardMaterial)?.color?.getHexString?.(), face: h.face?.normal?.toArray().map(v => Math.round(v * 100) / 100) }));
   }
 
+  /** Dev: scene cost (draw-call estimate = visible mesh × material groups; triangles incl. instances). */
+  export function debugSceneForKit() {
+    let calls = 0, tris = 0, kitCalls = 0, kitTris = 0;
+    scene.traverseVisible(o => {
+      const m = o as THREE.Mesh; if (!m.isMesh) return;
+      const g = m.geometry; const t = (g.index ? g.index.count : g.attributes.position?.count ?? 0) / 3;
+      const n = (m as unknown as THREE.InstancedMesh).isInstancedMesh ? (m as unknown as THREE.InstancedMesh).count : 1;
+      const groups = Array.isArray(m.material) ? Math.max(1, g.groups.length) : 1;
+      calls += groups; tris += t * n;
+      let k: THREE.Object3D | null = m; while (k && !k.userData.navKit) k = k.parent;
+      if (k) { kitCalls += groups; kitTris += t * n; }
+    });
+    const tex = new Map<string, number>();
+    scene.traverse(o => { const m = o as THREE.Mesh; if (!m.isMesh) return; for (const mt of ([] as THREE.Material[]).concat(m.material)) for (const v of Object.values(mt)) if (v && (v as THREE.Texture).isTexture) { const t = v as THREE.Texture; const k = `${t.constructor.name}:${t.name || (t.image?.tagName ?? '')}`; tex.set(k, (tex.get(k) ?? 0) + 0) ; (tex as any)._s ??= new Set(); (tex as any)._s.add(t); tex.set(k, [...(tex as any)._s].filter((x: THREE.Texture) => `${x.constructor.name}:${x.name || (x.image?.tagName ?? '')}` === k).length); } });
+    return { calls, tris: Math.round(tris), kitCalls, kitTris: Math.round(kitTris), sceneTextures: Object.fromEntries(tex), gpuTextures: renderer.info.memory.textures, programs: renderer.info.programs?.length };
+  }
+
   export function debugForTest(what: string) {
+    if (what === 'kit' || what === 'nokit') {
+      navKitOn = what === 'kit';
+      currentFloor = navFloorOf(rawFloor);
+      rebuildScene(true);
+      rebuildNavDressing();
+      return;
+    }
+    if (what === 'noceil') { // test-only: cutaway for elevated cover-angle shots
+      scene.traverse(o => { if (o.userData.navCeiling || (o as THREE.Mesh).isMesh && o.parent === navDressing?.group && o.position.y > 250) o.visible = false; });
+      scene.traverse(o => { if ((o as THREE.Mesh).isMesh && o.userData.navDressing && o.position.y > 250) o.visible = false; });
+    }
     if (what === 'noshadow') { sunLight.castShadow = false; renderer.shadowMap.needsUpdate = true; }
     if (what === 'nodressing' && navDressing) navDressing.group.visible = false;
     if (what === 'nopost') navPipeline = null;
@@ -832,8 +902,8 @@
       scene.traverse(o => { if (o.userData.navRoute) { let vis = true; o.traverseAncestors(a => { if (!a.visible) vis = false; }); const b = new THREE.Box3().setFromObject(o); out.push({ vis: vis && o.visible, kids: o.children.map(c => c.visible), min: b.min.toArray().map(Math.round), max: b.max.toArray().map(Math.round) }); } });
       return { out, simRoute: simRoute.length };
     }
-    if (what === 'stairClimb') {
-      return { climbing: stairClimbing, samples: stairClimbSamples.slice(), y: camera?.position.y ?? null };
+    if (what === 'floorTransfer') {
+      return { transferring: floorTransferring, marker: routeMarker?.position.toArray(), y: camera?.position.y ?? null };
     }
     if (what === 'navDoors') {
       return navDoorLeaves.map((l) => ({
@@ -1468,9 +1538,101 @@
     return true;
   }
 
+  function disposeNavFloorCacheEntry(entry: NavFloorCacheEntry) {
+    entry.dressing?.dispose();
+    entry.signs?.dispose();
+    entry.kit?.dispose();
+    disposeModel(entry.root);
+    entry.root.clear();
+  }
+
+  function clearNavFloorCache() {
+    for (const entry of navFloorCache.values()) disposeNavFloorCacheEntry(entry);
+    navFloorCache.clear();
+    navPendingSignature.clear();
+    navDisplayedFloorId = '';
+  }
+
+  /** Park the live wallGroup into the floor cache without disposing (for later show/hide). */
+  function parkDisplayedNavFloor() {
+    if (!navShell || !navDisplayedFloorId || showAllFloors) return;
+    const id = navDisplayedFloorId;
+    const root = new THREE.Group();
+    root.name = `nav-floor-cache:${id}`;
+    for (const child of [...wallGroup.children]) root.add(child);
+    if (navDressing) {
+      scene.remove(navDressing.group);
+      navDressing.group.visible = false;
+    }
+    if (navSigns) {
+      scene.remove(navSigns.group);
+      navSigns.group.visible = false;
+    }
+    if (navKit) {
+      scene.remove(navKit.group);
+      navKit.group.visible = false;
+    }
+    navFloorCache.set(id, {
+      signature: navPendingSignature.get(id) || renderedSignature || '',
+      root,
+      wallMeshEntries: [...wallMeshMap.entries()],
+      navDoorLeaves: navDoorLeaves.slice(),
+      navOpeningBoxes: navOpeningBoxes.slice(),
+      dressing: navDressing,
+      signs: navSigns,
+      kit: navKit,
+    });
+    navDressing = null;
+    navSigns = null;
+    navKit = null;
+    wallMeshMap.clear();
+    navDoorLeaves = [];
+    navOpeningBoxes = [];
+    navDisplayedFloorId = '';
+  }
+
+  function tryShowCachedNavFloor(floorId: string, signature: string): boolean {
+    const cached = navFloorCache.get(floorId);
+    if (!cached || cached.signature !== signature) return false;
+    if (navDisplayedFloorId && navDisplayedFloorId !== floorId) parkDisplayedNavFloor();
+    else if (navDisplayedFloorId === floorId) return true;
+    for (const child of [...cached.root.children]) wallGroup.add(child);
+    wallMeshMap.clear();
+    for (const [obj, wallId] of cached.wallMeshEntries) wallMeshMap.set(obj, wallId);
+    navDoorLeaves = cached.navDoorLeaves.slice();
+    navOpeningBoxes = cached.navOpeningBoxes.slice();
+    navDressing = cached.dressing;
+    navSigns = cached.signs;
+    navKit = cached.kit;
+    if (navDressing) {
+      navDressing.group.visible = true;
+      scene.add(navDressing.group);
+    }
+    if (navSigns) {
+      navSigns.group.visible = true;
+      scene.add(navSigns.group);
+    }
+    if (navKit) {
+      navKit.group.visible = true;
+      scene.add(navKit.group);
+    }
+    navFloorCache.delete(floorId);
+    navDisplayedFloorId = floorId;
+    navPendingSignature.set(floorId, signature);
+    applyNavCutMaterials();
+    applyNavLook(navLook, true);
+    markSceneDirty();
+    return true;
+  }
+
+  function rememberNavFloor(floorId: string, signature: string) {
+    navDisplayedFloorId = floorId;
+    navPendingSignature.set(floorId, signature);
+  }
+
   function rebuildNavDressing() {
     if (!navShell || !navPipeline) return;
-    navDressing?.dispose();
+    if (!navFloorBuildSilent) navDressing?.dispose();
     const rooms: { polygon: { x: number; y: number }[] }[] = [];
     const ceilings: { polygon: { x: number; y: number }[]; height: number }[] = [];
     wallGroup.traverse(o => {
@@ -1478,28 +1640,42 @@
       if (o.userData.navCeiling) ceilings.push(o.userData.navCeiling);
     });
     navDressing = new NavDressing(wallGroup, { look: navLook, floorY: activeFloorElevation, rooms, walls: currentFloor?.walls ?? [], ceilings });
-    scene.add(navDressing.group);
+    if (!navFloorBuildSilent) scene.add(navDressing.group);
+    else navDressing.group.visible = false;
     applyNavCutMaterials();
-    navSigns?.dispose();
+    if (!navFloorBuildSilent) navSigns?.dispose();
     navSigns = null;
     if (currentFloor) {
       const doors: SignDoor[] = [];
-      for (const door of currentFloor.doors) {
+      // navDoors: doorAt-only rooms get their passage row too (else those rooms had no sign).
+      for (const door of navDoors(currentFloor) as typeof currentFloor.doors) {
         const wall = currentFloor.walls.find(w => w.id === door.wallId);
         if (!wall) continue;
         const dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y, len = Math.hypot(dx, dy) || 1;
         doors.push({ center: { x: wall.start.x + dx * door.position, y: wall.start.y + dy * door.position }, along: { x: dx / len, y: dy / len },
-          normal: { x: -dy / len, y: dx / len }, width: door.width, wallThickness: wall.thickness || 15, height: door.height || 210 });
+          normal: { x: -dy / len, y: dx / len }, width: door.width, wallThickness: wall.thickness || 15, height: door.height || 210, wallHeight: wall.height || 280 });
       }
       const fid = currentFloor.id;
       const links = navLinkSigns.filter(l => l.floorId === fid);
       // A stair/lift room's door sign carries the same patient name as banner and steps.
       const linkName = (poly: { x: number; y: number }[]) => links.find(l => insidePoly(l, poly))?.name;
-      const named = roomFaces(currentFloor).filter(r => r.room.name && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
-      navSigns = new NavSigns(doors, named, activeFloorElevation, links);
-      scene.add(navSigns.group);
+      const named = roomFaces(currentFloor).filter(r => !isPlaceholderRoomName(r.room.name) && r.polygon.length > 2).map(r => ({ name: r.room.name!, displayName: (/楼梯|电梯/.test(r.room.name!) && linkName(r.polygon)) || r.room.displayName || toiletDisplay(r.room.name!) || undefined, polygon: r.polygon }));
+      navSigns = new NavSigns(doors, named, activeFloorElevation, links, currentFloor.walls);
+      if (!navFloorBuildSilent) scene.add(navSigns.group);
+      else navSigns.group.visible = false;
     }
-    applyNavLook(navLook, true);
+    if (!navFloorBuildSilent) navKit?.dispose();
+    navKit = null;
+    if (navKitOn && currentFloor) {
+      const rooms = roomFaces(currentFloor).filter(r => r.polygon.length > 2).map(r => ({ name: isPlaceholderRoomName(r.room.name) ? '' : (r.room.name ?? ''), polygon: r.polygon }));
+      navKit = new NavKitDressing(currentFloor.walls, navDoors(currentFloor), rooms, (currentFloor as { footprint?: { x: number; y: number }[] }).footprint ?? null, activeFloorElevation, '/nav-kit', () => markSceneDirty(), navKitKeep.filter(k => k.floorId === currentFloor!.id), signBoxes(navSigns?.placements ?? [], activeFloorElevation));
+      if (import.meta.env.DEV) Object.assign(window, { __navKit: navKit, __navKitInput: { walls: currentFloor.walls, rawWalls: rawFloor?.walls, doors: navDoors(currentFloor), rooms, footprint: (currentFloor as { footprint?: unknown }).footprint ?? null, keep: navKitKeep.filter(k => k.floorId === currentFloor!.id) } });
+      if (!navFloorBuildSilent) scene.add(navKit.group);
+      else navKit.group.visible = false;
+      // pre-baked wall AO + warm fill into vertex colours (static walls only; door leaves untouched)
+      if (new URLSearchParams(location.search).get('bake') !== '0') bakeWallAo(wallGroup, currentFloor.walls, activeFloorElevation);
+    }
+    if (!navFloorBuildSilent) applyNavLook(navLook, true);
   }
 
 
@@ -1764,20 +1940,20 @@
     return tex;
   }
 
-  function buildStraightStairRun(group: THREE.Group, mat: THREE.MeshStandardMaterial, sideMat: THREE.MeshStandardMaterial, width: number, depth: number, riserCount: number, riserHeight: number, offsetX: number, offsetY: number, offsetZ: number) {
+  function buildStraightStairRun(group: THREE.Group, mat: THREE.MeshStandardMaterial, sideMat: THREE.MeshStandardMaterial, stripMat: THREE.MeshStandardMaterial, width: number, depth: number, riserCount: number, riserHeight: number, offsetX: number, offsetY: number, offsetZ: number) {
     const treadDepth = depth / riserCount;
     for (let i = 0; i < riserCount; i++) {
-      const treadGeo = new THREE.BoxGeometry(width, 3, treadDepth);
-      const tread = new THREE.Mesh(treadGeo, mat);
+      const treadGeo = new THREE.BoxGeometry(width, 3, treadDepth, 1, 1, 4);
+      const tread = new THREE.Mesh(treadGeo, [sideMat, sideMat, mat, sideMat, sideMat, sideMat]);
       tread.position.set(offsetX, offsetY + (i + 1) * riserHeight - 1.5, offsetZ + i * treadDepth + treadDepth / 2);
-      tread.castShadow = true;
-      tread.receiveShadow = true;
       group.add(tread);
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(width, 0.3, Math.min(4, treadDepth / 3)), stripMat);
+      strip.position.set(offsetX, offsetY + (i + 1) * riserHeight + 0.15, offsetZ + i * treadDepth + Math.min(4, treadDepth / 3) / 2);
+      group.add(strip);
 
       const riserGeo = new THREE.BoxGeometry(width, riserHeight, 2);
       const riser = new THREE.Mesh(riserGeo, sideMat);
       riser.position.set(offsetX, offsetY + i * riserHeight + riserHeight / 2, offsetZ + i * treadDepth);
-      riser.castShadow = true;
       group.add(riser);
     }
   }
@@ -1785,35 +1961,37 @@
   function buildStairs(floor: Floor) {
     if (!floor.stairs) return;
     for (const stair of floor.stairs) {
-      const totalHeight = 260; // standard floor height
+      const totalHeight = floorStoreyHeight(floor, get(currentProject)?.floors ?? [floor]);
       const riserHeight = totalHeight / stair.riserCount;
-      const mat = new THREE.MeshStandardMaterial({ color: 0xd4a574, roughness: 0.7 });
-      const sideMat = new THREE.MeshStandardMaterial({ color: 0xb8956a, roughness: 0.8 });
+      const kitColor = new THREE.Color(KIT_PALETTE.MAT_WHITE);
+      const neutral = (kitColor.r + kitColor.g + kitColor.b) / 3;
+      const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(neutral, neutral, neutral), roughness: 0.55, metalness: 0, vertexColors: true });
+      const sideMat = new THREE.MeshStandardMaterial({ color: 0xc7c7c7, roughness: 0.55, metalness: 0, vertexColors: true });
+      const stripMat = new THREE.MeshStandardMaterial({ color: 0x55595c, roughness: 0.82, metalness: 0, vertexColors: true });
       const type = stair.stairType || 'straight';
 
       const stairGroup = new THREE.Group();
+      stairGroup.name = stair.id;
 
       if (type === 'straight') {
-        buildStraightStairRun(stairGroup, mat, sideMat, stair.width, stair.depth, stair.riserCount, riserHeight, 0, 0, -stair.depth / 2);
+        buildStraightStairRun(stairGroup, mat, sideMat, stripMat, stair.width, stair.depth, stair.riserCount, riserHeight, 0, 0, -stair.depth / 2);
 
       } else if (type === 'l-shaped') {
         const halfRisers = Math.floor(stair.riserCount / 2);
         const run2Risers = stair.riserCount - halfRisers;
         const run1Depth = stair.depth / 2;
         // First run (along Z)
-        buildStraightStairRun(stairGroup, mat, sideMat, stair.width, run1Depth, halfRisers, riserHeight, 0, 0, 0);
+        buildStraightStairRun(stairGroup, mat, sideMat, stripMat, stair.width, run1Depth, halfRisers, riserHeight, 0, 0, 0);
         // Landing platform
         const landingY = halfRisers * riserHeight;
         const landGeo = new THREE.BoxGeometry(stair.width, 3, stair.width / 2);
-        const landing = new THREE.Mesh(landGeo, mat);
+        const landing = new THREE.Mesh(landGeo, [sideMat, sideMat, mat, sideMat, sideMat, sideMat]);
         landing.position.set(0, landingY, -stair.width / 4);
-        landing.castShadow = true;
-        landing.receiveShadow = true;
         stairGroup.add(landing);
         // Second run (along X, turning right)
         const run2Depth = stair.depth / 2;
         const run2Group = new THREE.Group();
-        buildStraightStairRun(run2Group, mat, sideMat, stair.width, run2Depth, run2Risers, riserHeight, 0, 0, 0);
+        buildStraightStairRun(run2Group, mat, sideMat, stripMat, stair.width, run2Depth, run2Risers, riserHeight, 0, 0, 0);
         run2Group.rotation.y = -Math.PI / 2;
         run2Group.position.set(stair.width / 2 + run2Depth / 2, landingY, -stair.width / 2);
         stairGroup.add(run2Group);
@@ -1822,20 +2000,20 @@
         const halfRisers = Math.floor(stair.riserCount / 2);
         const run2Risers = stair.riserCount - halfRisers;
         const runW = stair.width * 0.425;
+        const runDepth = stair.depth - runW;
         // First run up
-        buildStraightStairRun(stairGroup, mat, sideMat, runW, stair.depth, halfRisers, riserHeight, -stair.width / 2 + runW / 2, 0, -stair.depth / 2);
+        buildStraightStairRun(stairGroup, mat, sideMat, stripMat, runW, runDepth, halfRisers, riserHeight, -stair.width / 2 + runW / 2, 0, -stair.depth / 2);
         // Landing at top
         const landingY = halfRisers * riserHeight;
         const landGeo = new THREE.BoxGeometry(stair.width, 3, runW);
-        const landing = new THREE.Mesh(landGeo, mat);
-        landing.position.set(0, landingY, -stair.depth / 2 + runW / 2 - 10);
-        landing.castShadow = true;
+        const landing = new THREE.Mesh(landGeo, [sideMat, sideMat, mat, sideMat, sideMat, sideMat]);
+        landing.position.set(0, landingY - 1.5, stair.depth / 2 - runW / 2);
         stairGroup.add(landing);
         // Second run down (reversed direction)
         const run2Group = new THREE.Group();
-        buildStraightStairRun(run2Group, mat, sideMat, runW, stair.depth, run2Risers, riserHeight, 0, 0, -stair.depth / 2);
+        buildStraightStairRun(run2Group, mat, sideMat, stripMat, runW, runDepth, run2Risers, riserHeight, 0, 0, -runDepth / 2);
         run2Group.rotation.y = Math.PI;
-        run2Group.position.set(stair.width / 2 - runW / 2, landingY, 0);
+        run2Group.position.set(stair.width / 2 - runW / 2, landingY, -runW / 2);
         stairGroup.add(run2Group);
 
       } else if (type === 'spiral') {
@@ -1846,7 +2024,6 @@
         const postGeo = new THREE.CylinderGeometry(postR, postR, totalHeight, 8);
         const post = new THREE.Mesh(postGeo, sideMat);
         post.position.set(0, totalHeight / 2, 0);
-        post.castShadow = true;
         stairGroup.add(post);
         // Spiral treads as wedge-shaped steps
         for (let i = 0; i < stair.riserCount; i++) {
@@ -1870,12 +2047,29 @@
           const tread = new THREE.Mesh(geo, mat);
           tread.rotation.x = -Math.PI / 2;
           tread.position.y = y;
-          tread.castShadow = true;
-          tread.receiveShadow = true;
           stairGroup.add(tread);
         }
       }
 
+      stairGroup.updateMatrixWorld(true);
+      stairGroup.traverse(o => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const geo = mesh.geometry;
+        geo.computeBoundingBox();
+        const bb = geo.boundingBox!;
+        const pos = geo.getAttribute('position'), normal = geo.getAttribute('normal');
+        const shade = new Float32Array(pos.count);
+        for (let i = 0; i < pos.count; i++) {
+          const back = (pos.getZ(i) - bb.min.z) / (bb.max.z - bb.min.z);
+          shade[i] = normal.getY(i) > 0.5 ? 1 - 0.28 * Math.pow(back, 4) : 0.82;
+        }
+        geo.applyMatrix4(mesh.matrixWorld);
+        bakeVertexAo(geo, 0);
+        const colors = geo.getAttribute('color');
+        for (let i = 0; i < pos.count; i++) colors.setXYZ(i, colors.getX(i) * shade[i], colors.getY(i) * shade[i], colors.getZ(i) * shade[i]);
+        geo.applyMatrix4(mesh.matrixWorld.clone().invert());
+      });
       stairGroup.position.set(stair.position.x, 0, stair.position.y);
       stairGroup.rotation.y = -(stair.rotation * Math.PI) / 180;
       if (stair.direction === 'down') {
@@ -2122,6 +2316,7 @@
   }
 
   export function stopRouteSimulation() {
+    cancelFloorTransfer();
     simPlaying = false;
     if (simRaf) cancelAnimationFrame(simRaf);
     simRaf = 0;
@@ -2182,6 +2377,12 @@
     return c;
   }
   /** Patient names of stairs/lifts at each stop; hung as 3D signs (「楼梯 A」). */
+  let navKitKeep: { floorId: string; x: number; y: number }[] = [];
+  export function setNavKitKeepout(list: { floorId: string; x: number; y: number }[]) {
+    navKitKeep = list;
+    if (navKitOn) rebuildNavDressing();
+  }
+
   export function setNavLinkSigns(list: { floorId: string; x: number; y: number; name: string }[]) {
     navLinkSigns = list;
     rebuildNavDressing();
@@ -2449,8 +2650,6 @@
     // Quiet teardown of a prior auto-walk / free roam. Must NOT call exitWalkthroughMode():
     // that fires onNavWalkExit → shell clears `walking`, so the next leg-end reports arrive early
     // on cross-floor transfers (登记室→护士办公室).
-    if (stairClimbRaf) { cancelAnimationFrame(stairClimbRaf); stairClimbRaf = 0; }
-    stairClimbing = false;
     if (simRaf) cancelAnimationFrame(simRaf);
     simRaf = 0;
     simPlaying = false;
@@ -2477,7 +2676,7 @@
     markSceneDirty();
   }
 
-  export function isNavWalking() { return navAutoWalking || stairClimbing; }
+  export function isNavWalking() { return navAutoWalking || floorTransferring; }
 
   /** Dev/nav test: freeze auto-walk, keep FP look (full-height walls), aim camera at a doorway. */
   export function setWalkCameraForTest(
@@ -2488,6 +2687,7 @@
     if (simRaf) { cancelAnimationFrame(simRaf); simRaf = 0; }
     simPlaying = false;
     navAutoWalking = false;
+    eyeHeight = position[1] - activeFloorElevation;
     walkthroughMode = true;
     controls.enabled = false;
     applyNavLook('walk', true);
@@ -2501,130 +2701,59 @@
     renderFrameForTest();
   }
 
-  /** Storey height used for FP stair climb (matches buildStairs totalHeight). */
-  const STAIR_STOREY_CM = 280;
+  let floorTransferring = false;
+  let transferRaf = 0;
+  let finishTransfer: ((completed: boolean) => void) | null = null;
 
-  let stairClimbing = false;
-  let stairClimbRaf = 0;
-  let stairClimbSamples: number[] = [];
-
-  /**
-   * First-person continuous stair climb between floors. Keeps walk mode; Y is monotonic
-   * (no floor-hop snap). Path: run → landing turn → run (U-shape in plan).
-   */
-  export function playStairClimb(opts: {
-    from: { x: number; y: number };
-    to: { x: number; y: number };
-    direction?: 'up' | 'down' | string;
-    storeys?: number;
-    speed?: number;
-  }): Promise<{ samples: number[]; maxJump: number; ok: boolean; durationMs: number }> {
-    return new Promise((resolve) => {
-      if (!camera || !navShell) {
-        resolve({ samples: [], maxJump: 0, ok: false, durationMs: 0 });
-        return;
-      }
-      if (simRaf) { cancelAnimationFrame(simRaf); simRaf = 0; }
-      simPlaying = false;
-      if (stairClimbRaf) cancelAnimationFrame(stairClimbRaf);
-      const storeys = Math.max(1, Math.round(opts.storeys || 1));
-      const sign = opts.direction === 'down' ? -1 : 1;
-      const deltaY = STAIR_STOREY_CM * storeys * sign;
-      const speed = Math.max(0.35, Math.min(3, opts.speed || 1));
-      const durationMs = Math.max(2400, (4000 * storeys) / speed);
-      const from = opts.from;
-      const to = opts.to || opts.from;
-      const dx = to.x - from.x;
-      const dz = to.y - from.y;
-      const len = Math.hypot(dx, dz) || 1;
-      const fx = dx / len;
-      const fz = dz / len;
-      // Perpendicular for landing turn (stay inside shaft, ~1.2 m).
-      const px = -fz;
-      const pz = fx;
-      const approach = 90;
-      const land = 120;
-      const baseY = activeFloorElevation + eyeHeight;
-      const startTs = performance.now();
-      stairClimbSamples = [];
-      stairClimbing = true;
-      navAutoWalking = true;
-      walkthroughMode = true;
-      controls.enabled = false;
-      // Exactly 30 Y samples; fill skipped indices when headless RAF coalesces frames.
-      const SAMPLE_N = 30;
-      let lastEmit = -1;
-
-      const sampleAt = (t: number) => {
-        // t in [0,1]: 0–0.42 run1, 0.42–0.58 landing, 0.58–1 run2
-        let x: number;
-        let z: number;
-        let yFrac: number;
-        if (t < 0.42) {
-          const u = t / 0.42;
-          x = from.x + fx * approach * u;
-          z = from.y + fz * approach * u;
-          yFrac = 0.5 * u;
-        } else if (t < 0.58) {
-          const u = (t - 0.42) / 0.16;
-          x = from.x + fx * approach + px * land * u;
-          z = from.y + fz * approach + pz * land * u;
-          yFrac = 0.5;
-        } else {
-          const u = (t - 0.58) / 0.42;
-          x = from.x + fx * approach + px * land + (to.x - (from.x + fx * approach + px * land)) * u;
-          z = from.y + fz * approach + pz * land + (to.y - (from.y + fz * approach + pz * land)) * u;
-          yFrac = 0.5 + 0.5 * u;
-        }
-        const y = baseY + deltaY * yFrac;
-        const lookX = x + fx * 60;
-        const lookZ = z + fz * 60;
-        camera.position.set(x, y, z);
-        camera.lookAt(lookX, y - 3, lookZ);
-        return y;
-      };
-
-      const flushEmit = (emit: number) => {
-        const capped = Math.max(0, Math.min(SAMPLE_N - 1, emit));
-        while (lastEmit < capped) {
-          lastEmit++;
-          stairClimbSamples.push(sampleAt(lastEmit / (SAMPLE_N - 1)));
-        }
-      };
-
-      const step = (now: number) => {
-        const t = Math.min(1, (now - startTs) / durationMs);
-        const emit = t >= 1 ? SAMPLE_N - 1 : Math.floor(t * (SAMPLE_N - 1));
-        flushEmit(emit);
-        if (t < 1) {
-          // Keep camera on true clock position between discrete sample ticks.
-          if (lastEmit === emit) sampleAt(t);
-          markSceneDirty();
-          stairClimbRaf = requestAnimationFrame(step);
-          return;
-        }
-        markSceneDirty();
-        stairClimbRaf = 0;
-        stairClimbing = false;
-        let maxJump = 0;
-        for (let i = 1; i < stairClimbSamples.length; i++) {
-          maxJump = Math.max(maxJump, Math.abs(stairClimbSamples[i] - stairClimbSamples[i - 1]));
-        }
-        const monoUp = sign > 0 && stairClimbSamples.every((v, i, a) => i === 0 || v >= a[i - 1] - 0.05);
-        const monoDown = sign < 0 && stairClimbSamples.every((v, i, a) => i === 0 || v <= a[i - 1] + 0.05);
-        // Uniform 30 samples → ~280/29 ≈ 9.7 cm/step; maxJump gate catches residual snaps.
-        resolve({
-          samples: stairClimbSamples.slice(),
-          maxJump,
-          ok: (monoUp || monoDown) && maxJump < 100 && stairClimbSamples.length >= SAMPLE_N,
-          durationMs,
-        });
-      };
-      stairClimbRaf = requestAnimationFrame(step);
-    });
+  export function cancelFloorTransfer() {
+    if (transferRaf) cancelAnimationFrame(transferRaf);
+    transferRaf = 0;
+    floorTransferring = false;
+    finishTransfer?.(false);
+    finishTransfer = null;
   }
 
-  export function getStairClimbSamples() { return stairClimbSamples.slice(); }
+  export function playFloorTransfer(opts: {
+    from: { x: number; y: number };
+    direction?: 'up' | 'down';
+    stairs: boolean;
+    speed: number;
+  }): Promise<boolean> {
+    cancelFloorTransfer();
+    pauseRouteSimulation();
+    stopTapWalk();
+    walkthroughMotion.reset();
+    const heading = routeHeadingBefore(simTotalLen);
+    const firstPerson = navAutoWalking;
+    const durationMs = Math.max(450, 900 / opts.speed);
+    const started = performance.now();
+    floorTransferring = true;
+    return new Promise((resolve) => {
+      finishTransfer = resolve;
+      const step = (now: number) => {
+        const t = Math.min(1, (now - started) / durationMs);
+        const pose = transferStepPose(opts.from, heading, t, opts.direction || 'up', opts.stairs);
+        if (firstPerson) {
+          setFloorCameraPose(camera, activeFloorElevation,
+            { x: pose.x, y: eyeHeight + pose.rise, z: pose.y },
+            { x: pose.x + Math.cos(heading) * 80, y: eyeHeight + pose.rise - 3, z: pose.y + Math.sin(heading) * 80 });
+        } else {
+          placeRouteMarker(pose.x, pose.y);
+          if (routeMarker) routeMarker.position.y += pose.rise;
+        }
+        markSceneDirty();
+        if (t < 1) {
+          transferRaf = requestAnimationFrame(step);
+        } else {
+          transferRaf = 0;
+          floorTransferring = false;
+          finishTransfer = null;
+          resolve(true);
+        }
+      };
+      transferRaf = requestAnimationFrame(step);
+    });
+  }
 
   export function isSimulating() {
     return simPlaying;
@@ -2745,6 +2874,7 @@
 
   function addNavDoorLeaf(doorId: string, hinge: Point, width: number, height: number, angle: number, hingeSide: number, face: number, wallThickness: number) {
     const pivot = new THREE.Group();
+    pivot.userData.navPart = 'leaf';
     // Park the slab just outside the swing-side wall face so thickness faces
     // never share volume with full-depth jambs (coplanar z-fight → vertical stripes).
     // Closed: the leaf sits flush, centred in the wall opening (inside the wall thickness).
@@ -2804,6 +2934,7 @@
       mesh.position.set(center.x, (rect.bottom + rect.top) / 2, center.y);
       mesh.rotation.y = -Math.atan2(span.end.y - span.start.y, span.end.x - span.start.x);
       mesh.userData.renderExclude = excludeFromRender;
+      mesh.userData.navPart = 'frame';
       // Nav FPS: shadow acne on thin jamb edges shows as fine vertical stripes.
       mesh.castShadow = !excludeFromRender && !navShell;
       mesh.receiveShadow = !navShell;
@@ -2813,7 +2944,9 @@
     }
   }
 
+  let navOpeningBoxes: OpeningBox[] = [];
   function buildWalls(floor: Floor) {
+    navOpeningBoxes = [];
     hospitalFloorY.value = activeFloorElevation;
     wallHighlight.clear();
     if (doorAnimationRaf) cancelAnimationFrame(doorAnimationRaf);
@@ -2824,11 +2957,46 @@
     wallMeshMap.clear();
     // Include room.doorAt jambs so nav paths through authored doors aren't hidden behind solid walls.
     const floorDoors = navDoors(floor);
+    // Door holes as oriented boxes, computed once and shared by every wall / skirting / joint cap.
+    const doorHoles: Hole[] = [];
+    const holeLeafFirst = [...floorDoors].sort((a, b) => Number(a.type === 'opening' || !!(a as { fromDoorAt?: boolean }).fromDoorAt) - Number(b.type === 'opening' || !!(b as { fromDoorAt?: boolean }).fromDoorAt));
+    for (const d of holeLeafFirst) {
+      const w = floor.walls.find((x) => x.id === d.wallId); if (!w || w.curvePoint) continue;
+      const path = wallPathProfile(w);
+      const h = d.type === 'opening' || (d as { fromDoorAt?: boolean }).fromDoorAt ? Math.max(d.height ?? 210, getWallStartHeight(w) ?? 0, getWallEndHeight(w) ?? 0) : (d.height ?? 210);
+      const o = pathOpening(path, path.distanceAt(d.position as number), d.width as number, 0, h);
+      if (!o || o.right - o.left <= 2) continue;
+      const l = path.sample(o.left).point, r = path.sample(o.right).point, L = Math.hypot(r.x - l.x, r.y - l.y) || 1;
+      doorHoles.push({ door: d, doorId: d.id ?? "", wallId: w.id, c: { x: (l.x + r.x) / 2, y: (l.y + r.y) / 2 }, u: { x: (r.x - l.x) / L, y: (r.y - l.y) / L }, half: L / 2, depth: Math.max(w.thickness, WALL_THICKNESS), top: o.top });
+    }
+    const holeDropped = new Set(doorHoles.filter((_, i) => holeKeeper(doorHoles, i) !== i).map(h => h.door));
+    const wallThick = (w: { thickness: number }) => Math.max(w.thickness, WALL_THICKNESS);
+    // Cuts per wall body: other walls' door holes (full height inside the host body: the host lintel
+    // covers above), collinear duplicate spans, and slivers < 2 cm between holes / wall ends.
+    const cutsFor = (w: Wall, i: number, thickness: number, skirting = false): Cut[] => {
+      const L = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y);
+      if (w.curvePoint || L <= 0) return [];
+      const full = Math.max(getWallStartHeight(w) ?? 0, getWallEndHeight(w) ?? 0) + 1;
+      const foreign = holeCuts(w, doorHoles, thickness, skirting ? 0.8 : 0.5).flatMap(c => (c.inside ? [{ ...c, height: full }] : skirting ? [c] : [])); // walls that only touch the hole keep their reveal; skirting is pulled back
+      const dup = duplicateCuts(w, i, floor.walls, wallThick, full);
+      const own = doorHoles.filter(h => h.wallId === w.id).map(h => {
+        const s = (h.c.x - w.start.x) * (w.end.x - w.start.x) / L + (h.c.y - w.start.y) * (w.end.y - w.start.y) / L;
+        return { position: s / L, width: h.half * 2 + (skirting ? 0.6 : 0), height: h.top };
+      });
+      // skirting: gaps follow the rendered hole (not the raw door record) and stop 0.3 cm short
+      const all = skirting ? [...foreign, ...dup, ...own] : [...foreign, ...dup];
+      return [...all, ...bridgeSlivers(L, [...own, ...all])];
+    };
+    const extraCuts = new Map<string, Cut[]>(), extraBaseCuts = new Map<string, Cut[]>();
+    floor.walls.forEach((w, i) => {
+      const c = cutsFor(w, i, wallThick(w)); if (c.length) extraCuts.set(w.id, c);
+      const b = cutsFor(w, i, wallThick(w) + 2, true); if (b.length) extraBaseCuts.set(w.id, b); // skirting is 2 cm wider
+    });
 
     // Wall fill colours / wall-top trim: Luke owns — do not retint defaults here.
     const defaultInteriorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     const defaultExteriorMat = new THREE.MeshStandardMaterial({ color: 0xd4cfc9, roughness: 0.85 });
-    const baseboardMat = new THREE.MeshStandardMaterial({ color: 0xe8e0d4, roughness: 0.7 });
+    const baseboardMat = new THREE.MeshStandardMaterial({ color: navShell ? 0x7d817f : 0xe8e0d4, roughness: navShell ? 0.82 : 0.7 });
 
     for (const wall of floor.walls) {
       // Resolve per-side materials: interior and exterior can have independent color/texture
@@ -2940,6 +3108,7 @@
               : d,
           );
         const winOpenings = floor.windows.filter((w) => w.wallId === wall.id);
+        doorOpenings.push(...((extraCuts.get(wall.id) ?? []) as unknown as typeof doorOpenings));
         const segments = buildWallSegments(len, startH, endH, doorOpenings, winOpenings);
 
         for (const seg of segments) {
@@ -2947,7 +3116,9 @@
 
           // Create a multi-material wall: interior white, exterior brown
           const materials = [
-            exteriorMat, exteriorMat, // left, right
+            // ±X end faces are the door/window reveals and wall ends: same finish as the wall
+            // face (and the same baked AO), not the darker exterior tone.
+            interiorMat, interiorMat, // left, right
             interiorMat, interiorMat, // top, bottom
             interiorMat, exteriorMat, // front (interior), back (exterior)
           ];
@@ -2969,10 +3140,10 @@
 
         // Baseboard — with gaps at door openings
         if (Math.min(startH, endH) >= BASEBOARD_HEIGHT) {
-        const doorOpeningsForBB = floorDoors.filter((d) => d.wallId === wall.id);
+        const doorOpeningsForBB = [...floorDoors.filter((d) => d.wallId === wall.id), ...((extraBaseCuts.get(wall.id) ?? []) as unknown as typeof floorDoors)];
         if (doorOpeningsForBB.length === 0) {
           const bbGeo = new THREE.BoxGeometry(len, BASEBOARD_HEIGHT, t + 2);
-          const bbMesh = new THREE.Mesh(bbGeo, baseboardMat);
+          const bbMesh = new THREE.Mesh(bbGeo, baseboardMat); bbMesh.userData.navPart = 'baseboard'; bbMesh.userData.bbWall = wall.id;
           bbMesh.position.set(cx, BASEBOARD_HEIGHT / 2, cy);
           bbMesh.rotation.y = -angle;
           bbMesh.castShadow = true;
@@ -2982,13 +3153,15 @@
           const sortedDoors = [...doorOpeningsForBB].sort((a, b) => a.position - b.position);
           let bbCursor = 0;
           for (const door of sortedDoors) {
-            const dLeft = door.position * len - door.width / 2;
-            const dRight = door.position * len + door.width / 2;
+            // Stop the skirting 0.3 cm short of the reveal: flush ends were coplanar with the
+            // wall's reveal face (z-fight stripes at the bottom of every door hole).
+            const dLeft = door.position * len - door.width / 2 - 0.3;
+            const dRight = door.position * len + door.width / 2 + 0.3;
             if (dLeft > bbCursor) {
               const segLen = dLeft - bbCursor;
               const segCenter = bbCursor + segLen / 2 - len / 2;
               const bbGeo = new THREE.BoxGeometry(segLen, BASEBOARD_HEIGHT, t + 2);
-              const bbMesh = new THREE.Mesh(bbGeo, baseboardMat);
+              const bbMesh = new THREE.Mesh(bbGeo, baseboardMat); bbMesh.userData.navPart = 'baseboard'; bbMesh.userData.bbWall = wall.id; bbMesh.userData.navPart = 'baseboard'; bbMesh.userData.navPart = 'baseboard';
               bbMesh.position.set(
                 cx + segCenter * Math.cos(angle),
                 BASEBOARD_HEIGHT / 2,
@@ -3004,7 +3177,7 @@
             const segLen = len - bbCursor;
             const segCenter = bbCursor + segLen / 2 - len / 2;
             const bbGeo = new THREE.BoxGeometry(segLen, BASEBOARD_HEIGHT, t + 2);
-            const bbMesh = new THREE.Mesh(bbGeo, baseboardMat);
+            const bbMesh = new THREE.Mesh(bbGeo, baseboardMat); bbMesh.userData.navPart = 'baseboard'; bbMesh.userData.bbWall = wall.id; bbMesh.userData.navPart = 'baseboard';
             bbMesh.position.set(
               cx + segCenter * Math.cos(angle),
               BASEBOARD_HEIGHT / 2,
@@ -3020,7 +3193,7 @@
 
     // Seal L / coincident-endpoint T joints (same grouping as 2D drawWallJoints).
     const fit = navFitParams();
-    if (fit.jointSealed) addWallJointCaps(floor, wallGroup, defaultExteriorMat);
+    if (fit.jointSealed) addWallJointCaps(floor, wallGroup, defaultExteriorMat, doorHoles);
 
     // Doors (doors[] + room.doorAt)
     for (const sourceDoor of floorDoors) {
@@ -3030,6 +3203,8 @@
       const opening = pathOpening(path, path.distanceAt(sourceDoor.position), sourceDoor.width, 0, sourceDoor.height ?? 210);
       if (!opening || opening.top < 6 || opening.right - opening.left <= 2) continue;
       const left = path.sample(opening.left).point, right = path.sample(opening.right).point;
+      if (holeDropped.has(sourceDoor)) continue; // duplicate record of an already-framed hole
+      { const L = Math.hypot(right.x - left.x, right.y - left.y) || 1; navOpeningBoxes.push({ id: sourceDoor.id, wallId: wall.id, c: { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2 }, u: { x: (right.x - left.x) / L, y: (right.y - left.y) / L }, half: L / 2, depth: Math.max(wall.thickness, WALL_THICKNESS), top: opening.top }); }
       const door = { ...sourceDoor, width: Math.hypot(right.x - left.x, right.y - left.y), position: (opening.left + opening.right) / 2 / length };
       if (door.width <= 2) continue;
       // Nav: elevator/stair shafts have no cabin-door model — keep the wall hole + jamb/header,
@@ -3071,7 +3246,10 @@
       addOpeningFrame(wall, (opening.left + jamb / 2 + jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
       addOpeningFrame(wall, (opening.right - jamb / 2 - jambClear) / length, jamb, 0, doorHeight, frameDepth, frameMat);
       if (!skipHeader) {
-        addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - jambClear * 2), doorHeight, jamb, frameDepth, frameMat);
+        // Header sits INSIDE the hole (just under the soffit, between the jambs). It used to start at
+        // doorHeight, i.e. buried in the wall above with its bottom face coplanar with the wall's
+        // soffit → per-triangle z-fight (the pale diagonal triangle over every door leaf).
+        addOpeningFrame(wall, t, Math.max(jamb, opening.right - opening.left - (jambClear + jamb) * 2), doorHeight - jamb, jamb, frameDepth, frameMat);
       }
 
       if (plainOpen) {
@@ -3084,7 +3262,7 @@
             ? new THREE.MeshStandardMaterial({ color: 0xe8e2d6, roughness: 0.85 })
             : frameMat;
           const sill = new THREE.Mesh(
-            new THREE.BoxGeometry(Math.max(2, door.width - jambClear * 2), sillH, frameDepth + (fromDoorAt ? 8 : 0)),
+            new THREE.BoxGeometry(Math.max(2, door.width - (jambClear + jamb) * 2), sillH, frameDepth + (fromDoorAt ? 8 : 0)), // between the jambs: flush ends were coplanar with them
             sillMat,
           );
           sill.position.set(px, sillH / 2, py);
@@ -3210,6 +3388,13 @@
     // Resolve labels and materials from this floor, including after a 3D floor switch.
     const rooms = roomFaces(floor);
     const holes = roomHoles(rooms.map(r => r.polygon));
+    const polygonsById = new Map(rooms.map(({ room, polygon }) => [room.id, polygon]));
+    const savedWithPolys = navShell ? (floor.rooms ?? []).map((saved) => ({
+      ...saved,
+      floorPolygon: saved.floorPolygon && saved.floorPolygon.length >= 3
+        ? saved.floorPolygon
+        : polygonsById.get(saved.id) ?? getRoomPolygon(saved, floor.walls),
+    })) : [];
     // Same name twice on a floor (two 楼梯): label them by side, e.g. 楼梯（东）.
     const mapNames = navShell ? mapLabels(rooms.map(r => ({ name: r.room.displayName || toiletDisplay(r.room.name || '') || r.room.name, polygon: r.polygon }))) : [];
     for (let ri = 0; ri < rooms.length; ri++) {
@@ -3334,12 +3519,6 @@
         // Nav wayfinding: per-room style (stroke / map POI / hidden). Keep 2× font
         // and tip narrow stroke (3px from #11). No area plate.
         // Face-id merge can miss saved metadata; fall back by id/name/containment.
-        const savedWithPolys = (floor.rooms ?? []).map((saved) => ({
-          ...saved,
-          floorPolygon: saved.floorPolygon && saved.floorPolygon.length >= 3
-            ? saved.floorPolygon
-            : getRoomPolygon(saved, floor.walls),
-        }));
         const labelFields = lookupRoomLabelFields(savedWithPolys, room, centroid);
         const baked = bakeNavRoomLabelSprite({
           name: (mapNames[ri] && mapNames[ri] !== room.name ? mapNames[ri] : '') || labelFields.name || room.name,
@@ -3435,7 +3614,8 @@
     if (navShell) rebuildNavDressing();
     // Sign/label textures are baked with the bundled SC font: if it isn't ready yet, hide them
     // and rebuild once it is (never show a system-font JP 门 first).
-    if (navShell && !navFontLoaded()) {
+    // Skip during silent prefetch — a forced rebuildScene would clobber the live floor.
+    if (navShell && !navFloorBuildSilent && !navFontLoaded()) {
       wallGroup.traverse(o => { if (o.userData.navLabel) o.visible = false; });
       if (navSigns) navSigns.group.visible = false;
       void navFontReady(appBase).then(() => rebuildScene(true));
@@ -3598,6 +3778,37 @@
     if (!walkthroughMode && renderedSignature && wallGroup?.children.length) {
       preservedOrbit = captureOrbitRelativeToFloor(wallGroup, camera, controls.target);
     }
+    if (navShell && !showAllFloors) {
+      if (!force && tryShowCachedNavFloor(currentFloor.id, signature)) {
+        if (routeGroup) routeGroup.position.y = activeFloorElevation;
+        if (navPipeline) sceneGround.position.y = activeFloorElevation - 0.5;
+        wallHighlight.apply(wallMeshMap, selectedWallId3D);
+        if (walkingPosition && walkingRotation) {
+          camera.position.copy(walkingPosition);
+          camera.position.y = activeFloorElevation + eyeHeight;
+          camera.quaternion.copy(walkingRotation);
+        } else if (preservedOrbit) {
+          applyOrbitRelativeToFloor(wallGroup, camera, controls.target, preservedOrbit);
+          controls.update();
+        }
+        markSceneDirty();
+        renderedSignature = signature;
+        return;
+      }
+      // Switching away: park the live floor. Force-rebuild of the same floor disposes it.
+      if (navDisplayedFloorId && navDisplayedFloorId !== currentFloor.id) {
+        parkDisplayedNavFloor();
+      } else if (force && navDisplayedFloorId === currentFloor.id) {
+        const stale = navFloorCache.get(currentFloor.id);
+        if (stale) {
+          disposeNavFloorCacheEntry(stale);
+          navFloorCache.delete(currentFloor.id);
+        }
+        navDisplayedFloorId = '';
+      }
+    } else if (showAllFloors && navFloorCache.size) {
+      clearNavFloorCache();
+    }
     if (showAllFloors) {
       buildAllFloorsStacked();
     } else if (currentFloor) {
@@ -3627,6 +3838,119 @@
     }
     markSceneDirty();
     renderedSignature = signature;
+    if (navShell && !showAllFloors && currentFloor) rememberNavFloor(currentFloor.id, signature);
+  }
+
+  /**
+   * Warm the next floor's full nav scene in the background (walls + dressing).
+   * Builds into an off-screen group so the live floor stays visible while walking.
+   */
+  export function prefetchNavFloor(floorId: string): Promise<boolean> {
+    if (!navShell || !wallGroup || showAllFloors || !floorId) return Promise.resolve(false);
+    const project = get(currentProject);
+    if (!project) return Promise.resolve(false);
+    const floor = project.floors.find((f) => f.id === floorId);
+    if (!floor) return Promise.resolve(false);
+    const floorView = navFloorOf(floor)!;
+    const signature = sceneSignature(project, floorView, false, get(projectSettings).units);
+    if (navDisplayedFloorId === floorId) return Promise.resolve(true);
+    const hit = navFloorCache.get(floorId);
+    if (hit && hit.signature === signature) return Promise.resolve(true);
+    if (navPrefetching && navPrefetchFloorId === floorId) return navPrefetching;
+
+    const run = (): boolean => {
+      const liveMap = [...wallMeshMap.entries()];
+      const liveDoors = navDoorLeaves.slice();
+      const liveOpenings = navOpeningBoxes.slice();
+      const liveDressing = navDressing;
+      const liveSigns = navSigns;
+      const liveKit = navKit;
+      const prevFloor = currentFloor;
+      const prevRaw = rawFloor;
+      const prevElevation = activeFloorElevation;
+      const liveWallGroup = wallGroup;
+      const offscreen = new THREE.Group();
+      offscreen.name = `nav-floor-prefetch:${floorId}`;
+      try {
+        // Redirect builds to an off-screen group; live wallGroup stays on-screen untouched.
+        wallGroup = offscreen;
+        wallMeshMap.clear();
+        navDoorLeaves = [];
+        navOpeningBoxes = [];
+        navDressing = null;
+        navSigns = null;
+        navKit = null;
+        currentFloor = floorView;
+        rawFloor = floor;
+        activeFloorElevation = 0;
+        navFloorBuildSilent = true;
+        buildWalls(floorView);
+        navFloorBuildSilent = false;
+        const root = new THREE.Group();
+        root.name = `nav-floor-cache:${floorId}`;
+        for (const child of [...offscreen.children]) root.add(child);
+        if (navDressing) navDressing.group.visible = false;
+        if (navSigns) navSigns.group.visible = false;
+        if (navKit) navKit.group.visible = false;
+        const stale = navFloorCache.get(floorId);
+        if (stale) disposeNavFloorCacheEntry(stale);
+        navFloorCache.set(floorId, {
+          signature,
+          root,
+          wallMeshEntries: [...wallMeshMap.entries()],
+          navDoorLeaves: navDoorLeaves.slice(),
+          navOpeningBoxes: navOpeningBoxes.slice(),
+          dressing: navDressing,
+          signs: navSigns,
+          kit: navKit,
+        });
+        return true;
+      } catch (err) {
+        console.warn('[nav] prefetchNavFloor failed', floorId, err);
+        disposeModel(offscreen);
+        offscreen.clear();
+        return false;
+      } finally {
+        navFloorBuildSilent = false;
+        wallGroup = liveWallGroup;
+        navDressing = liveDressing;
+        navSigns = liveSigns;
+        navKit = liveKit;
+        wallMeshMap.clear();
+        for (const [obj, wallId] of liveMap) wallMeshMap.set(obj, wallId);
+        navDoorLeaves = liveDoors;
+        navOpeningBoxes = liveOpenings;
+        currentFloor = prevFloor;
+        rawFloor = prevRaw;
+        activeFloorElevation = prevElevation;
+      }
+    };
+
+    navPrefetchFloorId = floorId;
+    navPrefetching = new Promise((resolve) => {
+      const kick = () => {
+        const ok = run();
+        if (navPrefetchFloorId === floorId) {
+          navPrefetching = null;
+          navPrefetchFloorId = '';
+        }
+        resolve(ok);
+      };
+      if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(() => kick(), { timeout: 1200 });
+      } else {
+        setTimeout(kick, 0);
+      }
+    });
+    return navPrefetching;
+  }
+
+  export function navFloorCacheInfoForTest() {
+    return {
+      displayed: navDisplayedFloorId,
+      cached: [...navFloorCache.keys()],
+      prefetching: navPrefetchFloorId || null,
+    };
   }
 
   function applyWallTransparency() {
@@ -3876,7 +4200,8 @@
           }
         }
       }
-      currentFloor = f;
+      rawFloor = f;
+      currentFloor = navFloorOf(f);
       if (f) rebuildScene();
     });
     // Room area labels are textures and must refresh when display units change.
@@ -3900,6 +4225,7 @@
       unsub();
       stopSettings();
       unsubSel();
+      clearNavFloorCache();
       if (animId !== undefined) cancelAnimationFrame(animId);
       if (doorAnimationRaf) cancelAnimationFrame(doorAnimationRaf);
       animId = undefined;

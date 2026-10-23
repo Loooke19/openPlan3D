@@ -39,7 +39,7 @@ export function lightSpots(rooms: { polygon: P2[] }[], step = 300): LightSpot[] 
  * sample the plan, keep enclosed points outside every room whose cross-section is corridor-narrow,
  * snap each to the midpoint between its facing walls and space them `step` apart along the run.
  */
-export function corridorLightSpots(rooms: { polygon: P2[] }[], walls: WallSeg[], step = 300): LightSpot[] {
+export function corridorLightSpots(rooms: { polygon: P2[] }[], walls: WallSeg[], step = 300, align = true): LightSpot[] {
   if (!walls.length) return [];
   const xs = walls.flatMap(w => [w.start.x, w.end.x]), ys = walls.flatMap(w => [w.start.y, w.end.y]);
   const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
@@ -65,8 +65,39 @@ export function corridorLightSpots(rooms: { polygon: P2[] }[], walls: WallSeg[],
       if (!seen.has(key) && !rooms.some(r => inside({ x: cx, y: sy }, r.polygon))) seen.set(key, { x: cx, z: sy, long: false });
     }
   }
-  return [...seen.values()];
+  return align ? alignRuns([...seen.values()], step) : [...seen.values()];
 }
+
+/**
+ * Put every lamp of one straight corridor run on a single centre line: group spots by axis whose
+ * cross position agrees within 45 cm and whose along-run gaps are at most ~1.5 steps, then snap the
+ * cross coordinate to the run's median (wall jogs / door recesses no longer wiggle the line) and
+ * drop near-duplicates left by the 30 cm keying.
+ */
+export function alignRuns(spots: LightSpot[], step = 300): LightSpot[] {
+  const out: LightSpot[] = [];
+  for (const long of [true, false]) {
+    const along = (s: LightSpot) => long ? s.x : s.z, cross = (s: LightSpot) => long ? s.z : s.x;
+    const pool = spots.filter(s => !!s.long === long).sort((a, b) => cross(a) - cross(b));
+    const used = new Set<LightSpot>();
+    for (const seed of pool) {
+      if (used.has(seed)) continue;
+      // grow a run: same line (±45 cm), connected along the axis
+      let run = [seed]; used.add(seed);
+      for (let grew = true; grew;) {
+        grew = false;
+        const mid = median(run.map(cross));
+        for (const s of pool) if (!used.has(s) && Math.abs(cross(s) - mid) <= 45 && run.some(r => Math.abs(along(r) - along(s)) <= step * 1.5)) { run.push(s); used.add(s); grew = true; }
+      }
+      const c = median(run.map(cross));
+      const byA = new Map<number, LightSpot>();
+      for (const s of run) { const k = Math.round(along(s)); if (!byA.has(k)) byA.set(k, s); }
+      for (const [k] of byA) out.push(long ? { x: k, z: c, long } : { x: c, z: k, long });
+    }
+  }
+  return out;
+}
+
 
 /**
  * Drop circulation faces: a face whose bounding box holds other faces' centres is the leftover
