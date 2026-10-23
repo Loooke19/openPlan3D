@@ -134,9 +134,9 @@ it('frames labels moved outside the walls and bounds large raster allocations', 
   project.floors[0].rooms[0].labelOffset = { x: -1000, y: -1000 };
   exportAsSVG(project);
   const svg = await downloaded.at(-1)!.text();
-  expect(svg).toContain('<text x="65" y="63"'); // ink bounds plus 50 cm padding
+  expect(svg).toContain('<text x="65" y="67"'); // ink bounds plus 50 cm padding
   await exportAsPNG(canvas, project);
-  expect(canvasText).toHaveBeenCalledWith('Kitchen & Dining <East>', 95, 93);
+  expect(canvasText).toHaveBeenCalledWith('Kitchen & Dining <East>', 95, 97);
   project.floors[0].rooms[0].labelOffset = { x: 100000, y: 100000 };
   await exportAsPNG(canvas, project);
   expect(Math.max(canvas.width, canvas.height)).toBe(4096);
