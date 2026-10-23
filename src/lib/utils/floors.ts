@@ -24,6 +24,15 @@ export function nextFloorLevel(floors: Floor[]): number {
   return Math.max(-1, ...orderedFloors(floors).map(entry => entry.level)) + 1;
 }
 
+export function floorStoreyHeight(floor: Floor, floors: Floor[]): number {
+  const entries = floorElevations(floors);
+  const index = entries.findIndex(entry => entry.floor.id === floor.id);
+  if (index >= 0 && index + 1 < entries.length) return entries[index + 1].elevation - entries[index].elevation;
+  if (floor.height !== undefined) return floor.height;
+  if (index > 0) return entries[index].elevation - entries[index - 1].elevation;
+  return DEFAULT_FLOOR_SPACING;
+}
+
 export function getFloorBelow(project: Project | null): Floor | null {
   if (!project) return null;
   const entries = orderedFloors(project.floors);
